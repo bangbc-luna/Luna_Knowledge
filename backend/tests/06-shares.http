@@ -1,0 +1,176 @@
+# @import ./_auth.http
+@apiUrl = http://localhost:4000/api/v1
+
+### Folder cha (người ngoài sẽ không thấy)
+# @name dept
+# @ref editor
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "name": "Phòng Marketing" }
+
+?? status == 201
+
+### Folder sẽ được share
+# @name sharedFolder
+# @ref dept
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "name": "Chiến dịch Q4", "parentId": "{{dept.id}}" }
+
+?? status == 201
+
+### Folder con bên trong (kế thừa quyền share)
+# @name subFolder
+# @ref sharedFolder
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "name": "Banner", "parentId": "{{sharedFolder.id}}" }
+
+?? status == 201
+
+### EDITOR không share được → 403
+# @ref editor
+# @ref sharedFolder
+POST {{apiUrl}}/nodes/{{sharedFolder.id}}/shares
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "email": "qa.outsider@lunatech.vn", "role": "VIEWER" }
+
+?? status == 403
+
+### ADMIN share cho người ngoài workspace (VIEWER)
+# @name share
+# @ref wsAdmin
+# @ref outsider
+# @ref sharedFolder
+POST {{apiUrl}}/nodes/{{sharedFolder.id}}/shares
+Authorization: Bearer {{wsAdmin.accessToken}}
+Content-Type: application/json
+
+{ "email": "qa.outsider@lunatech.vn", "role": "VIEWER" }
+
+?? status == 201
+?? body role == VIEWER
+?? body user.email == qa.outsider@lunatech.vn
+
+### Share trùng → 409
+# @ref share
+POST {{apiUrl}}/nodes/{{sharedFolder.id}}/shares
+Authorization: Bearer {{wsAdmin.accessToken}}
+Content-Type: application/json
+
+{ "email": "qa.outsider@lunatech.vn", "role": "EDITOR" }
+
+?? status == 409
+
+### Người được share thấy trong "Được chia sẻ với tôi"
+# @ref share
+GET {{apiUrl}}/shared-with-me
+Authorization: Bearer {{outsider.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.some(s => s.node.id === sharedFolder.id && s.shareRole === 'VIEWER') == true
+
+### Người được share xem folder con (quyền kế thừa)
+# @ref share
+# @ref subFolder
+GET {{apiUrl}}/workspaces/{{contentWs.id}}/nodes?parentId={{sharedFolder.id}}
+Authorization: Bearer {{outsider.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.items[0].name == Banner
+
+### Breadcrumb chỉ từ folder được share trở xuống
+# @ref share
+# @ref subFolder
+GET {{apiUrl}}/nodes/{{subFolder.id}}/breadcrumb
+Authorization: Bearer {{outsider.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.map(x => x.name).join(' / ') == Chiến dịch Q4 / Banner
+
+### Không xem được folder cha → 404
+# @ref share
+GET {{apiUrl}}/nodes/{{dept.id}}
+Authorization: Bearer {{outsider.accessToken}}
+
+?? status == 404
+
+### Không xem được gốc workspace → 404
+# @ref share
+GET {{apiUrl}}/workspaces/{{contentWs.id}}/nodes
+Authorization: Bearer {{outsider.accessToken}}
+
+?? status == 404
+
+### VIEWER (qua share) không tạo được → 403
+# @ref share
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{outsider.accessToken}}
+Content-Type: application/json
+
+{ "name": "Thử", "parentId": "{{sharedFolder.id}}" }
+
+?? status == 403
+
+### Nâng share lên EDITOR
+# @ref share
+PATCH {{apiUrl}}/nodes/{{sharedFolder.id}}/shares/{{share.id}}
+Authorization: Bearer {{wsAdmin.accessToken}}
+Content-Type: application/json
+
+{ "role": "EDITOR" }
+
+?? status == 200
+?? body role == EDITOR
+
+### Giờ người được share tạo được folder bên trong
+# @ref share
+# @ref subFolder
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{outsider.accessToken}}
+Content-Type: application/json
+
+{ "name": "Của khách", "parentId": "{{subFolder.id}}" }
+
+?? status == 201
+
+### Danh sách share ở folder con: có share kế thừa
+# @ref share
+# @ref subFolder
+GET {{apiUrl}}/nodes/{{subFolder.id}}/shares
+Authorization: Bearer {{wsAdmin.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.direct.length == 0
+?? js response.parsedBody.inherited[0].fromNode.name == Chiến dịch Q4
+
+### Người được share không quản lý share được → 403
+# @ref share
+GET {{apiUrl}}/nodes/{{sharedFolder.id}}/shares
+Authorization: Bearer {{outsider.accessToken}}
+
+?? status == 403
+
+### Thu hồi share
+# @ref share
+DELETE {{apiUrl}}/nodes/{{sharedFolder.id}}/shares/{{share.id}}
+Authorization: Bearer {{wsAdmin.accessToken}}
+
+?? status == 204
+
+### Mất quyền ngay sau khi thu hồi → 404
+# @ref share
+# @ref subFolder
+GET {{apiUrl}}/nodes/{{subFolder.id}}
+Authorization: Bearer {{outsider.accessToken}}
+
+?? status == 404

@@ -1,0 +1,392 @@
+# @import ./_auth.http
+# Upload multipart → worker xử lý → xem trước / tải về / phiên bản (SPEC §7.7–7.8).
+# Cần worker đang chạy (`pnpm dev`) cùng Gotenberg, Tika: các bước chờ xử lý có `# @sleep`.
+@apiUrl = http://localhost:4000/api/v1
+@origin = http://localhost:4000
+
+{{
+  const fs = require('fs');
+  const path = require('path');
+  const size = (f) => fs.statSync(path.join(__dirname, 'fixtures', f)).size;
+  exports.docxSize = size('sample.docx');
+  exports.pdfSize = size('sample.pdf');
+  exports.pngSize = size('sample.png');
+  exports.fakeSize = size('fake-exe.pdf');
+}}
+
+### Đuôi file không được phép → 415
+# @ref editor
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/uploads
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "fileName": "setup.exe", "size": 1024 }
+
+?? status == 415
+?? body error.code == UNSUPPORTED_TYPE
+
+### Quá giới hạn 500 MB → 413
+# @ref editor
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/uploads
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "fileName": "big.pdf", "size": 600000000 }
+
+?? status == 413
+
+### Video phải tải với kind VIDEO → 400
+# @ref editor
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/uploads
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "fileName": "demo.mp4", "size": 1024, "kind": "FILE" }
+
+?? status == 400
+
+### VIEWER không được upload → 403
+# @ref viewer
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/uploads
+Authorization: Bearer {{viewer.accessToken}}
+Content-Type: application/json
+
+{ "fileName": "a.pdf", "size": 1024 }
+
+?? status == 403
+
+### Bắt đầu upload DOCX → 201, 1 part
+# @name docxUpload
+# @ref editor
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/uploads
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "fileName": "Quy trình onboarding {{$timestamp}}.docx", "size": {{docxSize}}, "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }
+
+?? status == 201
+?? body partCount == 1
+?? body status == PENDING
+
+### Hoàn tất khi chưa gửi part nào → 400 kèm missingParts
+# @ref docxUpload
+POST {{apiUrl}}/uploads/{{docxUpload.uploadId}}/complete
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{}
+
+?? status == 400
+?? js response.parsedBody.error.details.missingParts[0] == 1
+
+### PUT part 1 thẳng lên MinIO bằng URL ký sẵn (không cần token)
+# @ref docxUpload
+PUT {{docxUpload.parts[0].url}}
+
+< ./fixtures/sample.docx
+
+?? status == 200
+
+### Trạng thái upload: đã nhận đủ byte (dùng để tải tiếp sau khi mất mạng)
+# @ref docxUpload
+GET {{apiUrl}}/uploads/{{docxUpload.uploadId}}
+Authorization: Bearer {{editor.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.uploadedBytes === docxSize == true
+?? js response.parsedBody.uploadedParts.length == 1
+
+### Người khác không thấy upload của mình → 404
+# @ref docxUpload
+# @ref owner
+GET {{apiUrl}}/uploads/{{docxUpload.uploadId}}
+Authorization: Bearer {{owner.accessToken}}
+
+?? status == 404
+
+### Hoàn tất → COMPLETED, worker bắt đầu xử lý
+# @ref docxUpload
+POST {{apiUrl}}/uploads/{{docxUpload.uploadId}}/complete
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{}
+
+?? status == 200
+?? body status == COMPLETED
+
+### Gọi hoàn tất lần nữa vẫn an toàn
+# @ref docxUpload
+POST {{apiUrl}}/uploads/{{docxUpload.uploadId}}/complete
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{}
+
+?? status == 200
+
+### Sau khi worker xử lý: READY, phiên bản 1, có preview PDF (Gotenberg)
+# @sleep 5000
+# @name docxFile
+# @ref docxUpload
+GET {{apiUrl}}/files/{{docxUpload.nodeId}}
+Authorization: Bearer {{editor.accessToken}}
+
+?? status == 200
+?? body node.status == READY
+?? body currentVersion.versionNo == 1
+?? body currentVersion.previewKind == pdf
+?? body canDownload == true
+?? js response.parsedBody.currentVersion.sha256.length == 64
+
+### URL xem trước (ký sẵn 10 phút)
+# @name docxPreview
+# @ref docxFile
+GET {{apiUrl}}/files/{{docxUpload.nodeId}}/preview
+Authorization: Bearer {{viewer.accessToken}}
+
+?? status == 200
+?? body kind == pdf
+
+### Mở URL xem trước → PDF
+# @ref docxPreview
+GET {{docxPreview.url}}
+
+?? status == 200
+?? header content-type == application/pdf
+
+### VIEWER tải file gốc (stream qua API, ghi nhật ký file.download)
+# @ref docxFile
+GET {{apiUrl}}/files/{{docxUpload.nodeId}}/download
+Authorization: Bearer {{viewer.accessToken}}
+
+?? status == 200
+?? header content-disposition includes attachment
+?? header content-type includes wordprocessingml
+
+### Người ngoài workspace → 404
+# @ref docxFile
+# @ref outsider
+GET {{apiUrl}}/files/{{docxUpload.nodeId}}/download
+Authorization: Bearer {{outsider.accessToken}}
+
+?? status == 404
+
+### Link tải dùng một lần
+# @name dlLink
+# @ref docxFile
+POST {{apiUrl}}/files/{{docxUpload.nodeId}}/download-link
+Authorization: Bearer {{viewer.accessToken}}
+
+?? status == 201
+
+### Mở link (không cần token) → file
+# @ref dlLink
+GET {{origin}}{{dlLink.url}}
+
+?? status == 200
+?? header content-disposition includes attachment
+
+### Mở lại link đã dùng → 404
+# @ref dlLink
+GET {{origin}}{{dlLink.url}}
+
+?? status == 404
+
+### Phiên bản 2: tải PDF thay cho file đã có
+# @name v2Upload
+# @ref docxFile
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/uploads
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "fileName": "onboarding-v2.pdf", "size": {{pdfSize}}, "replaceNodeId": "{{docxUpload.nodeId}}" }
+
+?? status == 201
+?? body isNewVersion == true
+?? js response.parsedBody.nodeId === docxUpload.nodeId == true
+
+### Đang có upload chờ cho file này → 409
+# @ref v2Upload
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/uploads
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "fileName": "again.pdf", "size": {{pdfSize}}, "replaceNodeId": "{{docxUpload.nodeId}}" }
+
+?? status == 409
+
+###
+# @ref v2Upload
+PUT {{v2Upload.parts[0].url}}
+
+< ./fixtures/sample.pdf
+
+?? status == 200
+
+###
+# @ref v2Upload
+POST {{apiUrl}}/uploads/{{v2Upload.uploadId}}/complete
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{}
+
+?? status == 200
+
+### Lịch sử phiên bản: v2 là bản hiện tại
+# @sleep 4000
+# @name versions
+# @ref v2Upload
+GET {{apiUrl}}/files/{{docxUpload.nodeId}}/versions
+Authorization: Bearer {{viewer.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.length == 2
+?? js response.parsedBody[0].versionNo == 2
+?? js response.parsedBody[0].isCurrent == true
+?? js response.parsedBody[0].mime === 'application/pdf' == true
+
+### VIEWER không khôi phục phiên bản → 403
+# @ref versions
+POST {{apiUrl}}/files/{{docxUpload.nodeId}}/versions/{{versions[1].id}}/restore
+Authorization: Bearer {{viewer.accessToken}}
+
+?? status == 403
+
+### EDITOR khôi phục v1
+# @ref versions
+POST {{apiUrl}}/files/{{docxUpload.nodeId}}/versions/{{versions[1].id}}/restore
+Authorization: Bearer {{editor.accessToken}}
+
+?? status == 200
+?? body currentVersion.versionNo == 1
+
+### Tải phiên bản cụ thể (?version=)
+# @ref versions
+GET {{apiUrl}}/files/{{docxUpload.nodeId}}/download?version={{versions[0].id}}
+Authorization: Bearer {{editor.accessToken}}
+
+?? status == 200
+?? header content-type == application/pdf
+
+### File .exe đổi đuôi thành .pdf: API nhận (đuôi hợp lệ), worker kiểm tra nội dung và từ chối
+# @name fakeUpload
+# @ref editor
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/uploads
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "fileName": "invoice-{{$timestamp}}.pdf", "size": {{fakeSize}} }
+
+?? status == 201
+
+###
+# @ref fakeUpload
+PUT {{fakeUpload.parts[0].url}}
+
+< ./fixtures/fake-exe.pdf
+
+?? status == 200
+
+###
+# @ref fakeUpload
+POST {{apiUrl}}/uploads/{{fakeUpload.uploadId}}/complete
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{}
+
+?? status == 200
+
+### → FAILED kèm lý do
+# @sleep 3000
+# @ref fakeUpload
+GET {{apiUrl}}/files/{{fakeUpload.nodeId}}
+Authorization: Bearer {{editor.accessToken}}
+
+?? status == 200
+?? body node.status == FAILED
+?? body processingError includes not an allowed type
+?? js response.parsedBody.currentVersion === null == true
+
+### Ảnh PNG: preview webp + thumbnail
+# @name pngUpload
+# @ref editor
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/uploads
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "fileName": "logo-{{$timestamp}}.png", "size": {{pngSize}} }
+
+?? status == 201
+
+###
+# @ref pngUpload
+PUT {{pngUpload.parts[0].url}}
+
+< ./fixtures/sample.png
+
+?? status == 200
+
+###
+# @ref pngUpload
+POST {{apiUrl}}/uploads/{{pngUpload.uploadId}}/complete
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{}
+
+?? status == 200
+
+### Thumbnail → 302 tới URL ký sẵn
+# @sleep 3000
+# @ref pngUpload
+# @noRedirect
+GET {{apiUrl}}/files/{{pngUpload.nodeId}}/thumbnail
+Authorization: Bearer {{viewer.accessToken}}
+
+?? status == 302
+?? header location includes X-Amz-Signature
+
+### Hủy upload file mới: mục đang chờ bị xóa
+# @name abortUpload
+# @ref editor
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/uploads
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "fileName": "nháp-{{$timestamp}}.txt", "size": 10 }
+
+?? status == 201
+
+###
+# @ref abortUpload
+DELETE {{apiUrl}}/uploads/{{abortUpload.uploadId}}
+Authorization: Bearer {{editor.accessToken}}
+
+?? status == 204
+
+###
+# @ref abortUpload
+GET {{apiUrl}}/nodes/{{abortUpload.nodeId}}
+Authorization: Bearer {{editor.accessToken}}
+
+?? status == 404
+
+### Dung lượng workspace
+# @ref pngUpload
+GET {{apiUrl}}/workspaces/{{contentWs.id}}/storage
+Authorization: Bearer {{viewer.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.originalBytes > 0
+?? js response.parsedBody.derivedBytes > 0

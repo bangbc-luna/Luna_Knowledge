@@ -1,0 +1,30 @@
+{
+  "name": "@luna/shared",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1150.0",
+    "@aws-sdk/lib-storage": "^3.1150.0",
+    "dotenv": "^17.2.3",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@luna/tsconfig": "workspace:*",
+    "@types/node": "^24.0.0",
+    "typescript": "~6.0.3",
+    "vitest": "^4.1.2"
+  }
+}

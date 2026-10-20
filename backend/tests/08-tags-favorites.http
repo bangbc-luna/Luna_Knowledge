@@ -1,0 +1,160 @@
+# @import ./_auth.http
+@apiUrl = http://localhost:4000/api/v1
+
+### Folder để gắn tag
+# @name tagged
+# @ref editor
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "name": "Báo cáo tháng" }
+
+?? status == 201
+
+### EDITOR tạo tag
+# @name tag
+# @ref editor
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/tags
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "name": "Quan trọng", "color": "#E5534B" }
+
+?? status == 201
+?? body color == #e5534b
+
+### Tag trùng tên → 409
+# @ref tag
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/tags
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "name": "Quan trọng", "color": "#000000" }
+
+?? status == 409
+
+### Màu sai định dạng → 400
+# @ref editor
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/tags
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "name": "Đỏ", "color": "red" }
+
+?? status == 400
+
+### VIEWER không tạo tag → 403
+# @ref viewer
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/tags
+Authorization: Bearer {{viewer.accessToken}}
+Content-Type: application/json
+
+{ "name": "x", "color": "#000000" }
+
+?? status == 403
+
+### Danh sách tag (VIEWER)
+# @ref viewer
+# @ref tag
+GET {{apiUrl}}/workspaces/{{contentWs.id}}/tags
+Authorization: Bearer {{viewer.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.some(t => t.name === 'Quan trọng') == true
+
+### Gắn tag cho folder
+# @ref tag
+# @ref tagged
+PUT {{apiUrl}}/nodes/{{tagged.id}}/tags
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "tagIds": ["{{tag.id}}"] }
+
+?? status == 200
+?? js response.parsedBody.tags[0].name == Quan trọng
+
+### EDITOR không sửa tag → 403
+# @ref tag
+PATCH {{apiUrl}}/tags/{{tag.id}}
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "name": "Gấp" }
+
+?? status == 403
+
+### ADMIN sửa tag
+# @ref wsAdmin
+# @ref tag
+PATCH {{apiUrl}}/tags/{{tag.id}}
+Authorization: Bearer {{wsAdmin.accessToken}}
+Content-Type: application/json
+
+{ "name": "Gấp" }
+
+?? status == 200
+?? body name == Gấp
+
+### Đánh dấu yêu thích
+# @ref viewer
+# @ref tagged
+PUT {{apiUrl}}/nodes/{{tagged.id}}/favorite
+Authorization: Bearer {{viewer.accessToken}}
+
+?? status == 204
+
+### Danh sách yêu thích
+# @ref viewer
+# @ref tagged
+GET {{apiUrl}}/me/favorites
+Authorization: Bearer {{viewer.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.some(n => n.id === tagged.id && n.isFavorite) == true
+
+### Bỏ yêu thích
+# @ref viewer
+# @ref tagged
+DELETE {{apiUrl}}/nodes/{{tagged.id}}/favorite
+Authorization: Bearer {{viewer.accessToken}}
+
+?? status == 204
+
+### Không còn trong danh sách yêu thích
+# @ref viewer
+# @ref tagged
+GET {{apiUrl}}/me/favorites
+Authorization: Bearer {{viewer.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.some(n => n.id === tagged.id) == false
+
+### Mở gần đây (tài liệu/file/video; folder không được ghi)
+# @ref viewer
+GET {{apiUrl}}/me/recent
+Authorization: Bearer {{viewer.accessToken}}
+
+?? status == 200
+
+### ADMIN xóa tag → gỡ khỏi folder
+# @ref wsAdmin
+# @ref tag
+DELETE {{apiUrl}}/tags/{{tag.id}}
+Authorization: Bearer {{wsAdmin.accessToken}}
+
+?? status == 204
+
+### Folder không còn tag
+# @ref editor
+# @ref tagged
+GET {{apiUrl}}/nodes/{{tagged.id}}
+Authorization: Bearer {{editor.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.tags.length == 0

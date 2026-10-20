@@ -1,0 +1,191 @@
+# @import ./_auth.http
+@apiUrl = http://localhost:4000/api/v1
+
+### User thường không tạo được workspace → 403
+# @ref owner
+POST {{apiUrl}}/workspaces
+Authorization: Bearer {{owner.accessToken}}
+Content-Type: application/json
+
+{ "name": "Không được", "slug": "khong-duoc-{{$timestamp}}", "ownerEmail": "qa.owner@lunatech.vn" }
+
+?? status == 403
+
+### Admin tạo workspace
+# @name createWs
+# @ref admin
+POST {{apiUrl}}/workspaces
+Authorization: Bearer {{admin.accessToken}}
+Content-Type: application/json
+
+{
+  "name": "QA Marketing",
+  "slug": "qa-marketing-{{$timestamp}}",
+  "description": "Workspace để test",
+  "icon": "📣",
+  "ownerEmail": "qa.owner@lunatech.vn"
+}
+
+?? status == 201
+?? body name == QA Marketing
+?? body memberCount == 1
+
+### Slug trùng → 409
+# @ref admin
+# @ref createWs
+POST {{apiUrl}}/workspaces
+Authorization: Bearer {{admin.accessToken}}
+Content-Type: application/json
+
+{ "name": "Trùng", "slug": "{{createWs.slug}}", "ownerEmail": "qa.owner@lunatech.vn" }
+
+?? status == 409
+?? body error.code == CONFLICT
+
+### Dữ liệu sai → 400 kèm lỗi từng trường
+# @ref admin
+POST {{apiUrl}}/workspaces
+Authorization: Bearer {{admin.accessToken}}
+Content-Type: application/json
+
+{ "name": "", "slug": "Bad Slug", "ownerEmail": "not-an-email" }
+
+?? status == 400
+?? js response.parsedBody.error.details.length == 3
+
+### OWNER ngoài công ty → 400
+# @ref admin
+POST {{apiUrl}}/workspaces
+Authorization: Bearer {{admin.accessToken}}
+Content-Type: application/json
+
+{ "name": "Ngoài", "slug": "ngoai-{{$timestamp}}", "ownerEmail": "someone@gmail.com" }
+
+?? status == 400
+
+### OWNER chưa từng đăng nhập → tạo sẵn user
+# @ref admin
+POST {{apiUrl}}/workspaces
+Authorization: Bearer {{admin.accessToken}}
+Content-Type: application/json
+
+{ "name": "QA Sales", "slug": "qa-sales-{{$timestamp}}", "ownerEmail": "qa.future.owner@lunatech.vn" }
+
+?? status == 201
+
+### Workspace của tôi
+# @ref owner
+# @ref createWs
+GET {{apiUrl}}/workspaces
+Authorization: Bearer {{owner.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.some(w => w.id === createWs.id && w.myRole === 'OWNER') == true
+
+### Admin xem tất cả (scope=all)
+# @ref admin
+GET {{apiUrl}}/workspaces?scope=all
+Authorization: Bearer {{admin.accessToken}}
+
+?? status == 200
+
+### User thường dùng scope=all → 403
+# @ref owner
+GET {{apiUrl}}/workspaces?scope=all
+Authorization: Bearer {{owner.accessToken}}
+
+?? status == 403
+
+### Chi tiết workspace
+# @ref owner
+# @ref createWs
+GET {{apiUrl}}/workspaces/{{createWs.id}}
+Authorization: Bearer {{owner.accessToken}}
+
+?? status == 200
+?? body myRole == OWNER
+
+### Người ngoài xem → 404
+# @ref outsider
+# @ref createWs
+GET {{apiUrl}}/workspaces/{{createWs.id}}
+Authorization: Bearer {{outsider.accessToken}}
+
+?? status == 404
+
+### Id không phải UUID → 400
+# @ref owner
+GET {{apiUrl}}/workspaces/abc
+Authorization: Bearer {{owner.accessToken}}
+
+?? status == 400
+
+### OWNER sửa workspace
+# @ref owner
+# @ref createWs
+PATCH {{apiUrl}}/workspaces/{{createWs.id}}
+Authorization: Bearer {{owner.accessToken}}
+Content-Type: application/json
+
+{ "name": "QA Marketing (đã sửa)", "description": "Mô tả mới", "icon": null }
+
+?? status == 200
+?? body name == QA Marketing (đã sửa)
+?? body icon isFalse
+
+### Sửa với body rỗng → 400
+# @ref owner
+# @ref createWs
+PATCH {{apiUrl}}/workspaces/{{createWs.id}}
+Authorization: Bearer {{owner.accessToken}}
+Content-Type: application/json
+
+{}
+
+?? status == 400
+
+### Người ngoài sửa → 404
+# @ref outsider
+# @ref createWs
+PATCH {{apiUrl}}/workspaces/{{createWs.id}}
+Authorization: Bearer {{outsider.accessToken}}
+Content-Type: application/json
+
+{ "name": "Hack" }
+
+?? status == 404
+
+### Người ngoài xóa → 404
+# @ref outsider
+# @ref createWs
+DELETE {{apiUrl}}/workspaces/{{createWs.id}}
+Authorization: Bearer {{outsider.accessToken}}
+
+?? status == 404
+
+### OWNER xóa workspace → 204
+# @ref owner
+# @ref createWs
+DELETE {{apiUrl}}/workspaces/{{createWs.id}}
+Authorization: Bearer {{owner.accessToken}}
+
+?? status == 204
+
+### Sau khi xóa → 404
+# @ref owner
+# @ref createWs
+GET {{apiUrl}}/workspaces/{{createWs.id}}
+Authorization: Bearer {{owner.accessToken}}
+
+?? status == 404
+
+### Tạo lại với slug vừa xóa → 201
+# @ref admin
+# @ref createWs
+POST {{apiUrl}}/workspaces
+Authorization: Bearer {{admin.accessToken}}
+Content-Type: application/json
+
+{ "name": "QA Marketing", "slug": "{{createWs.slug}}", "ownerEmail": "qa.owner@lunatech.vn" }
+
+?? status == 201

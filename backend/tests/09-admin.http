@@ -1,0 +1,76 @@
+# @import ./_auth.http
+@apiUrl = http://localhost:4000/api/v1
+
+### User thường không xem được số liệu → 403
+# @ref editor
+GET {{apiUrl}}/admin/stats
+Authorization: Bearer {{editor.accessToken}}
+
+?? status == 403
+
+### Số liệu tổng quan
+# @ref admin
+GET {{apiUrl}}/admin/stats
+Authorization: Bearer {{admin.accessToken}}
+
+?? status == 200
+?? body users.total >= 1
+?? js response.parsedBody.activity.last7Days.length == 7
+
+### Tạo một thư mục rồi mở nó để có lượt xem trong nhật ký
+# @name viewed
+# @ref editor
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "name": "Nhật ký {{$timestamp}}" }
+
+?? status == 201
+
+### Mở thư mục (ghi node.view)
+# @ref viewed
+GET {{apiUrl}}/nodes/{{viewed.id}}
+Authorization: Bearer {{editor.accessToken}}
+
+?? status == 200
+
+### Nhật ký lọc theo đối tượng: có lượt xem kèm tên người và tên mục
+# @ref admin
+# @ref viewed
+GET {{apiUrl}}/admin/audit-logs?targetId={{viewed.id}}&actions=node.view
+Authorization: Bearer {{admin.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.items[0].actor.email == qa.editor@lunatech.vn
+?? js response.parsedBody.items[0].target.label === viewed.name == true
+
+### Nhật ký lọc theo người + phân trang
+# @name logPage
+# @ref admin
+# @ref editor
+GET {{apiUrl}}/admin/audit-logs?actorId={{editor.user.id}}&limit=2
+Authorization: Bearer {{admin.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.items.length <= 2
+
+### Xuất CSV theo bộ lọc
+# @ref admin
+# @ref viewed
+GET {{apiUrl}}/admin/audit-logs/export?targetId={{viewed.id}}
+Authorization: Bearer {{admin.accessToken}}
+
+?? status == 200
+?? header content-type includes text/csv
+?? header content-disposition includes nhat-ky-
+
+### Danh sách workspace (admin) có chủ sở hữu
+# @ref admin
+# @ref ws
+GET {{apiUrl}}/workspaces?scope=all
+Authorization: Bearer {{admin.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.find(w => w.id === contentWs.id).owner.email == qa.owner@lunatech.vn

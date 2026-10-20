@@ -1,0 +1,20 @@
+{
+  "name": "@luna/scripts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "infra:init": "tsx infra-init.ts",
+    "admin:grant": "tsx admin-grant.ts",
+    "upload": "tsx upload.ts"
+  },
+  "dependencies": {
+    "@luna/db": "workspace:*",
+    "@luna/shared": "workspace:*",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.6"
+  }
+}

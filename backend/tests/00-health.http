@@ -1,0 +1,42 @@
+@baseUrl = http://localhost:4000
+@apiUrl = {{baseUrl}}/api/v1
+
+### Health: database, redis, storage đều up
+GET {{baseUrl}}/health
+
+?? status == 200
+?? body details.database.status == up
+?? body details.redis.status == up
+?? body details.storage.status == up
+
+### Liveness
+GET {{baseUrl}}/health/live
+
+?? status == 200
+?? body status == ok
+
+### Swagger JSON
+GET {{baseUrl}}/api/docs-json
+
+?? status == 200
+?? body info.title == Luna Knowledge API
+
+### Route không tồn tại → 404 format lỗi chuẩn
+GET {{apiUrl}}/does-not-exist
+
+?? status == 404
+?? body error.code == NOT_FOUND
+?? body error.requestId exists
+
+### Giữ x-request-id của client
+GET {{baseUrl}}/health/live
+X-Request-Id: trace-from-http-file
+
+?? status == 200
+?? header x-request-id == trace-from-http-file
+
+### Không có token → 401
+GET {{apiUrl}}/me
+
+?? status == 401
+?? body error.code == UNAUTHENTICATED

@@ -1,0 +1,395 @@
+// Luna Knowledge — schema dữ liệu. Xem docs/SPEC.md §6.
+// Các bảng của phase sau (nodes, files, videos, documents…) được thêm dần theo PLAN.md.
+
+generator client {
+  provider            = "prisma-client"
+  previewFeatures     = ["partialIndexes"]
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+enum NodeType {
+  FOLDER
+  DOCUMENT
+  FILE
+  VIDEO
+}
+
+enum NodeStatus {
+  UPLOADING
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum BlobKind {
+  ORIGINAL
+  PREVIEW
+  THUMBNAIL
+}
+
+enum StorageProvider {
+  S3
+  GDRIVE
+}
+
+enum UploadStatus {
+  PENDING
+  COMPLETED
+  ABORTED
+}
+
+/// Quyền cấp qua share: chỉ cộng thêm, không vượt EDITOR (SPEC §3.3).
+enum ShareRole {
+  EDITOR
+  VIEWER
+}
+
+model User {
+  id            String     @id @default(uuid(7)) @db.Uuid
+  email         String     @unique
+  name          String
+  avatarUrl     String?    @map("avatar_url")
+  isSystemAdmin Boolean    @default(false) @map("is_system_admin")
+  status        UserStatus @default(ACTIVE)
+  lastLoginAt   DateTime?  @map("last_login_at") @db.Timestamptz(3)
+  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  sessions          Session[]
+  memberships       WorkspaceMember[] @relation("member")
+  addedMemberships  WorkspaceMember[] @relation("addedBy")
+  createdWorkspaces Workspace[]
+  createdNodes      Node[]            @relation("nodeCreatedBy")
+  updatedNodes      Node[]            @relation("nodeUpdatedBy")
+  deletedNodes      Node[]            @relation("nodeDeletedBy")
+  shares            NodeShare[]       @relation("shareUser")
+  grantedShares     NodeShare[]       @relation("shareGrantedBy")
+  favorites         Favorite[]
+  recentViews       RecentView[]
+  fileVersions      FileVersion[]
+  uploadSessions    UploadSession[]
+
+  @@map("users")
+}
+
+/// Một lần đăng nhập Google. Hết hạn khi idle quá lâu hoặc vượt absolute timeout (SPEC AUTH-3).
+model Session {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  userId            String    @map("user_id") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  lastSeenAt        DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(3)
+  absoluteExpiresAt DateTime  @map("absolute_expires_at") @db.Timestamptz(3)
+  revokedAt         DateTime? @map("revoked_at") @db.Timestamptz(3)
+  revokedReason     String?   @map("revoked_reason")
+  ip                String?
+  userAgent         String?   @map("user_agent")
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokens RefreshToken[]
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+/// Refresh token xoay vòng; dùng lại token đã xoay => thu hồi cả session (phát hiện token bị đánh cắp).
+model RefreshToken {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  sessionId String    @map("session_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  rotatedAt DateTime? @map("rotated_at") @db.Timestamptz(3)
+
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@map("refresh_tokens")
+}
+
+model Workspace {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  name        String
+  slug        String    @unique
+  description String?
+  icon        String?
+  createdById String    @map("created_by") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
+
+  createdBy User              @relation(fields: [createdById], references: [id])
+  members   WorkspaceMember[]
+  nodes     Node[]
+  tags      Tag[]
+
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  workspaceId String        @map("workspace_id") @db.Uuid
+  userId      String        @map("user_id") @db.Uuid
+  role        WorkspaceRole
+  addedById   String?       @map("added_by") @db.Uuid
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation("member", fields: [userId], references: [id], onDelete: Cascade)
+  addedBy   User?     @relation("addedBy", fields: [addedById], references: [id], onDelete: SetNull)
+
+  @@id([workspaceId, userId])
+  @@index([userId])
+  @@map("workspace_members")
+}
+
+/// Append-only. Không khai báo relation để log vẫn còn khi user/workspace bị xóa.
+model AuditLog {
+  id          BigInt   @id @default(autoincrement())
+  actorId     String?  @map("actor_id") @db.Uuid
+  action      String
+  targetType  String?  @map("target_type")
+  targetId    String?  @map("target_id")
+  workspaceId String?  @map("workspace_id") @db.Uuid
+  metadata    Json?
+  ip          String?
+  userAgent   String?  @map("user_agent")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([workspaceId, createdAt(sort: Desc)])
+  @@index([actorId, createdAt(sort: Desc)])
+  @@index([action, createdAt(sort: Desc)])
+  @@map("audit_logs")
+}
+
+/// Một phần tử trong cây nội dung của workspace (SPEC §6).
+/// `path` (ltree) do trigger trong DB tự tính khi tạo/di chuyển; app không ghi trực tiếp.
+model Node {
+  id             String                @id @default(uuid(7)) @db.Uuid
+  workspaceId    String                @map("workspace_id") @db.Uuid
+  parentId       String?               @map("parent_id") @db.Uuid
+  type           NodeType
+  name           String
+  /// Tên đã chuẩn hóa (NFC, trim, chữ thường) để chặn trùng tên không phân biệt hoa thường.
+  nameNormalized String                @map("name_normalized")
+  path           Unsupported("ltree")?
+  status         NodeStatus            @default(READY)
+  createdById    String                @map("created_by") @db.Uuid
+  updatedById    String?               @map("updated_by") @db.Uuid
+  createdAt      DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+  /// Thùng rác: mọi node trong nhánh bị xóa cùng lúc có chung `deletedRootId` (= id node được xóa).
+  deletedAt      DateTime?             @map("deleted_at") @db.Timestamptz(3)
+  deletedById    String?               @map("deleted_by") @db.Uuid
+  deletedRootId  String?               @map("deleted_root_id") @db.Uuid
+
+  workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  parent    Node?           @relation("tree", fields: [parentId], references: [id], onDelete: Cascade)
+  children  Node[]          @relation("tree")
+  createdBy User            @relation("nodeCreatedBy", fields: [createdById], references: [id])
+  updatedBy User?           @relation("nodeUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  deletedBy User?           @relation("nodeDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+  shares    NodeShare[]
+  tags      NodeTag[]
+  favorites Favorite[]
+  recents   RecentView[]
+  blobs     Blob[]
+  file      FileInfo?
+  versions  FileVersion[]
+  uploads   UploadSession[]
+
+  @@unique([parentId, nameNormalized], map: "nodes_unique_name_in_folder", where: raw("deleted_at IS NULL AND parent_id IS NOT NULL"))
+  @@unique([workspaceId, nameNormalized], map: "nodes_unique_name_at_root", where: raw("deleted_at IS NULL AND parent_id IS NULL"))
+  @@index([path], type: Gist)
+  @@index([parentId])
+  @@index([workspaceId, deletedRootId])
+  @@map("nodes")
+}
+
+model NodeShare {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  nodeId      String    @map("node_id") @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  role        ShareRole
+  grantedById String?   @map("granted_by") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  node      Node  @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  user      User  @relation("shareUser", fields: [userId], references: [id], onDelete: Cascade)
+  grantedBy User? @relation("shareGrantedBy", fields: [grantedById], references: [id], onDelete: SetNull)
+
+  @@unique([nodeId, userId])
+  @@index([userId])
+  @@map("node_shares")
+}
+
+model Tag {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  name        String
+  color       String
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  nodes     NodeTag[]
+
+  @@unique([workspaceId, name])
+  @@map("tags")
+}
+
+model NodeTag {
+  nodeId String @map("node_id") @db.Uuid
+  tagId  String @map("tag_id") @db.Uuid
+
+  node Node @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([nodeId, tagId])
+  @@index([tagId])
+  @@map("node_tags")
+}
+
+model Favorite {
+  userId    String   @map("user_id") @db.Uuid
+  nodeId    String   @map("node_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  node Node @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+
+  @@id([userId, nodeId])
+  @@map("favorites")
+}
+
+model RecentView {
+  userId   String   @map("user_id") @db.Uuid
+  nodeId   String   @map("node_id") @db.Uuid
+  viewedAt DateTime @default(now()) @map("viewed_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  node Node @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+
+  @@id([userId, nodeId])
+  @@index([userId, viewedAt(sort: Desc)])
+  @@map("recent_views")
+}
+
+/// Một đối tượng lưu trữ thật (S3/MinIO hoặc Google Drive). Xoá node (cả cây) là xoá luôn bản ghi blob;
+/// file vật lý được dọn bởi job sau khi xoá DB (SPEC §5.2).
+model Blob {
+  id        String          @id @default(uuid(7)) @db.Uuid
+  nodeId    String          @map("node_id") @db.Uuid
+  kind      BlobKind
+  provider  StorageProvider
+  /// Bucket (S3) hoặc id Shared Drive (GDRIVE).
+  container String
+  /// Object key (S3) hoặc file id (GDRIVE).
+  key       String
+  sizeBytes BigInt          @map("size_bytes")
+  mime      String
+  sha256    String?
+  createdAt DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  node        Node          @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  originalOf  FileVersion[] @relation("versionOriginal")
+  previewOf   FileVersion[] @relation("versionPreview")
+  thumbnailOf FileVersion[] @relation("versionThumbnail")
+
+  @@index([nodeId])
+  @@map("blobs")
+}
+
+/// Thông tin file của node FILE/VIDEO: phiên bản hiện tại, nội dung chữ trích được (cho tìm kiếm, Phase 6).
+model FileInfo {
+  nodeId           String    @id @map("node_id") @db.Uuid
+  currentVersionId String?   @unique @map("current_version_id") @db.Uuid
+  extractedText    String?   @map("extracted_text")
+  extractedAt      DateTime? @map("extracted_at") @db.Timestamptz(3)
+  /// Lỗi xử lý gần nhất (hiện cho người dùng khi status = FAILED).
+  processingError  String?   @map("processing_error")
+
+  node           Node         @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  currentVersion FileVersion? @relation("currentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+
+  @@map("files")
+}
+
+model FileVersion {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  nodeId          String   @map("node_id") @db.Uuid
+  versionNo       Int      @map("version_no")
+  fileName        String   @map("file_name")
+  originalBlobId  String   @map("original_blob_id") @db.Uuid
+  previewBlobId   String?  @map("preview_blob_id") @db.Uuid
+  thumbnailBlobId String?  @map("thumbnail_blob_id") @db.Uuid
+  /// pdf | image | text | none (video: Phase 4)
+  previewKind     String   @default("none") @map("preview_kind")
+  uploadedById    String   @map("uploaded_by") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  node       Node      @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  original   Blob      @relation("versionOriginal", fields: [originalBlobId], references: [id], onDelete: Cascade)
+  preview    Blob?     @relation("versionPreview", fields: [previewBlobId], references: [id], onDelete: SetNull)
+  thumbnail  Blob?     @relation("versionThumbnail", fields: [thumbnailBlobId], references: [id], onDelete: SetNull)
+  uploadedBy User      @relation(fields: [uploadedById], references: [id])
+  currentOf  FileInfo? @relation("currentVersion")
+
+  @@unique([nodeId, versionNo])
+  @@map("file_versions")
+}
+
+/// Phiên upload multipart: client gửi thẳng từng phần lên bucket tmp bằng presigned URL.
+model UploadSession {
+  id           String       @id @default(uuid(7)) @db.Uuid
+  nodeId       String       @map("node_id") @db.Uuid
+  workspaceId  String       @map("workspace_id") @db.Uuid
+  s3UploadId   String       @map("s3_upload_id")
+  tmpKey       String       @map("tmp_key")
+  fileName     String       @map("file_name")
+  sizeBytes    BigInt       @map("size_bytes")
+  partSize     Int          @map("part_size")
+  partCount    Int          @map("part_count")
+  mimeDeclared String       @map("mime_declared")
+  /// true: tải phiên bản mới cho node đã có; false: node mới tạo cùng phiên này.
+  isNewVersion Boolean      @default(false) @map("is_new_version")
+  status       UploadStatus @default(PENDING)
+  createdById  String       @map("created_by") @db.Uuid
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt    DateTime     @map("expires_at") @db.Timestamptz(3)
+
+  node      Node @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  createdBy User @relation(fields: [createdById], references: [id])
+
+  @@index([status, expiresAt])
+  @@map("upload_sessions")
+}
+
+/// Hàng đợi dọn object lưu trữ. Trigger `blobs_enqueue_gc` ghi vào đây mỗi khi một dòng `blobs` bị xoá
+/// (kể cả xoá dây chuyền từ node), worker xoá object thật rồi xoá dòng.
+model BlobGc {
+  id        BigInt          @id @default(autoincrement())
+  provider  StorageProvider
+  container String
+  key       String
+  attempts  Int             @default(0)
+  lastError String?         @map("last_error")
+  createdAt DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@map("blob_gc")
+}

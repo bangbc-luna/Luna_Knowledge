@@ -1,0 +1,193 @@
+# @import ./_auth.http
+@apiUrl = http://localhost:4000/api/v1
+
+### EDITOR tạo folder ở gốc
+# @name projects
+# @ref editor
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "name": "Dự án" }
+
+?? status == 201
+?? body type == FOLDER
+?? body myRole == EDITOR
+
+### Tạo folder con
+# @name design
+# @ref projects
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "name": "Thiết kế", "parentId": "{{projects.id}}" }
+
+?? status == 201
+?? body parentId == {{projects.id}}
+
+### Folder cháu
+# @name mockups
+# @ref design
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "name": "Mockup", "parentId": "{{design.id}}" }
+
+?? status == 201
+
+### Trùng tên (không phân biệt hoa thường) → 409 kèm gợi ý
+# @ref projects
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "name": "DỰ ÁN" }
+
+?? status == 409
+?? body error.details.suggestion == DỰ ÁN (1)
+
+### Tên chứa "/" → 400
+# @ref editor
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "name": "a/b" }
+
+?? status == 400
+
+### VIEWER không tạo được folder → 403
+# @ref viewer
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{viewer.accessToken}}
+Content-Type: application/json
+
+{ "name": "Không được" }
+
+?? status == 403
+
+### Người ngoài → 404
+# @ref outsider
+# @ref ws
+GET {{apiUrl}}/workspaces/{{contentWs.id}}/nodes
+Authorization: Bearer {{outsider.accessToken}}
+
+?? status == 404
+
+### System Admin không phải thành viên không xem được nội dung → 404
+# @ref admin
+# @ref ws
+GET {{apiUrl}}/workspaces/{{contentWs.id}}/nodes
+Authorization: Bearer {{admin.accessToken}}
+
+?? status == 404
+
+### Liệt kê gốc workspace (VIEWER)
+# @ref viewer
+# @ref projects
+GET {{apiUrl}}/workspaces/{{contentWs.id}}/nodes
+Authorization: Bearer {{viewer.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.items.some(n => n.name === 'Dự án' && n.childCount === 1) == true
+
+### Liệt kê folder con, sắp theo ngày tạo mới nhất, 1 mục/trang
+# @ref viewer
+# @ref mockups
+GET {{apiUrl}}/workspaces/{{contentWs.id}}/nodes?parentId={{projects.id}}&sort=createdAt&order=desc&limit=1
+Authorization: Bearer {{viewer.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.items.length == 1
+
+### Chi tiết folder
+# @ref viewer
+# @ref design
+GET {{apiUrl}}/nodes/{{design.id}}
+Authorization: Bearer {{viewer.accessToken}}
+
+?? status == 200
+?? body name == Thiết kế
+?? body myRole == VIEWER
+
+### Breadcrumb
+# @ref viewer
+# @ref mockups
+GET {{apiUrl}}/nodes/{{mockups.id}}/breadcrumb
+Authorization: Bearer {{viewer.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.map(x => x.name).join(' / ') == Dự án / Thiết kế / Mockup
+
+### Đổi tên
+# @ref editor
+# @ref mockups
+PATCH {{apiUrl}}/nodes/{{mockups.id}}
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "name": "Mockup v2" }
+
+?? status == 200
+?? body name == Mockup v2
+
+### VIEWER đổi tên → 403
+# @ref viewer
+# @ref mockups
+PATCH {{apiUrl}}/nodes/{{mockups.id}}
+Authorization: Bearer {{viewer.accessToken}}
+Content-Type: application/json
+
+{ "name": "x" }
+
+?? status == 403
+
+### Di chuyển "Mockup v2" ra gốc
+# @ref editor
+# @ref mockups
+POST {{apiUrl}}/nodes/{{mockups.id}}/move
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "targetParentId": null }
+
+?? status == 200
+?? body parentId isFalse
+
+### Di chuyển "Dự án" vào chính folder con của nó → 400
+# @ref editor
+# @ref design
+POST {{apiUrl}}/nodes/{{projects.id}}/move
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "targetParentId": "{{design.id}}" }
+
+?? status == 400
+
+### Đưa "Thiết kế" vào "Mockup v2" (cả nhánh di chuyển theo)
+# @ref editor
+# @ref design
+# @ref mockups
+POST {{apiUrl}}/nodes/{{design.id}}/move
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "targetParentId": "{{mockups.id}}" }
+
+?? status == 200
+?? body parentId == {{mockups.id}}
+
+### Breadcrumb sau khi di chuyển
+# @ref editor
+# @ref design
+GET {{apiUrl}}/nodes/{{design.id}}/breadcrumb
+Authorization: Bearer {{editor.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.map(x => x.name).join(' / ') == Mockup v2 / Thiết kế

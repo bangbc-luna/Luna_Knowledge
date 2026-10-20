@@ -1,0 +1,140 @@
+@import "tailwindcss";
+
+/* ===== KHỐI ĐỔI THƯƠNG HIỆU (từ tokens.css của skill evon:ui-ux, nền sáng) =====
+   Màu nhấn: đổi --primary (và --primary-hover, --primary-light đi kèm) ở ĐÂY, không nơi nào khác.
+   Font: đổi trong src/app/layout.tsx (biến --font-inter). */
+:root {
+  color-scheme: light;
+  --app-font: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  --primary: #4f46e5;
+  --primary-hover: color-mix(in oklab, var(--primary) 85%, var(--background));
+  --primary-foreground: #ffffff;
+  --primary-light: color-mix(in srgb, var(--primary) 6%, transparent);
+
+  --background: #f4f4f6;
+  --surface: #ffffff;
+  --foreground: #2c2c2c;
+  --muted: #707070;
+  --border: #f7f7f8;
+  --border-strong: #eaeaea;
+  --surface-overlay: #ffffff;
+  --elevation-popover: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --elevation-modal: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  --item-hover: #f4f4f6;
+  --chart-fill: var(--primary);
+  --secondary: #e7e8ec;
+  --secondary-hover: #dbdce2;
+  --surface-hover: #f8f8fa;
+  --button-hover-surface: #f1f1f3;
+  --button-hover-page: #e4e4e7;
+  --button-hover: var(--button-hover-page);
+  --ring-focus: color-mix(in srgb, var(--primary) 10%, transparent);
+  --border-focus: var(--primary);
+
+  /* Màu mang nghĩa (M7, M30). */
+  --danger: #c70036;
+  --danger-bg: rgb(255 32 86 / 0.1);
+  --danger-bg-hover: rgb(255 32 86 / 0.15);
+  --error: #fb2c36;
+  --error-text: #e7000b;
+  --error-bg: #fef2f2;
+  --error-border: #ffc9c9;
+  --error-strong: #c10007;
+  --success-bg: #ecfdf5;
+  --success: #007a55;
+  --warning-bg: #fffbeb;
+  --warning: #bb4d00;
+  --neutral-bg: #f4f4f5;
+  --neutral: #52525c;
+}
+/* ===== HẾT KHỐI ĐỔI THƯƠNG HIỆU ===== */
+
+@theme inline {
+  --font-sans: var(--app-font);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-light: var(--primary-light);
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-overlay: var(--surface-overlay);
+  --color-item-hover: var(--item-hover);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-chart-fill: var(--chart-fill);
+  --color-secondary: var(--secondary);
+  --color-secondary-hover: var(--secondary-hover);
+  --color-button-hover: var(--button-hover);
+  --color-ok: var(--success);
+  --color-ok-bg: var(--success-bg);
+  --color-warn: var(--warning);
+  --color-warn-bg: var(--warning-bg);
+  --color-err: var(--error-strong);
+  --color-err-text: var(--error-text);
+  --color-err-bg: var(--error-bg);
+  --color-err-border: var(--error-border);
+  --color-err-line: var(--error);
+  --color-danger: var(--danger);
+  --color-danger-bg: var(--danger-bg);
+  --color-danger-bg-hover: var(--danger-bg-hover);
+  --color-neutral: var(--neutral);
+  --color-neutral-bg: var(--neutral-bg);
+  --border-color-focus: var(--border-focus);
+  --ring-color-focus: var(--ring-focus);
+  --shadow-popover: var(--elevation-popover);
+  --shadow-modal: var(--elevation-modal);
+}
+
+/* Nền rê của nút viền theo nền phía sau (tokens.css). */
+.bg-surface *,
+.bg-surface-overlay * {
+  --button-hover: var(--button-hover-surface);
+}
+
+/* Thanh cuộn tự ẩn (I18). */
+* { --scrollbar-thumb: transparent; }
+*:hover { --scrollbar-thumb: color-mix(in srgb, var(--foreground) 16%, transparent); }
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--foreground) 40%, transparent); }
+@supports not selector(::-webkit-scrollbar) {
+  * { scrollbar-width: thin; scrollbar-color: transparent transparent; }
+  *:hover { scrollbar-color: color-mix(in srgb, var(--foreground) 18%, transparent) transparent; }
+}
+.scrollbar-clean { scrollbar-width: none; }
+.scrollbar-clean::-webkit-scrollbar { display: none; }
+
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Lớp nổi và panel trượt: một đường cong cho mọi khối trượt (app.md, overlay.md). */
+@keyframes pop-in { from { opacity: 0; translate: 0 -4px; } }
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes slide-in-right { from { translate: 100% 0; } }
+@keyframes slide-in-left { from { translate: -100% 0; } }
+@keyframes scale-in { from { opacity: 0; scale: 0.97; } }
+.animate-pop { animation: pop-in 150ms ease-out; }
+.animate-fade { animation: fade-in 300ms cubic-bezier(0.32, 0.72, 0, 1); }
+.animate-sheet-right { animation: slide-in-right 500ms cubic-bezier(0.32, 0.72, 0, 1); }
+.animate-sheet-left { animation: slide-in-left 500ms cubic-bezier(0.32, 0.72, 0, 1); }
+.animate-dialog { animation: scale-in 200ms cubic-bezier(0.32, 0.72, 0, 1); }
+@media (prefers-reduced-motion: reduce) {
+  .animate-pop, .animate-fade, .animate-sheet-right, .animate-sheet-left, .animate-dialog { animation: none; }
+}
+
+/* I13: không vẽ vòng focus. Nút, link, dòng bấm được đều `outline-hidden`; link thường và
+   phần tử có tabindex trước đây còn outline mặc định của trình duyệt nên lệch với phần còn lại. */
+a:focus-visible,
+button:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}

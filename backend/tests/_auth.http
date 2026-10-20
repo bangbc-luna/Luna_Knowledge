@@ -1,0 +1,126 @@
+# Token cho từng vai trò (chỉ chạy được khi API ở NODE_ENV=development).
+# Các file khác dùng: # @import ./_auth.http  +  # @ref <tên>
+
+@apiUrl = http://localhost:4000/api/v1
+
+### admin (System Admin, có sau `pnpm db:seed`)
+# @name admin
+POST {{apiUrl}}/dev/token
+Content-Type: application/json
+
+{ "email": "admin@lunatech.vn" }
+
+?? status == 200
+?? body user.isSystemAdmin == true
+
+### owner
+# @name owner
+POST {{apiUrl}}/dev/token
+Content-Type: application/json
+
+{ "email": "qa.owner@lunatech.vn", "name": "QA Owner" }
+
+?? status == 200
+
+### editor
+# @name editor
+POST {{apiUrl}}/dev/token
+Content-Type: application/json
+
+{ "email": "qa.editor@lunatech.vn", "name": "QA Editor" }
+
+?? status == 200
+
+### viewer
+# @name viewer
+POST {{apiUrl}}/dev/token
+Content-Type: application/json
+
+{ "email": "qa.viewer@lunatech.vn", "name": "QA Viewer" }
+
+?? status == 200
+
+### outsider (không thuộc workspace nào)
+# @name outsider
+POST {{apiUrl}}/dev/token
+Content-Type: application/json
+
+{ "email": "qa.outsider@lunatech.vn", "name": "QA Outsider" }
+
+?? status == 200
+
+### alice
+# @name alice
+POST {{apiUrl}}/dev/token
+Content-Type: application/json
+
+{ "email": "qa.alice@lunatech.vn", "name": "Alice Nguyễn" }
+
+?? status == 200
+
+### bob
+# @name bob
+POST {{apiUrl}}/dev/token
+Content-Type: application/json
+
+{ "email": "qa.bob@lunatech.vn", "name": "Bob Trần" }
+
+?? status == 200
+
+### wsAdmin (sẽ là ADMIN trong workspace test)
+# @name wsAdmin
+POST {{apiUrl}}/dev/token
+Content-Type: application/json
+
+{ "email": "qa.wsadmin@lunatech.vn", "name": "QA WS Admin" }
+
+?? status == 200
+
+### workspace dùng chung cho các file 05–08: owner=OWNER, wsAdmin=ADMIN, editor=EDITOR, viewer=VIEWER
+# @name contentWs
+# @ref admin
+# @ref owner
+# @ref wsAdmin
+# @ref editor
+# @ref viewer
+POST {{apiUrl}}/workspaces
+Authorization: Bearer {{admin.accessToken}}
+Content-Type: application/json
+
+{ "name": "QA Content", "slug": "qa-content-{{$timestamp}}", "ownerEmail": "qa.owner@lunatech.vn" }
+
+?? status == 201
+
+###
+# @name contentWsAdmin
+# @ref owner
+# @ref contentWs
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/members
+Authorization: Bearer {{owner.accessToken}}
+Content-Type: application/json
+
+{ "email": "qa.wsadmin@lunatech.vn", "role": "ADMIN" }
+
+?? status == 201
+
+###
+# @name contentWsEditor
+# @ref contentWsAdmin
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/members
+Authorization: Bearer {{owner.accessToken}}
+Content-Type: application/json
+
+{ "email": "qa.editor@lunatech.vn", "role": "EDITOR" }
+
+?? status == 201
+
+### Workspace test đã sẵn sàng (dùng # @ref ws trong các file khác)
+# @name ws
+# @ref contentWsEditor
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/members
+Authorization: Bearer {{owner.accessToken}}
+Content-Type: application/json
+
+{ "email": "qa.viewer@lunatech.vn", "role": "VIEWER" }
+
+?? status == 201

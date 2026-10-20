@@ -1,0 +1,9 @@
+{
+  "extends": "@luna/tsconfig/base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": ".",
+    "types": ["node"]
+  },
+  "include": ["src", "prisma", "prisma.config.ts"]
+}

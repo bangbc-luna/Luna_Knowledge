@@ -1,0 +1,160 @@
+# @import ./_auth.http
+@apiUrl = http://localhost:4000/api/v1
+
+### Folder sẽ xóa
+# @name trashRoot
+# @ref editor
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "name": "Tài liệu cũ" }
+
+?? status == 201
+
+### Folder con
+# @name trashChild
+# @ref trashRoot
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "name": "2024", "parentId": "{{trashRoot.id}}" }
+
+?? status == 201
+
+### Folder của OWNER
+# @name ownersFolder
+# @ref owner
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{owner.accessToken}}
+Content-Type: application/json
+
+{ "name": "Của owner {{$timestamp}}" }
+
+?? status == 201
+
+### EDITOR không xóa mục người khác tạo → 403
+# @ref editor
+# @ref ownersFolder
+DELETE {{apiUrl}}/nodes/{{ownersFolder.id}}
+Authorization: Bearer {{editor.accessToken}}
+
+?? status == 403
+
+### EDITOR xóa folder của mình (cả nhánh) → 204
+# @ref trashChild
+DELETE {{apiUrl}}/nodes/{{trashRoot.id}}
+Authorization: Bearer {{editor.accessToken}}
+
+?? status == 204
+
+### Mục con không còn truy cập → 404
+# @ref trashChild
+GET {{apiUrl}}/nodes/{{trashChild.id}}
+Authorization: Bearer {{editor.accessToken}}
+
+?? status == 404
+
+### Thùng rác: mỗi lần xóa một dòng, kèm số mục
+# @ref trashChild
+GET {{apiUrl}}/workspaces/{{contentWs.id}}/trash
+Authorization: Bearer {{editor.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.find(t => t.id === trashRoot.id).itemCount == 2
+
+### VIEWER không xem thùng rác → 403
+# @ref viewer
+# @ref ws
+GET {{apiUrl}}/workspaces/{{contentWs.id}}/trash
+Authorization: Bearer {{viewer.accessToken}}
+
+?? status == 403
+
+### Chỉ khôi phục được mục gốc của lần xóa → 400
+# @ref trashChild
+POST {{apiUrl}}/nodes/{{trashChild.id}}/restore
+Authorization: Bearer {{editor.accessToken}}
+
+?? status == 400
+
+### Tạo folder trùng tên ở chỗ cũ
+# @ref editor
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "name": "Tài liệu cũ" }
+
+?? status == 201
+
+### Khôi phục: trùng tên nên tự đổi thành "Tài liệu cũ (1)"
+# @ref trashChild
+POST {{apiUrl}}/nodes/{{trashRoot.id}}/restore
+Authorization: Bearer {{editor.accessToken}}
+
+?? status == 200
+?? body renamed == true
+?? body node.name == Tài liệu cũ (1)
+?? body node.childCount == 1
+
+### Xóa lại để thử xóa vĩnh viễn
+# @ref trashChild
+DELETE {{apiUrl}}/nodes/{{trashRoot.id}}
+Authorization: Bearer {{editor.accessToken}}
+
+?? status == 204
+
+### ADMIN không xóa vĩnh viễn được → 403
+# @ref wsAdmin
+# @ref trashChild
+DELETE {{apiUrl}}/nodes/{{trashRoot.id}}/permanent
+Authorization: Bearer {{wsAdmin.accessToken}}
+
+?? status == 403
+
+### OWNER xóa vĩnh viễn → 204
+# @ref owner
+# @ref trashChild
+DELETE {{apiUrl}}/nodes/{{trashRoot.id}}/permanent
+Authorization: Bearer {{owner.accessToken}}
+
+?? status == 204
+
+### ADMIN xóa folder của OWNER → 204
+# @ref wsAdmin
+# @ref ownersFolder
+DELETE {{apiUrl}}/nodes/{{ownersFolder.id}}
+Authorization: Bearer {{wsAdmin.accessToken}}
+
+?? status == 204
+
+### EDITOR không dọn sạch thùng rác được → 403
+# @ref editor
+# @ref ws
+DELETE {{apiUrl}}/workspaces/{{contentWs.id}}/trash
+Authorization: Bearer {{editor.accessToken}}
+
+?? status == 403
+
+### OWNER dọn sạch thùng rác
+# @ref owner
+# @ref ws
+DELETE {{apiUrl}}/workspaces/{{contentWs.id}}/trash
+Authorization: Bearer {{owner.accessToken}}
+
+?? status == 200
+?? body deleted >= 1
+
+### Thùng rác trống
+# @ref owner
+# @ref ws
+GET {{apiUrl}}/workspaces/{{contentWs.id}}/trash
+Authorization: Bearer {{owner.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.length == 0

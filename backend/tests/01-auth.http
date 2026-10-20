@@ -1,0 +1,88 @@
+@apiUrl = http://localhost:4000/api/v1
+
+### Lấy token (dev) → đặt cookie luna_rt
+# @name authUser
+POST {{apiUrl}}/dev/token
+Content-Type: application/json
+
+{ "email": "qa.auth@lunatech.vn", "name": "QA Auth" }
+
+?? status == 200
+?? body tokenType == Bearer
+?? body user.email == qa.auth@lunatech.vn
+?? header set-cookie includes luna_rt=
+
+### /me với token vừa lấy
+# @ref authUser
+GET {{apiUrl}}/me
+Authorization: Bearer {{authUser.accessToken}}
+
+?? status == 200
+?? body email == qa.auth@lunatech.vn
+
+### Refresh bằng cookie → token mới
+# @name refreshed
+POST {{apiUrl}}/auth/refresh
+
+?? status == 200
+?? body accessToken exists
+
+### Token mới dùng được
+# @ref refreshed
+GET {{apiUrl}}/me
+Authorization: Bearer {{refreshed.accessToken}}
+
+?? status == 200
+
+### Token sai chữ ký → 401
+# @ref authUser
+GET {{apiUrl}}/me
+Authorization: Bearer {{authUser.accessToken}}xyz
+
+?? status == 401
+?? body error.code == UNAUTHENTICATED
+
+### Refresh với cookie giả → 401
+POST {{apiUrl}}/auth/refresh
+Cookie: luna_rt=not-a-real-token
+
+?? status == 401
+
+### Đăng xuất → 204
+# @ref refreshed
+POST {{apiUrl}}/auth/logout
+Authorization: Bearer {{refreshed.accessToken}}
+
+?? status == 204
+
+### Sau đăng xuất token cũ hết hiệu lực → 401 SESSION_EXPIRED
+# @ref refreshed
+GET {{apiUrl}}/me
+Authorization: Bearer {{refreshed.accessToken}}
+
+?? status == 401
+?? body error.code == SESSION_EXPIRED
+?? body error.details.reason == logout
+
+### Sau đăng xuất không refresh được: cookie đã xoá → 204 (chưa đăng nhập, không có token)
+POST {{apiUrl}}/auth/refresh
+
+?? status == 204
+
+### Dev token từ chối email ngoài công ty → 400
+POST {{apiUrl}}/dev/token
+Content-Type: application/json
+
+{ "email": "someone@gmail.com" }
+
+?? status == 400
+?? body error.code == VALIDATION_ERROR
+
+### Đăng nhập Google → 302 sang accounts.google.com
+# @no-redirect
+GET {{apiUrl}}/auth/google
+
+?? status == 302
+?? header location startsWith https://accounts.google.com/
+?? header location includes prompt=select_account
+?? header location includes code_challenge_method=S256

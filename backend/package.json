@@ -1,0 +1,35 @@
+{
+  "name": "luna-knowledge",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "pnpm infra:up && turbo run dev",
+    "lint": "oxlint apps packages --ignore-pattern '**/dist/**' --ignore-pattern '**/generated/**'",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:e2e": "turbo run test:e2e",
+    "test:http": "httpyac send 'tests/[0-9]*.http' --all -o none --output-failed exchange",
+    "format": "prettier --write \"**/*.{ts,json,md,yml}\"",
+    "infra:up": "docker compose -f docker/docker-compose.dev.yml --env-file .env up -d --wait",
+    "infra:down": "docker compose -f docker/docker-compose.dev.yml --env-file .env down",
+    "infra:init": "pnpm --filter @luna/scripts infra:init",
+    "db:migrate": "pnpm --filter @luna/db migrate:dev",
+    "db:seed": "pnpm --filter @luna/db seed",
+    "db:studio": "pnpm --filter @luna/db studio",
+    "admin:grant": "pnpm --filter @luna/scripts admin:grant",
+    "upload": "pnpm --filter @luna/scripts upload",
+    "format:check": "prettier --check \"apps/*/{src,test}/**/*.ts\" \"packages/*/src/**/*.ts\" \"packages/db/prisma/*.ts\" \"scripts/*.ts\""
+  },
+  "devDependencies": {
+    "httpyac": "^6.16.7",
+    "oxlint": "^1.58.0",
+    "prettier": "^3.6.2",
+    "turbo": "^2.11.7",
+    "typescript": "~6.0.3"
+  }
+}

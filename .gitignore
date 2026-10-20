@@ -1,0 +1,14 @@
+node_modules
+dist
+coverage
+.turbo
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+**/src/generated/
+.DS_Store
+
+# Thông tin tài khoản / key Google, không đưa lên git
+GCP_account.txt
+**/gdrive-key*.json

@@ -1,0 +1,94 @@
+import type { INestApplication } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import request from 'supertest';
+import type TestAgent from 'supertest/lib/agent.js';
+import { AppModule } from '../src/app.module.js';
+import { GOOGLE_IDENTITY, type GoogleClaims } from '../src/auth/google/google-identity.js';
+import { APP_CONFIG, type AppConfig } from '../src/config/app-config.js';
+import { PrismaService } from '../src/infra/prisma/prisma.service.js';
+import { setupApp } from '../src/setup-app.js';
+import { companyClaims, FakeGoogleIdentity } from './fake-google-identity.js';
+
+export interface TestContext {
+  app: INestApplication;
+  google: FakeGoogleIdentity;
+  prisma: PrismaService['client'];
+  close(): Promise<void>;
+}
+
+/** Khởi tạo app giống hệt main.ts (prefix, filter, cookie, swagger) trên hạ tầng Testcontainers. */
+export async function createTestApp(): Promise<TestContext> {
+  const google = new FakeGoogleIdentity();
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+    .overrideProvider(GOOGLE_IDENTITY)
+    .useValue(google)
+    .compile();
+  const app = moduleRef.createNestApplication({ logger: ['error'] });
+  setupApp(app, app.get<AppConfig>(APP_CONFIG));
+  await app.init();
+  return { app, google, prisma: app.get(PrismaService).client, close: () => app.close() };
+}
+
+/** Xóa sạch dữ liệu giữa các file test. */
+export async function resetDatabase(prisma: TestContext['prisma']) {
+  await prisma.$executeRawUnsafe(
+    'TRUNCATE blob_gc, audit_logs, recent_views, favorites, node_tags, tags, node_shares, nodes, refresh_tokens, sessions, workspace_members, workspaces, users CASCADE',
+  );
+}
+
+export interface LoggedIn {
+  agent: TestAgent;
+  accessToken: string;
+  userId: string;
+  auth: { Authorization: string };
+}
+
+/** Chạy trọn luồng đăng nhập Google (giả) → callback → refresh, trả agent đang giữ cookie. */
+export async function loginAs(
+  ctx: TestContext,
+  email: string,
+  overrides: Partial<GoogleClaims> = {},
+): Promise<LoggedIn> {
+  const agent = request.agent(ctx.app.getHttpServer());
+  const start = await agent.get('/api/v1/auth/google').expect(302);
+  const state = new URL(start.headers.location!).searchParams.get('state')!;
+
+  ctx.google.nextClaims = companyClaims(email, overrides);
+  const callback = await agent
+    .get('/api/v1/auth/google/callback')
+    .query({ code: 'fake-code', state })
+    .expect(302);
+  const error = new URL(callback.headers.location!).searchParams.get('error');
+  if (error) throw new Error(`login failed: ${error}`);
+
+  const refreshed = await agent.post('/api/v1/auth/refresh').expect(200);
+  return {
+    agent,
+    accessToken: refreshed.body.accessToken,
+    userId: refreshed.body.user.id,
+    auth: { Authorization: `Bearer ${refreshed.body.accessToken}` },
+  };
+}
+
+/** Tạo sẵn System Admin rồi đăng nhập. */
+export async function loginAsAdmin(ctx: TestContext, email = 'admin@lunatech.vn') {
+  await ctx.prisma.user.upsert({
+    where: { email },
+    create: { email, name: 'Admin', isSystemAdmin: true },
+    update: { isSystemAdmin: true },
+  });
+  return loginAs(ctx, email);
+}
+
+/** Header `set-cookie` luôn ở dạng mảng (kiểu của supertest khai báo là string). */
+export function setCookies(res: request.Response): string[] {
+  const raw = res.headers['set-cookie'] as unknown;
+  return Array.isArray(raw) ? raw : raw ? [String(raw)] : [];
+}
+
+/** Giá trị `name=value` của cookie trong response, dùng gửi lại qua header Cookie. */
+export function cookiePair(res: request.Response, name: string): string | undefined {
+  return setCookies(res)
+    .find((c) => c.startsWith(`${name}=`))
+    ?.split(';')[0];
+}

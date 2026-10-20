@@ -1,0 +1,162 @@
+# @import ./_auth.http
+@apiUrl = http://localhost:4000/api/v1
+
+### /me
+# @ref alice
+GET {{apiUrl}}/me
+Authorization: Bearer {{alice.accessToken}}
+
+?? status == 200
+?? body email == qa.alice@lunatech.vn
+
+### Tìm user theo tên
+# @ref alice
+# @ref bob
+GET {{apiUrl}}/users?q=bob
+Authorization: Bearer {{alice.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.some(u => u.email === 'qa.bob@lunatech.vn') == true
+
+### Tìm user thiếu từ khóa → 400
+# @ref alice
+GET {{apiUrl}}/users?q=
+Authorization: Bearer {{alice.accessToken}}
+
+?? status == 400
+
+### User thường gọi API admin → 403
+# @ref alice
+GET {{apiUrl}}/admin/users
+Authorization: Bearer {{alice.accessToken}}
+
+?? status == 403
+?? body error.code == FORBIDDEN
+
+### Admin: danh sách user, phân trang
+# @name page1
+# @ref admin
+GET {{apiUrl}}/admin/users?limit=2
+Authorization: Bearer {{admin.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.items.length == 2
+?? body nextCursor exists
+
+### Admin: trang tiếp theo
+# @ref admin
+# @ref page1
+GET {{apiUrl}}/admin/users?limit=2&cursor={{page1.nextCursor}}
+Authorization: Bearer {{admin.accessToken}}
+
+?? status == 200
+
+### Admin: khóa Bob
+# @ref admin
+# @ref bob
+PATCH {{apiUrl}}/admin/users/{{bob.user.id}}
+Authorization: Bearer {{admin.accessToken}}
+Content-Type: application/json
+
+{ "status": "DISABLED" }
+
+?? status == 200
+?? body status == DISABLED
+
+### Token của Bob bị thu hồi → 401
+# @ref bob
+GET {{apiUrl}}/me
+Authorization: Bearer {{bob.accessToken}}
+
+?? status == 401
+?? body error.code == SESSION_EXPIRED
+
+### Bob bị khóa không lấy được token → 403
+POST {{apiUrl}}/dev/token
+Content-Type: application/json
+
+{ "email": "qa.bob@lunatech.vn" }
+
+?? status == 403
+
+### Bob bị khóa không xuất hiện khi tìm người
+# @ref alice
+GET {{apiUrl}}/users?q=bob
+Authorization: Bearer {{alice.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.length == 0
+
+### Admin: mở khóa Bob
+# @ref admin
+# @ref bob
+PATCH {{apiUrl}}/admin/users/{{bob.user.id}}
+Authorization: Bearer {{admin.accessToken}}
+Content-Type: application/json
+
+{ "status": "ACTIVE" }
+
+?? status == 200
+?? body status == ACTIVE
+
+### Admin không tự gỡ quyền của mình → 403
+# @ref admin
+PATCH {{apiUrl}}/admin/users/{{admin.user.id}}
+Authorization: Bearer {{admin.accessToken}}
+Content-Type: application/json
+
+{ "isSystemAdmin": false }
+
+?? status == 403
+
+### Body rỗng → 400
+# @ref admin
+# @ref alice
+PATCH {{apiUrl}}/admin/users/{{alice.user.id}}
+Authorization: Bearer {{admin.accessToken}}
+Content-Type: application/json
+
+{}
+
+?? status == 400
+
+### Id không phải UUID → 400
+# @ref admin
+PATCH {{apiUrl}}/admin/users/not-a-uuid
+Authorization: Bearer {{admin.accessToken}}
+Content-Type: application/json
+
+{ "status": "ACTIVE" }
+
+?? status == 400
+
+### Cấp System Admin cho Alice
+# @ref admin
+# @ref alice
+PATCH {{apiUrl}}/admin/users/{{alice.user.id}}
+Authorization: Bearer {{admin.accessToken}}
+Content-Type: application/json
+
+{ "isSystemAdmin": true }
+
+?? status == 200
+?? body isSystemAdmin == true
+
+### Alice gọi được API admin ngay
+# @ref alice
+GET {{apiUrl}}/admin/users?limit=1
+Authorization: Bearer {{alice.accessToken}}
+
+?? status == 200
+
+### Gỡ System Admin của Alice
+# @ref admin
+# @ref alice
+PATCH {{apiUrl}}/admin/users/{{alice.user.id}}
+Authorization: Bearer {{admin.accessToken}}
+Content-Type: application/json
+
+{ "isSystemAdmin": false }
+
+?? status == 200
+?? body isSystemAdmin == false

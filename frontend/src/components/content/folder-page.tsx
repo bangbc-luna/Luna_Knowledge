@@ -1,0 +1,411 @@
+"use client";
+
+import { FolderInput, FolderPlus, Pencil, Share2, Star, Tag as TagIcon, Trash2, Upload } from "lucide-react";
+import Link from "next/link";
+import { useParams } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { api, describeError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
+import { cn } from "@/lib/cn";
+import { ACCEPT_ATTR } from "@/lib/files";
+import { formatWhen, roleAtLeast } from "@/lib/format";
+import type { Member, NodeItem, Page } from "@/lib/types";
+import { useApi } from "@/lib/use-api";
+import { useUploads } from "@/lib/uploads";
+import { rememberWorkspace } from "@/lib/workspace";
+import { PageBody, TopBar } from "../shell/shell";
+import { Button } from "../ui/button";
+import { ConfirmDialog } from "../ui/dialog";
+import { SearchInput } from "../ui/input";
+import { RowMenu } from "../ui/menu";
+import { Breadcrumb, Card, EmptyState, ErrorBanner, SkeletonRows } from "../ui/misc";
+import { Select } from "../ui/select";
+import { useToast } from "../ui/toast";
+import { MoveDialog, NameDialog, TagsDialog } from "./node-dialogs";
+import { NodeName, TagCell, TagChip } from "./node-name";
+import { ShareSheet } from "./share-sheet";
+
+type Sort = "name" | "updatedAt" | "createdAt";
+const SORTS = [
+  { value: "name" as const, label: "Tên" },
+  { value: "updatedAt" as const, label: "Sửa lần cuối" },
+  { value: "createdAt" as const, label: "Ngày tạo" },
+];
+
+function FavoriteButton({ node, onChange }: { node: NodeItem; onChange: (fav: boolean) => void }) {
+  const toast = useToast();
+  return (
+    <button
+      type="button"
+      aria-label={node.isFavorite ? "Bỏ yêu thích" : "Yêu thích"}
+      aria-pressed={node.isFavorite}
+      onClick={async () => {
+        const next = !node.isFavorite;
+        onChange(next);
+        try {
+          await api(`/nodes/${node.id}/favorite`, { method: next ? "PUT" : "DELETE" });
+        } catch (err) {
+          onChange(!next);
+          toast("error", describeError(err));
+        }
+      }}
+      className={cn(
+        "inline-flex size-8 min-h-8 shrink-0 cursor-pointer items-center justify-center rounded-lg outline-hidden transition-colors hover:bg-foreground/8",
+        node.isFavorite ? "text-foreground" : "text-muted/60 hover:text-foreground",
+      )}
+    >
+      <Star className={cn("size-4", node.isFavorite && "fill-current")} aria-hidden />
+    </button>
+  );
+}
+
+/** Màn Thư mục (phương án A + E): đường dẫn + tên ở thanh trên, hàng công cụ, bảng các mục. */
+export function FolderPage() {
+  const { wsId, folder } = useParams<{ wsId: string; folder?: string[] }>();
+  const folderId = folder?.[0] ?? null;
+  const { me } = useAuth();
+  const toast = useToast();
+  const membership = me?.workspaces.find((w) => w.id === wsId) ?? null;
+  const [filter, setFilter] = useState("");
+  const [sort, setSort] = useState<Sort>("name");
+  const [dialog, setDialog] = useState<
+    | { kind: "create" }
+    | { kind: "rename" | "move" | "tags" | "delete" | "share"; node: NodeItem }
+    | null
+  >(null);
+
+  useEffect(() => {
+    if (membership) rememberWorkspace(wsId);
+  }, [membership, wsId]);
+
+  const current = useApi(
+    () => (folderId ? Promise.all([api<NodeItem>(`/nodes/${folderId}`), api<Array<{ id: string; name: string }>>(`/nodes/${folderId}/breadcrumb`)]) : Promise.resolve(null)),
+    [folderId],
+  );
+  const list = useApi(
+    () => api<Page<NodeItem>>(`/workspaces/${wsId}/nodes`, { query: { parentId: folderId ?? undefined, sort, order: sort === "name" ? "asc" : "desc", limit: 200 } }),
+    [wsId, folderId, sort],
+  );
+  const members = useApi(() => api<Member[]>(`/workspaces/${wsId}/members`), [wsId], { enabled: !!membership });
+  const memberEmails = useMemo(() => new Set((members.data ?? []).map((m) => m.user.email)), [members.data]);
+
+  const folderNode = current.data?.[0] ?? null;
+  const crumbs = current.data?.[1] ?? [];
+  // Quyền ở nơi đang đứng: trong thư mục lấy từ API (gồm share), ở gốc lấy vai trò workspace.
+  const myRole = folderNode?.myRole ?? membership?.role ?? null;
+  const canEdit = roleAtLeast(myRole, "EDITOR");
+  const canShare = roleAtLeast(membership?.role, "ADMIN");
+  const title = folderNode?.name ?? membership?.name ?? "Thư mục";
+  const parents = folderId
+    ? [
+        ...(membership && (crumbs[0]?.id !== folderId || crumbs.length > 1) ? [{ label: membership.name, href: `/w/${wsId}/f` }] : []),
+        ...crumbs.slice(0, -1).map((c) => ({ label: c.name, href: `/w/${wsId}/f/${c.id}` })),
+      ]
+    : [];
+
+  const items = useMemo(() => {
+    const q = filter.trim().toLocaleLowerCase("vi");
+    return (list.data?.items ?? []).filter((n) => !q || n.name.toLocaleLowerCase("vi").includes(q));
+  }, [list.data, filter]);
+
+  const patchItem = (id: string, patch: Partial<NodeItem>) =>
+    list.setData((d) => (d ? { ...d, items: d.items.map((n) => (n.id === id ? { ...n, ...patch } : n)) } : d));
+  const reloadAll = () => {
+    void list.reload();
+    if (folderId) void current.reload();
+  };
+
+  // Tải lên: nút, kéo thả vào bảng. Tệp xong thì danh sách tự tải lại.
+  const uploads = useUploads();
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const dragDepth = useRef(0);
+  const uploadTick = uploads.doneTick(wsId, folderId);
+  const reloadList = list.reload;
+  useEffect(() => {
+    if (uploadTick) void reloadList();
+  }, [uploadTick, reloadList]);
+  // Còn mục đang tải lên / xử lý thì hỏi lại định kỳ để badge tự đổi.
+  const pending = (list.data?.items ?? []).some((n) => n.status === "PROCESSING" || n.status === "UPLOADING");
+  useEffect(() => {
+    if (!pending) return;
+    const timer = setInterval(() => void reloadList(), 4000);
+    return () => clearInterval(timer);
+  }, [pending, reloadList]);
+  const startUpload = (files: FileList | null) => {
+    if (files?.length) uploads.add(files, { wsId, parentId: folderId });
+  };
+  const hasFiles = (e: React.DragEvent) => e.dataTransfer.types.includes("Files");
+  const dropProps = canEdit
+    ? {
+        onDragEnter: (e: React.DragEvent) => {
+          if (!hasFiles(e)) return;
+          e.preventDefault();
+          dragDepth.current++;
+          setDragging(true);
+        },
+        onDragOver: (e: React.DragEvent) => {
+          if (hasFiles(e)) e.preventDefault();
+        },
+        onDragLeave: () => {
+          dragDepth.current = Math.max(0, dragDepth.current - 1);
+          if (!dragDepth.current) setDragging(false);
+        },
+        onDrop: (e: React.DragEvent) => {
+          e.preventDefault();
+          dragDepth.current = 0;
+          setDragging(false);
+          startUpload(e.dataTransfer.files);
+        },
+      }
+    : {};
+
+  const loadError = current.error ?? list.error;
+  const loading = current.loading || list.loading;
+  const notMemberAtRoot = !folderId && !membership;
+
+  return (
+    <>
+      <TopBar>
+        <div className="flex min-w-0 items-center gap-1">
+          {parents.length ? (
+            <div className="hidden min-w-0 items-center gap-1 md:flex">
+              <Breadcrumb items={parents} />
+              <span className="shrink-0 text-muted" aria-hidden>
+                ›
+              </span>
+            </div>
+          ) : null}
+          <h1 className="min-w-0 truncate text-base font-semibold">{title}</h1>
+        </div>
+      </TopBar>
+      <PageBody>
+        {notMemberAtRoot ? (
+          <Card>
+            <EmptyState
+              text="Bạn không phải thành viên workspace này. Các mục được chia sẻ cho bạn nằm ở Được chia sẻ."
+              action={
+                <Link href="/shared" className="inline-flex min-h-10 items-center rounded-xl border border-border-strong bg-surface px-4 text-sm font-medium hover:bg-button-hover">
+                  Mở Được chia sẻ
+                </Link>
+              }
+            />
+          </Card>
+        ) : (
+          <>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <SearchInput label="Lọc theo tên" placeholder="Lọc theo tên trong thư mục này" value={filter} onChange={(e) => setFilter(e.target.value)} className="flex-1 sm:max-w-80" />
+              {/* Màn hẹp: lưới 2 cột; có đủ ba nút thì "Tải lên" chiếm cả hàng để không nút nào gãy chữ (R3). */}
+              <div className="grid grid-cols-2 gap-2 sm:ml-auto sm:flex sm:flex-wrap sm:items-center">
+                <Select prefix="Sắp xếp:" value={sort} options={SORTS} onChange={setSort} className="order-first col-span-2 w-full sm:order-none sm:w-fit" />
+                {folderNode && canShare ? (
+                  <Button icon={Share2} className={cn(!canEdit && "col-span-2")} onClick={() => setDialog({ kind: "share", node: folderNode })}>
+                    Chia sẻ
+                  </Button>
+                ) : null}
+                {canEdit ? (
+                  <>
+                    <Button icon={FolderPlus} onClick={() => setDialog({ kind: "create" })}>
+                      Thư mục mới
+                    </Button>
+                    <Button icon={Upload} variant="primary" className={cn(folderNode && canShare && "order-first col-span-2 sm:order-none")} onClick={() => fileInput.current?.click()}>
+                      Tải lên
+                    </Button>
+                    <input
+                      ref={fileInput}
+                      type="file"
+                      multiple
+                      accept={ACCEPT_ATTR}
+                      className="sr-only"
+                      tabIndex={-1}
+                      aria-hidden
+                      onChange={(e) => {
+                        startUpload(e.target.files);
+                        e.target.value = "";
+                      }}
+                    />
+                  </>
+                ) : null}
+              </div>
+            </div>
+            <div className="relative @container" {...dropProps}>
+              {dragging ? (
+                <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center rounded-2xl border border-dashed border-foreground/40 bg-background text-center">
+                  <Upload className="size-5 text-muted" aria-hidden />
+                  <p className="mt-2 text-sm font-medium text-foreground">Thả tệp để tải lên</p>
+                  <p className="mt-1 max-w-[40ch] truncate text-sm text-muted">vào «{title}»</p>
+                </div>
+              ) : null}
+              <Card>
+                {loading && !list.data ? (
+                  <SkeletonRows rows={6} />
+                ) : loadError ? (
+                  <ErrorBanner error={loadError} what="thư mục" onRetry={reloadAll} />
+                ) : !items.length ? (
+                  <EmptyState
+                    text={
+                      filter ? (
+                        `Không có mục nào khớp «${filter}».`
+                      ) : canEdit ? (
+                        <>
+                          Thư mục này chưa có gì.
+                          <span className="[@media(hover:none)]:hidden"> Kéo thả tệp vào đây để tải lên.</span>
+                        </>
+                      ) : (
+                        "Thư mục này chưa có gì."
+                      )
+                    }
+                    action={
+                      filter ? (
+                        <Button onClick={() => setFilter("")}>Xoá lọc</Button>
+                      ) : canEdit ? (
+                        <div className="flex flex-wrap justify-center gap-2">
+                          <Button icon={Upload} onClick={() => fileInput.current?.click()}>
+                            Tải tệp lên
+                          </Button>
+                          <Button icon={FolderPlus} onClick={() => setDialog({ kind: "create" })}>
+                            Tạo thư mục
+                          </Button>
+                        </div>
+                      ) : undefined
+                    }
+                  />
+                ) : (
+                  <>
+                    <table className="w-full border-collapse">
+                      <thead className="hidden sm:table-header-group">
+                        <tr className="text-left text-xs font-medium text-muted">
+                          <th className="h-10 px-4 font-medium sm:pl-5">Tên</th>
+                          <th className="hidden h-10 px-4 font-medium @4xl:table-cell">Tag</th>
+                          <th className="hidden h-10 px-4 font-medium whitespace-nowrap @3xl:table-cell">Người tạo</th>
+                          <th className="h-10 w-px px-4 font-medium whitespace-nowrap">Sửa lần cuối</th>
+                          <th className="h-10 w-px px-2 whitespace-nowrap sm:pr-3">
+                            <span className="sr-only">Thao tác</span>
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {items.map((n) => {
+                          const canDelete = roleAtLeast(n.myRole, "ADMIN") || (roleAtLeast(n.myRole, "EDITOR") && n.createdBy.id === me?.id);
+                          const rowEdit = roleAtLeast(n.myRole, "EDITOR");
+                          return (
+                            <tr key={n.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 border-t border-border relative px-4 py-2.5 hover:bg-surface-hover sm:table-row sm:px-0 sm:py-0">
+                              <td className="min-w-0 sm:h-14 sm:w-full sm:max-w-0 sm:pr-4 sm:pl-5">
+                                <NodeName node={n} stretched />
+                                {n.tags.length ? (
+                                  <div className="mt-1.5 flex flex-wrap gap-1 pl-11 @4xl:hidden">
+                                    {n.tags.map((t) => (
+                                      <TagChip key={t.id} tag={t} />
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </td>
+                              <td className="hidden px-4 whitespace-nowrap @4xl:table-cell">
+                                <TagCell tags={n.tags} />
+                              </td>
+                              <td className="hidden px-4 text-sm whitespace-nowrap text-foreground/80 @3xl:table-cell">{n.createdBy.name}</td>
+                              <td className="hidden px-4 text-sm whitespace-nowrap text-muted tabular-nums sm:table-cell">{formatWhen(n.updatedAt)}</td>
+                              <td className="whitespace-nowrap sm:w-px sm:px-2 sm:pr-3">
+                                <div className="relative z-10 flex flex-nowrap items-center justify-end gap-0.5">
+                                  <FavoriteButton node={n} onChange={(fav) => patchItem(n.id, { isFavorite: fav })} />
+                                  <RowMenu
+                                    groups={[
+                                      [
+                                        { icon: Pencil, label: "Đổi tên", onSelect: () => setDialog({ kind: "rename", node: n }), hidden: !rowEdit },
+                                        { icon: FolderInput, label: "Di chuyển", onSelect: () => setDialog({ kind: "move", node: n }), hidden: !rowEdit },
+                                        { icon: Share2, label: "Chia sẻ", onSelect: () => setDialog({ kind: "share", node: n }), hidden: !canShare },
+                                        { icon: TagIcon, label: "Gắn tag", onSelect: () => setDialog({ kind: "tags", node: n }), hidden: !rowEdit || !membership },
+                                      ],
+                                      [{ icon: Trash2, label: "Xoá vào thùng rác", danger: true, onSelect: () => setDialog({ kind: "delete", node: n }), hidden: !canDelete }],
+                                    ]}
+                                  />
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    <div className="border-t border-border px-4 py-3 sm:px-5">
+                      <p className="text-sm tabular-nums text-muted">
+                        {items.length} mục
+                        {filter ? ` khớp «${filter}»` : ""}
+                        {list.data?.nextCursor ? " · đang hiện 200 mục đầu" : ""}
+                      </p>
+                    </div>
+                  </>
+                )}
+              </Card>
+            </div>
+          </>
+        )}
+      </PageBody>
+
+      <NameDialog
+        open={dialog?.kind === "create"}
+        onClose={() => setDialog(null)}
+        title="Thư mục mới"
+        submitLabel="Tạo thư mục"
+        onSubmit={async (name) => {
+          await api(`/workspaces/${wsId}/folders`, { method: "POST", body: { name, parentId: folderId } });
+          toast("success", `Đã tạo thư mục «${name}»`);
+          reloadAll();
+        }}
+      />
+      <NameDialog
+        open={dialog?.kind === "rename"}
+        onClose={() => setDialog(null)}
+        title="Đổi tên"
+        submitLabel="Lưu"
+        initial={dialog && "node" in dialog ? dialog.node.name : ""}
+        onSubmit={async (name) => {
+          if (!dialog || !("node" in dialog)) return;
+          await api(`/nodes/${dialog.node.id}`, { method: "PATCH", body: { name } });
+          toast("success", "Đã đổi tên");
+          reloadAll();
+        }}
+      />
+      <MoveDialog
+        open={dialog?.kind === "move"}
+        onClose={() => setDialog(null)}
+        node={dialog?.kind === "move" ? dialog.node : null}
+        workspaceId={wsId}
+        canUseRoot={roleAtLeast(membership?.role, "EDITOR")}
+        onMoved={() => {
+          toast("success", "Đã di chuyển");
+          reloadAll();
+        }}
+      />
+      <TagsDialog
+        open={dialog?.kind === "tags"}
+        onClose={() => setDialog(null)}
+        node={dialog?.kind === "tags" ? dialog.node : null}
+        workspaceId={wsId}
+        onSaved={() => {
+          toast("success", "Đã cập nhật tag");
+          void list.reload();
+        }}
+      />
+      <ConfirmDialog
+        open={dialog?.kind === "delete"}
+        onClose={() => setDialog(null)}
+        title="Xoá vào thùng rác?"
+        confirmLabel="Xoá"
+        onConfirm={async () => {
+          if (dialog?.kind !== "delete") return;
+          try {
+            await api(`/nodes/${dialog.node.id}`, { method: "DELETE" });
+            toast("success", `Đã chuyển «${dialog.node.name}» vào thùng rác`);
+            reloadAll();
+          } catch (err) {
+            toast("error", describeError(err));
+          }
+        }}
+      >
+        <span className="font-medium text-foreground">{dialog?.kind === "delete" ? dialog.node.name : ""}</span>
+        {dialog?.kind === "delete" && dialog.node.type === "FOLDER" ? " cùng mọi mục bên trong" : ""} sẽ vào thùng rác. Khôi phục được trong 30 ngày.
+      </ConfirmDialog>
+      <ShareSheet node={dialog?.kind === "share" ? dialog.node : null} onClose={() => setDialog(null)} memberEmails={memberEmails} />
+    </>
+  );
+}
