@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleAlert, Clapperboard, Download, LoaderCircle, Upload } from "lucide-react";
+import { CircleAlert, Download, LoaderCircle, Upload } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import type { FileDetail, FilePreview } from "@/lib/types";
@@ -52,18 +52,6 @@ export function FilePreviewPane({
   const preview = useApi(() => api<FilePreview>(`/files/${node.id}/preview`), [node.id, versionId], {
     enabled: !!v && node.type === "FILE" && v.previewKind !== "none",
   });
-
-  if (node.type === "VIDEO") {
-    return (
-      <Centered>
-        <Clapperboard className="size-5 text-muted" aria-hidden />
-        <p className="text-sm font-medium text-foreground">{node.status === "FAILED" ? "Không xử lý được video này" : "Video đang chờ xử lý để phát"}</p>
-        <p className="max-w-[48ch] text-sm text-pretty text-muted">
-          {node.status === "FAILED" && detail.processingError ? detail.processingError : "Trình phát video có ở bản sau. Video chỉ xem trên Luna, không tải về được."}
-        </p>
-      </Centered>
-    );
-  }
 
   if (!v) {
     if (node.status === "FAILED") {

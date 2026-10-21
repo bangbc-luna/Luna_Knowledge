@@ -77,7 +77,10 @@ export class VideoTranscodeProcessor extends WorkerHost implements OnApplication
     try {
       return await this.transcode(job.data as TranscodeJob);
     } catch (err) {
-      if (err instanceof InvalidVideoError) throw new UnrecoverableError(err.message);
+      if (err instanceof InvalidVideoError) {
+        this.logger.warn({ nodeId: (job.data as TranscodeJob).nodeId, detail: err.detail }, err.message);
+        throw new UnrecoverableError(err.message);
+      }
       throw err;
     }
   }

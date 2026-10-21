@@ -124,6 +124,7 @@ Nguyên tắc làm việc:
 - [x] API: phiên xem (Redis), viết lại master/media playlist, segment chuyển hướng URL ký 2 phút, khoá có giới hạn và kiểm lại quyền, poster/sprite, progress, lượt xem, retranscode; khôi phục phiên bản video thì transcode lại.
 - [x] Chặn download: không có route nào trả file gốc video cho người dùng; System Admin lấy qua `/admin/videos/:id/original-link` (nút ở trang quản trị, FE làm sau), có nhật ký.
 - [x] Trang thử player `/dev/player?id=` (chỉ ở dev, hls.js, watermark tên + email + giờ).
+- [x] Frontend: trình phát hls.js trên trang tệp (watermark tên + email + giờ, xem tiếp, chọn chất lượng, dải ảnh xem trước khi tua, toàn màn hình giữ watermark), tiến độ transcode qua SSE, transcode lại khi lỗi; trang `/admin/videos` có nút tải file gốc (xác nhận, ghi nhật ký).
 - [x] Tests: e2e worker transcode thật bằng ffmpeg (giải mã segment bằng khoá trong DB), e2e API 9 ca bảo vệ, `tests/11-videos.http`, k6 `tests/load/playback.js`.
 
 **DoD:** video 1 giờ 1080p transcode thành công; phát được qua hls.js; token hết hạn thì không lấy được key; user không có quyền nhận 404; test tải 50 phiên xem đồng thời (k6).

@@ -92,6 +92,7 @@ export interface NodeEvent {
   status: NodeItem["status"];
   versionId?: string;
   error?: string;
+  progress?: number;
 }
 
 export interface Page<T> {
@@ -142,4 +143,47 @@ export interface AdminStats {
   workspaces: { total: number };
   content: { folders: number; documents: number; files: number; videos: number; inTrash: number };
   activity: { last7Days: Array<{ date: string; count: number }>; loginsLast7Days: number; failedLoginsLast7Days: number };
+}
+
+export interface VideoRendition {
+  name: string;
+  width: number;
+  height: number;
+  bandwidth: number;
+}
+
+export interface VideoDetail {
+  node: NodeItem;
+  video: {
+    durationSec: number;
+    width: number;
+    height: number;
+    renditions: VideoRendition[];
+    viewCount: number;
+    transcodedAt: string;
+  } | null;
+  processingError: string | null;
+  resumeAt: number | null;
+}
+
+export interface Playback {
+  masterUrl: string;
+  token: string;
+  expiresAt: string;
+  posterUrl: string | null;
+  watermark: { name: string; email: string };
+  resumeAt: number | null;
+  durationSec: number;
+}
+
+export interface AdminVideo {
+  id: string;
+  name: string;
+  status: NodeItem["status"];
+  workspace: { id: string; name: string };
+  size: number | null;
+  durationSec: number | null;
+  viewCount: number;
+  createdBy: { id: string; name: string; email: string };
+  createdAt: string;
 }

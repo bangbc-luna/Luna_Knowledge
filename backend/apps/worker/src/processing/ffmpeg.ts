@@ -25,6 +25,12 @@ export interface FfmpegTools {
 
 export class InvalidVideoError extends Error {
   override readonly name = 'InvalidVideoError';
+  constructor(
+    message: string,
+    readonly detail?: string,
+  ) {
+    super(message);
+  }
 }
 
 function run(
@@ -80,12 +86,15 @@ export async function probe(tools: FfmpegTools, path: string): Promise<ProbeResu
     ]);
     json = JSON.parse(stdout);
   } catch (err) {
-    throw new InvalidVideoError(`Cannot read video: ${(err as Error).message.slice(0, 200)}`);
+    throw new InvalidVideoError(
+      'This file cannot be read as a video. It may be damaged or in an unsupported format.',
+      (err as Error).message,
+    );
   }
   const video = json.streams?.find((s) => s.codec_type === 'video' && s.width && s.height);
-  if (!video) throw new InvalidVideoError('File has no video stream');
+  if (!video) throw new InvalidVideoError('This file has no video track.');
   const durationSec = Number(json.format?.duration ?? video.duration ?? 0);
-  if (!(durationSec > 0)) throw new InvalidVideoError('Video has no duration');
+  if (!(durationSec > 0)) throw new InvalidVideoError('This video has no playable length.');
   const rotation =
     Math.abs(
       Number(

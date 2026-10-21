@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Boxes, LayoutDashboard, ScrollText, Users } from "lucide-react";
+import { ArrowLeft, Boxes, Clapperboard, LayoutDashboard, ScrollText, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Logo, NavGroup, NavLink } from "./nav";
@@ -15,6 +15,7 @@ export function AdminSidebar() {
           <NavLink href="/admin" icon={LayoutDashboard} label="Tổng quan" active={pathname === "/admin"} />
           <NavLink href="/admin/users" icon={Users} label="Người dùng" active={pathname.startsWith("/admin/users")} />
           <NavLink href="/admin/logs" icon={ScrollText} label="Nhật ký" active={pathname.startsWith("/admin/logs")} />
+          <NavLink href="/admin/videos" icon={Clapperboard} label="Video" active={pathname.startsWith("/admin/videos")} />
           <NavLink href="/admin/workspaces" icon={Boxes} label="Workspace" active={pathname.startsWith("/admin/workspaces")} />
         </NavGroup>
       </nav>

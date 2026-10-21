@@ -517,6 +517,7 @@ describe('Worker file-process (e2e)', () => {
     const node = await waitSettled(nodeId);
     expect(node.status).toBe('FAILED');
     expect(node.file?.processingError).toMatch(/video/i);
+    expect(node.file?.processingError).not.toMatch(/ffprobe|\/tmp|moov/);
     expect(await prisma.video.findUnique({ where: { nodeId } })).toBeNull();
   }, 60_000);
 

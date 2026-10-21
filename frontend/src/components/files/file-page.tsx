@@ -8,9 +8,9 @@ import { ApiError, api, describeError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import { ACCEPT_ATTR, fileKindLabel, formatBytes } from "@/lib/files";
-import { formatWhen, roleAtLeast } from "@/lib/format";
+import { formatDuration, formatNumber, formatWhen, roleAtLeast } from "@/lib/format";
 import { subscribeSse } from "@/lib/sse";
-import type { FileDetail, NodeEvent } from "@/lib/types";
+import type { FileDetail, NodeEvent, VideoDetail } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 import { useUploads } from "@/lib/uploads";
 import { NodeIcon, TagChip } from "../content/node-name";
@@ -18,6 +18,7 @@ import { PageBody, TopBar } from "../shell/shell";
 import { Button } from "../ui/button";
 import { Avatar, Breadcrumb, Card, ErrorBanner } from "../ui/misc";
 import { useToast } from "../ui/toast";
+import { VideoPane } from "../videos/video-pane";
 import { FilePreviewPane } from "./file-preview";
 import { VersionsSheet } from "./versions-sheet";
 
@@ -42,6 +43,10 @@ export function FilePage() {
 
   const detail = useApi(() => api<FileDetail>(`/files/${nodeId}`), [nodeId]);
   const crumbs = useApi(() => api<Array<{ id: string; name: string }>>(`/nodes/${nodeId}/breadcrumb`), [nodeId]);
+  const isVideo = detail.data?.node.type === "VIDEO";
+  const videoDetail = useApi(() => api<VideoDetail>(`/videos/${nodeId}`), [nodeId, isVideo], { enabled: isVideo });
+  const [progress, setProgress] = useState<number | null>(null);
+  const [retranscoding, setRetranscoding] = useState(false);
 
   const status = detail.data?.node.status;
   const currentId = detail.data?.currentVersion?.id;
@@ -50,14 +55,19 @@ export function FilePage() {
     statusRef.current = { status, currentId };
   }, [status, currentId]);
   const reloadDetail = detail.reload;
+  const reloadVideo = videoDetail.reload;
   useEffect(
     () =>
       subscribeSse<NodeEvent>(`/nodes/${nodeId}/events`, (type, e) => {
         if (type !== "status") return;
+        if (typeof e.progress === "number") setProgress(e.status === "PROCESSING" ? e.progress : null);
         const cur = statusRef.current;
-        if (cur.status && (e.status !== cur.status || (e.versionId && e.versionId !== cur.currentId))) void reloadDetail();
+        if (cur.status && (e.status !== cur.status || (e.versionId && e.versionId !== cur.currentId))) {
+          void reloadDetail();
+          void reloadVideo();
+        }
       }),
-    [nodeId, reloadDetail],
+    [nodeId, reloadDetail, reloadVideo],
   );
 
   const d = detail.data;
@@ -82,6 +92,20 @@ export function FilePage() {
     }
   };
 
+  const retranscode = async () => {
+    setRetranscoding(true);
+    try {
+      await api(`/videos/${nodeId}/retranscode`, { method: "POST" });
+      setProgress(0);
+      await reloadDetail();
+    } catch (err) {
+      toast("error", describeError(err));
+    } finally {
+      setRetranscoding(false);
+    }
+  };
+
+  const vd = videoDetail.data?.video ?? null;
   const notFound = detail.error instanceof ApiError && detail.error.status === 404;
 
   return (
@@ -129,7 +153,9 @@ export function FilePage() {
                   <h1 className="text-lg font-semibold text-balance [overflow-wrap:anywhere]">{node.name}</h1>
                   <p className="mt-0.5 text-sm text-muted tabular-nums">
                     {node.type === "VIDEO" ? "Video" : fileKindLabel(v?.fileName ?? node.name, v?.mime)}
-                    {v ? ` · ${formatBytes(v.size)} · Phiên bản ${v.versionNo} · ${formatWhen(v.createdAt)}` : ""}
+                    {v ? ` · ${formatBytes(v.size)}` : ""}
+                    {vd ? ` · ${formatDuration(vd.durationSec)}` : ""}
+                    {v ? ` · Phiên bản ${v.versionNo} · ${formatWhen(v.createdAt)}` : ""}
                   </p>
                 </div>
               </div>
@@ -141,7 +167,7 @@ export function FilePage() {
                       <span className="text-muted tabular-nums">{d.versionCount}</span>
                     </Button>
                   ) : null,
-                  canEdit && node.type === "FILE" ? (
+                  canEdit ? (
                     <Button key="replace" icon={Upload} loading={busy} onClick={() => replaceInput.current?.click()}>
                       Tải bản mới
                     </Button>
@@ -186,13 +212,33 @@ export function FilePage() {
             <div className="@container">
               <div className="grid items-start gap-4 @[70rem]:grid-cols-[minmax(0,1fr)_22rem]">
                 <Card className="overflow-hidden">
-                  <FilePreviewPane detail={d} onDownload={canDownload ? () => void download() : undefined} onReplace={canEdit ? () => replaceInput.current?.click() : undefined} />
+                  {isVideo ? (
+                    <VideoPane detail={d} video={videoDetail.data} progress={progress} retranscoding={retranscoding} onRetranscode={canEdit ? () => void retranscode() : undefined} />
+                  ) : (
+                    <FilePreviewPane detail={d} onDownload={canDownload ? () => void download() : undefined} onReplace={canEdit ? () => replaceInput.current?.click() : undefined} />
+                  )}
                 </Card>
                 <Card className="p-5">
                   <h2 className="text-sm font-semibold">Thông tin</h2>
                   <dl className="@container mt-4 space-y-3 text-sm">
                     <Row label="Loại">{node.type === "VIDEO" ? "Video" : fileKindLabel(v?.fileName ?? node.name, v?.mime)}</Row>
                     <Row label="Kích thước">{v ? <span className="tabular-nums">{formatBytes(v.size)}</span> : <span className="font-normal text-muted">—</span>}</Row>
+                    {vd ? (
+                      <>
+                        <Row label="Thời lượng">
+                          <span className="tabular-nums">{formatDuration(vd.durationSec)}</span>
+                        </Row>
+                        <Row label="Độ phân giải">
+                          <span className="tabular-nums">
+                            {vd.width} × {vd.height}
+                          </span>
+                        </Row>
+                        <Row label="Chất lượng">{vd.renditions.map((r) => r.name).join(" · ")}</Row>
+                        <Row label="Lượt xem">
+                          <span className="tabular-nums">{formatNumber(vd.viewCount)}</span>
+                        </Row>
+                      </>
+                    ) : null}
                     {v && v.fileName !== node.name ? <Row label="Tên tệp gốc">{v.fileName}</Row> : null}
                     <Row label="Tải lên bởi">
                       {v ? (

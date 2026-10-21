@@ -72,6 +72,9 @@ export const ACTION_LABEL: Record<string, string> = {
   "file.download": "Tải về",
   "file.version_restore": "Khôi phục phiên bản",
   "file.regenerate": "Tạo lại bản xem trước",
+  "video.play": "Xem video",
+  "video.retranscode": "Transcode lại video",
+  "video.original_access": "Tải file gốc video",
   "share.add": "Chia sẻ",
   "share.update": "Đổi quyền chia sẻ",
   "share.remove": "Thu hồi chia sẻ",
@@ -91,7 +94,8 @@ export const ACTION_LABEL: Record<string, string> = {
 
 export const ACTION_GROUPS: Array<{ key: string; label: string; actions: string[] }> = [
   { key: "view", label: "Xem", actions: ["node.view"] },
-  { key: "download", label: "Tải về", actions: ["file.download"] },
+  { key: "download", label: "Tải về", actions: ["file.download", "video.original_access"] },
+  { key: "video", label: "Xem video", actions: ["video.play"] },
   { key: "upload", label: "Tải lên, phiên bản", actions: ["file.upload", "upload.start", "upload.abort", "file.version_restore", "file.regenerate"] },
   { key: "edit", label: "Tạo, sửa, di chuyển", actions: ["node.create", "node.rename", "node.move", "node.restore"] },
   { key: "delete", label: "Xoá", actions: ["node.trash", "node.delete_permanent", "trash.empty"] },
@@ -108,3 +112,12 @@ export const ACTION_GROUPS: Array<{ key: string; label: string; actions: string[
     ],
   },
 ];
+
+export function formatDuration(totalSec: number): string {
+  const s = Math.max(0, Math.round(totalSec));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  const mm = h ? String(m).padStart(2, "0") : String(m);
+  return `${h ? `${h}:` : ""}${mm}:${String(sec).padStart(2, "0")}`;
+}
