@@ -14,6 +14,7 @@ export function setupApp(app: INestApplication, config: AppConfig) {
       { path: 'health', method: RequestMethod.GET },
       { path: 'health/live', method: RequestMethod.GET },
       { path: 'dev/login', method: RequestMethod.GET },
+      { path: 'dev/player', method: RequestMethod.GET },
     ],
   });
   // IP thật của client khi chạy sau Traefik/cloudflared (dùng cho session và audit log).

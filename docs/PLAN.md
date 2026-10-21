@@ -113,18 +113,22 @@ Nguyên tắc làm việc:
 
 **Việc cần làm**
 
-- [ ] Worker `video-transcode` (hàng đợi riêng, concurrency cấu hình được):
-  - ffprobe, chọn ladder 360/720/1080 theo độ phân giải nguồn;
-  - FFmpeg → HLS fMP4 hoặc TS, segment 6 giây, AES-128 (sinh key + keyinfo);
-  - poster, sprite + WebVTT thumbnails;
-  - báo tiến độ (parse `out_time_ms`) qua Redis pub/sub;
-  - upload HLS lên S3, dọn tmp; retry tối đa 3 lần.
-- [ ] Mã hóa AES key bằng master key (AES-256-GCM, lấy từ env/KMS).
-- [ ] API playback: sinh playback token, viết lại master/media playlist (presign từng segment), endpoint cấp key có rate limit, poster/sprite, progress, retranscode.
-- [ ] Chặn download: không có route nào trả file gốc video; với S3 đặt `Content-Disposition: inline`, cấu hình CORS chỉ cho origin của FE.
-- [ ] Trang thử player tối giản (`apps/api/static/player-test.html` dùng hls.js) chỉ dùng để demo trong phase này, chưa phải FE.
+- [x] Worker `video-transcode` (hàng đợi riêng, `VIDEO_TRANSCODE_CONCURRENCY`):
+  - ffprobe (tính cả video quay dọc), chọn bậc 360/720/1080 theo cạnh ngắn, không phóng to vượt nguồn;
+  - FFmpeg → HLS TS, segment 6 giây, khung khoá đúng mỗi 6 giây, AES-128 (khoá + IV ngẫu nhiên mỗi lần transcode);
+  - poster, thumbnail 320px (hiện trong danh sách thư mục), sprite + WebVTT;
+  - tiến độ (`out_time_us`) qua SSE `/nodes/:id/events` (`progress` 0–100);
+  - upload HLS lên bucket `hls`, thay bản cũ (blob cũ vào GC, xoá cả thư mục); retry 3 lần, video hỏng → FAILED kèm lý do, không thử lại.
+  - Encoder: `libx264` mặc định; `h264_nvenc` qua `VIDEO_ENCODER` (cần GPU NVIDIA).
+- [x] Mã hóa AES key bằng `VIDEO_MASTER_KEY` (AES-256-GCM).
+- [x] API: phiên xem (Redis), viết lại master/media playlist, segment chuyển hướng URL ký 2 phút, khoá có giới hạn và kiểm lại quyền, poster/sprite, progress, lượt xem, retranscode; khôi phục phiên bản video thì transcode lại.
+- [x] Chặn download: không có route nào trả file gốc video cho người dùng; System Admin lấy qua `/admin/videos/:id/original-link` (nút ở trang quản trị, FE làm sau), có nhật ký.
+- [x] Trang thử player `/dev/player?id=` (chỉ ở dev, hls.js, watermark tên + email + giờ).
+- [x] Tests: e2e worker transcode thật bằng ffmpeg (giải mã segment bằng khoá trong DB), e2e API 9 ca bảo vệ, `tests/11-videos.http`, k6 `tests/load/playback.js`.
 
 **DoD:** video 1 giờ 1080p transcode thành công; phát được qua hls.js; token hết hạn thì không lấy được key; user không có quyền nhận 404; test tải 50 phiên xem đồng thời (k6).
+
+- Đã kiểm trên máy dev (i7-11800H, mốc tối thiểu): video **1 giờ 1080p transcode 18,5 phút** (0,31× thời lượng, CPU libx264, đạt NFR-2 ≤ 1,5×), HLS 1,37 GB, tua tới phút 50 phát ngay; video 2 phút 1080p upload + transcode 44 giây; phát qua hls.js tự lên 1080p; 50 phiên k6: 0 lỗi / 2201 request, 3,9 GB, API p95 424 ms, segment p95 95 ms; URL segment hết hạn sau 2 phút (200 → 403).
 
 **Demo 4:** upload video, theo dõi tiến độ qua SSE, phát trên trang thử, chứng minh copy URL segment sang trình duyệt khác sau 10 phút thì không dùng được.
 

@@ -14,6 +14,7 @@ import { QueueModule } from './infra/queue/queue.module.js';
 import { PrismaModule } from './infra/prisma/prisma.module.js';
 import { RedisModule } from './infra/redis/redis.module.js';
 import { S3Module } from './infra/s3/s3.module.js';
+import { VideosModule } from './videos/videos.module.js';
 import { UsersModule } from './users/users.module.js';
 import { WorkspacesModule } from './workspaces/workspaces.module.js';
 
@@ -38,6 +39,7 @@ const isDevelopment = loadAppConfig().NODE_ENV === 'development';
     WorkspacesModule,
     ContentModule,
     FilesModule,
+    VideosModule,
     AdminModule,
     // Trang thử đăng nhập chỉ có ở môi trường dev.
     ...(isDevelopment ? [DevModule] : []),

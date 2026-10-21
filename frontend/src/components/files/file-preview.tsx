@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import type { FileDetail, FilePreview } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 import { Button } from "../ui/button";
+import { PdfViewer } from "./pdf-viewer";
 
 /** Chiều cao vùng xem: gần hết màn, trừ thanh trên + đầu trang. */
 const VIEW_H = "h-[calc(100dvh-15rem)] min-h-[28rem]";
@@ -124,7 +125,7 @@ export function FilePreviewPane({
   if (!url) return <div className={`animate-pulse bg-foreground/3 ${VIEW_H}`} aria-busy="true" aria-label="Đang tải bản xem trước" />;
 
   if (v.previewKind === "pdf") {
-    return <iframe src={url} title={`Xem trước ${node.name}`} className={`block w-full ${VIEW_H}`} />;
+    return <PdfViewer url={url} title={`Xem trước ${node.name}`} className={VIEW_H} />;
   }
   if (v.previewKind === "image") {
     return (

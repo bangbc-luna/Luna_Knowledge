@@ -23,6 +23,8 @@
     "db:studio": "pnpm --filter @luna/db studio",
     "admin:grant": "pnpm --filter @luna/scripts admin:grant",
     "upload": "pnpm --filter @luna/scripts upload",
+    "backup": "bash scripts/backup/backup.sh",
+    "restore": "bash scripts/backup/restore.sh",
     "format:check": "prettier --check \"apps/*/{src,test}/**/*.ts\" \"packages/*/src/**/*.ts\" \"packages/db/prisma/*.ts\" \"scripts/*.ts\""
   },
   "devDependencies": {

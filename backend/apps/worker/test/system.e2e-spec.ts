@@ -30,6 +30,7 @@ describe('Worker system queue (e2e)', () => {
       S3_BUCKET_ASSETS: 'unused',
       S3_BUCKET_ORIGINALS: 'unused',
       TIKA_URL: 'http://localhost:1',
+      VIDEO_MASTER_KEY: Buffer.alloc(32, 1).toString('base64'),
       GOTENBERG_URL: 'http://localhost:1',
     });
     const { WorkerModule } = await import('../src/worker.module.js');

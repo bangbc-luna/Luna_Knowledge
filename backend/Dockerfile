@@ -36,7 +36,10 @@ HEALTHCHECK --interval=15s --timeout=5s CMD node -e "fetch('http://127.0.0.1:'+(
 CMD ["node", "dist/main.js"]
 
 FROM runtime AS worker
-# Phase 4 cài thêm ffmpeg cho transcode video.
+# FFmpeg cho transcode video (Phase 4). GPU NVIDIA: chạy với NVIDIA Container Toolkit, VIDEO_ENCODER=h264_nvenc.
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+USER node
 COPY --from=build --chown=node:node /out/worker /app
 CMD ["node", "dist/main.js"]
 

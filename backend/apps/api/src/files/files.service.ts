@@ -17,6 +17,7 @@ import { REDIS } from '../infra/redis/redis.module.js';
 import type { FileVersionDto } from './files.schemas.js';
 import { NodeEventsService } from './node-events.service.js';
 import { StorageService } from './storage.service.js';
+import { TranscodeQueueService } from './transcode-queue.service.js';
 
 const userSummary = { id: true, email: true, name: true, avatarUrl: true } as const;
 const DOWNLOAD_TOKEN_TTL_SEC = 60;
@@ -45,6 +46,7 @@ export class FilesService {
     private readonly storage: StorageService,
     private readonly audit: AuditService,
     private readonly events: NodeEventsService,
+    private readonly transcodes: TranscodeQueueService,
     @Inject(REDIS) private readonly redis: Redis,
     @InjectQueue(QUEUES.FILE_PROCESS) private readonly fileQueue: Queue,
   ) {}
@@ -191,9 +193,11 @@ export class FilesService {
       }),
       this.prisma.client.node.update({
         where: { id: nodeId },
-        data: { status: 'READY', updatedById: user.id },
+        // Video: bản HLS dựng từ phiên bản khác, phải transcode lại phiên bản vừa chọn.
+        data: { status: node.type === 'VIDEO' ? 'PROCESSING' : 'READY', updatedById: user.id },
       }),
     ]);
+    if (node.type === 'VIDEO') await this.transcodes.enqueue(nodeId, version.id);
     await this.audit.log({
       actorId: user.id,
       action: 'file.version_restore',
@@ -211,16 +215,28 @@ export class FilesService {
     const node = await this.requireFile(user, nodeId, 'EDITOR');
     const version = await this.findVersion(nodeId);
     if (!version) throw AppError.notFound('This file has no uploaded content yet');
-    await this.fileQueue.add(
-      JOBS.REGENERATE,
-      { nodeId, versionId: version.id } satisfies RegenerateJob,
-      {
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 5000 },
-        removeOnComplete: 100,
-        removeOnFail: 500,
-      },
-    );
+    const current = await this.prisma.client.node.findUnique({
+      where: { id: nodeId },
+      select: { status: true },
+    });
+    // Đang tải lên / đang xử lý: bấm lại sẽ chạy trùng job (video là cả một lần transcode).
+    if (current?.status === 'UPLOADING' || current?.status === 'PROCESSING') {
+      throw AppError.conflict('This file is still being uploaded or processed');
+    }
+    if (node.type === 'VIDEO') {
+      await this.transcodes.enqueue(nodeId, version.id);
+    } else {
+      await this.fileQueue.add(
+        JOBS.REGENERATE,
+        { nodeId, versionId: version.id } satisfies RegenerateJob,
+        {
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 5000 },
+          removeOnComplete: 100,
+          removeOnFail: 500,
+        },
+      );
+    }
     await this.prisma.client.node.update({ where: { id: nodeId }, data: { status: 'PROCESSING' } });
     await this.events.publish({ nodeId, status: 'PROCESSING' });
     await this.audit.log({

@@ -1,15 +1,21 @@
+import { readdir, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { AbortMultipartUploadCommand } from '@aws-sdk/client-s3';
 import { purgeExpiredTrash } from '@luna/db';
 import { JOBS, QUEUES } from '@luna/shared';
 import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
-import { Logger, type OnApplicationBootstrap } from '@nestjs/common';
+import { Inject, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import type { Job, Queue } from 'bullmq';
+import { WORKER_CONFIG, type WorkerConfig } from '../config/worker-config.js';
 import { PrismaService } from '../infra/prisma.provider.js';
 import { StorageService } from '../infra/storage.provider.js';
 
 const GC_BATCH = 200;
 const GC_MAX_ATTEMPTS = 10;
 const KEEP_FINISHED_UPLOADS_DAYS = 7;
+/** Thư mục làm việc của job bị ngắt đột ngột (mất điện, bị kill): job thật không chạy quá chừng này. */
+const STALE_WORKDIR_HOURS = 12;
 
 /**
  * Việc định kỳ:
@@ -25,6 +31,7 @@ export class MaintenanceProcessor extends WorkerHost implements OnApplicationBoo
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     @InjectQueue(QUEUES.MAINTENANCE) private readonly queue: Queue,
+    @Inject(WORKER_CONFIG) private readonly config: WorkerConfig,
   ) {
     super();
   }
@@ -59,7 +66,7 @@ export class MaintenanceProcessor extends WorkerHost implements OnApplicationBoo
         return { purged, ...gc };
       }
       case JOBS.CLEAN_UPLOADS:
-        return this.cleanUploads();
+        return { ...(await this.cleanUploads()), staleWorkDirs: await this.cleanWorkDirs() };
       case JOBS.BLOB_GC:
         return this.collectGarbage();
       default:
@@ -96,6 +103,23 @@ export class MaintenanceProcessor extends WorkerHost implements OnApplicationBoo
     }
     if (deleted || failed) this.logger.log(`Blob GC: deleted ${deleted}, failed ${failed}`);
     return { deleted, failed };
+  }
+
+  /** Xoá thư mục tạm luna-* bị bỏ lại (video có thể để lại vài GB). */
+  async cleanWorkDirs(now = Date.now()) {
+    const root = this.config.WORKER_TMP_DIR ?? tmpdir();
+    let removed = 0;
+    for (const name of await readdir(root).catch(() => [] as string[])) {
+      if (!/^luna-(file|regen|video)-/.test(name)) continue;
+      const dir = join(root, name);
+      const info = await stat(dir).catch(() => null);
+      if (info?.isDirectory() && now - info.mtimeMs > STALE_WORKDIR_HOURS * 3600_000) {
+        await rm(dir, { recursive: true, force: true });
+        removed++;
+      }
+    }
+    if (removed) this.logger.log(`Removed ${removed} stale work dir(s) in ${root}`);
+    return removed;
   }
 
   /** Hủy upload quá hạn chưa hoàn tất; xóa bản ghi upload đã xong lâu ngày. */

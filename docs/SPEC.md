@@ -137,9 +137,10 @@ Luna Knowledge là hệ thống lưu trữ và chia sẻ tri thức nội bộ c
   - tạo thumbnail (poster) và sprite ảnh xem trước khi rê thanh tua (seek preview);
   - upload HLS lên S3 (`hls/{videoId}/…`); file gốc đã nằm ở bucket `originals`; xóa file tạm.
 - VIDEO-2: Báo tiến độ transcode (%) và cho phép retry khi thất bại (tối đa 3 lần tự động).
-- VIDEO-3: API `playback` trả về: URL master playlist, đã ký, hết hạn 10 phút; playback token để lấy khóa; thông tin watermark.
-- VIDEO-4: API cấp khóa AES: kiểm tra playback token và quyền của user, có rate limit.
-- VIDEO-5: Ghi lại tiến độ xem (vị trí đang xem) để xem tiếp, và đếm lượt xem.
+- VIDEO-3: API `playback` mở một **phiên xem** (Redis): hết hạn sau 15 phút không dùng, tối đa 8 giờ; trả URL master playlist kèm mã phiên, thông tin watermark (tên + email, FE vẽ thêm giờ), vị trí xem dở. Playlist trỏ segment về API; API kiểm phiên rồi chuyển hướng sang URL MinIO ký sẵn **2 phút** (URL ký 10 phút ghi thẳng vào playlist sẽ đứt giữa chừng với video dài hơn 10 phút).
+- VIDEO-4: API cấp khóa AES: kiểm tra phiên xem và **kiểm lại quyền** của user (thu hồi share giữa chừng thì lần lấy playlist/khoá kế tiếp bị chặn), tối đa 30 lần mỗi phiên.
+- VIDEO-5: Ghi lại tiến độ xem (vị trí đang xem) để xem tiếp, và đếm lượt xem (một người mở lại trong 30 phút tính một lượt). Ai xem được video thì thấy số lượt xem; danh sách ai đã xem chỉ có trong nhật ký admin (`video.play`).
+- VIDEO-7: File gốc video chỉ System Admin lấy được, bằng nút trong trang quản trị (link dùng một lần, ghi `video.original_access`), để người trực không cần thao tác trên máy chủ.
 - VIDEO-6: Không có endpoint download. Header `Content-Disposition` không cho phép tải. Segment trên S3 để private, chỉ truy cập qua URL đã ký.
 
 ### 4.7 Tài liệu soạn thảo (DOC)
@@ -488,15 +489,21 @@ Loại file cho phép: PDF; Office (docx/xlsx/pptx/doc/xls/ppt/odt/ods/odp/rtf);
 
 | Method | Path | Mô tả | Quyền |
 |---|---|---|---|
-| GET | `/videos/:id/playback` | `{masterUrl, playbackToken, expiresAt, watermark:{text}, resumeAt}` | VIEWER |
-| GET | `/videos/:id/hls/master.m3u8?t=` | Master playlist (viết lại động) | playback token |
-| GET | `/videos/:id/hls/:rendition/index.m3u8?t=` | Media playlist, segment URL đã ký | playback token |
-| GET | `/videos/:id/key?t=` | Khóa AES-128 (16 byte) | playback token + rate limit |
-| GET | `/videos/:id/poster` | Ảnh poster | VIEWER |
-| GET | `/videos/:id/sprite` | Sprite xem trước khi tua (kèm VTT) | VIEWER |
+| GET | `/videos/:id` | Thời lượng, kích thước, các bậc chất lượng, lượt xem, vị trí xem dở | VIEWER |
+| POST | `/videos/:id/playback` | Mở phiên xem: `{masterUrl, token, expiresAt, posterUrl, watermark:{name,email}, resumeAt, durationSec}`; ghi `video.play` | VIEWER |
+| GET | `/videos/:id/hls/master.m3u8?s=` | Master playlist (viết lại động) | phiên xem |
+| GET | `/videos/:id/hls/:rendition/index.m3u8?s=` | Media playlist; khoá và segment trỏ về API | phiên xem + quyền |
+| GET | `/videos/:id/hls/:rendition/:segment?s=` | 302 tới URL MinIO ký sẵn 2 phút | phiên xem |
+| GET | `/videos/:id/key?s=` | Khóa AES-128 (16 byte), `no-store`, tối đa 30 lần/phiên | phiên xem + quyền |
+| GET | `/videos/:id/poster` | 302 tới ảnh poster | VIEWER |
+| GET | `/videos/:id/sprite.vtt` | WebVTT ảnh xem trước khi tua (ảnh sprite là URL ký) | VIEWER |
 | PUT | `/videos/:id/progress` | Lưu `{positionSec}` | VIEWER |
-| PATCH | `/videos/:id` | Sửa tiêu đề/mô tả | EDITOR |
-| POST | `/videos/:id/retranscode` | Chạy lại transcode khi FAILED | EDITOR |
+| POST | `/videos/:id/retranscode` | Transcode lại từ file gốc | EDITOR |
+| GET | `/admin/videos?q=` | Danh sách video toàn hệ thống | System Admin |
+| POST | `/admin/videos/:id/original-link` | Link tải file gốc dùng một lần (60 giây) | System Admin |
+| GET | `/downloads/video/:token` | Tải file gốc video, ghi `video.original_access` | link |
+
+Sửa tiêu đề/mô tả video dùng chung API đổi tên của node (`PATCH /nodes/:id`). Tải phiên bản mới cho video dùng `POST /workspaces/:wsId/uploads` với `replaceNodeId`; khôi phục phiên bản cũ thì transcode lại phiên bản đó.
 
 ### 7.10 Documents
 

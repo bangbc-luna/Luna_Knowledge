@@ -3,7 +3,11 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { GetObjectCommand, HeadObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import type { PrismaClient } from '@luna/db';
-import { createS3Client, ensureBuckets, loadEnv, s3EnvSchema } from '@luna/shared';
+import { createDecipheriv } from 'node:crypto';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createS3Client, ensureBuckets, loadEnv, openVideoKey, s3EnvSchema } from '@luna/shared';
 import type { INestApplicationContext } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
@@ -14,6 +18,7 @@ import type { FileProcessProcessor } from '../src/processors/file-process.proces
 import type { MaintenanceProcessor } from '../src/processors/maintenance.processor.js';
 
 const FIXTURES = fileURLToPath(new URL('../../../tests/fixtures/', import.meta.url));
+const MASTER_KEY = Buffer.alloc(32, 7).toString('base64');
 const BUCKETS = {
   S3_BUCKET_TMP: 'w-tmp',
   S3_BUCKET_HLS: 'w-hls',
@@ -67,6 +72,7 @@ describe('Worker file-process (e2e)', () => {
       S3_FORCE_PATH_STYLE: 'true',
       ...BUCKETS,
       GOTENBERG_URL: url(gotenberg, 3000),
+      VIDEO_MASTER_KEY: MASTER_KEY,
       TIKA_URL: url(tika, 9998),
     });
     execFileSync('pnpm', ['exec', 'prisma', 'migrate', 'deploy'], {
@@ -297,28 +303,34 @@ describe('Worker file-process (e2e)', () => {
     expect(await exists(after.preview!.container, after.preview!.key)).toBe(false);
   }, 120_000);
 
-  it('video: lưu bản gốc, chờ transcode (Phase 4)', async () => {
-    // Video thật không có trong fixtures: dùng header MP4 tối thiểu (ftyp isom).
-    const mp4 = Buffer.concat([
-      Buffer.from([0, 0, 0, 0x18]),
-      Buffer.from('ftypisom'),
-      Buffer.from([0, 0, 2, 0]),
-      Buffer.from('isomiso2'),
-      Buffer.alloc(64),
-    ]);
+  /** Đợi node chuyển khỏi PROCESSING (transcode chạy ở worker BullMQ thật trong app test). */
+  async function waitSettled(nodeId: string, timeoutMs = 120_000) {
+    const until = Date.now() + timeoutMs;
+    for (;;) {
+      const n = await prisma.node.findUniqueOrThrow({
+        where: { id: nodeId },
+        include: { file: true },
+      });
+      if (n.status !== 'PROCESSING') return n;
+      if (Date.now() > until) throw new Error('timeout waiting for transcode');
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+
+  async function videoUpload(body: Buffer, fileName: string) {
     const node = await prisma.node.create({
       data: {
         workspaceId,
         type: 'VIDEO',
-        name: 'clip.mp4',
-        nameNormalized: 'clip.mp4',
+        name: fileName,
+        nameNormalized: `${fileName}-${Math.random()}`,
         status: 'PROCESSING',
         createdById: userId,
       },
     });
     const id = crypto.randomUUID();
     await s3.send(
-      new PutObjectCommand({ Bucket: BUCKETS.S3_BUCKET_TMP, Key: `uploads/${id}`, Body: mp4 }),
+      new PutObjectCommand({ Bucket: BUCKETS.S3_BUCKET_TMP, Key: `uploads/${id}`, Body: body }),
     );
     await prisma.uploadSession.create({
       data: {
@@ -327,9 +339,9 @@ describe('Worker file-process (e2e)', () => {
         workspaceId,
         s3UploadId: 'done',
         tmpKey: `uploads/${id}`,
-        fileName: 'clip.mp4',
-        sizeBytes: BigInt(mp4.length),
-        partSize: 1,
+        fileName,
+        sizeBytes: BigInt(body.length),
+        partSize: 16 * 1024 * 1024,
         partCount: 1,
         mimeDeclared: 'video/mp4',
         status: 'COMPLETED',
@@ -338,12 +350,200 @@ describe('Worker file-process (e2e)', () => {
       },
     });
     await processor.processUpload(id);
-    const v = await versionOf(id);
-    expect(v.original.mime).toBe('video/mp4');
-    expect(v.previewKind).toBe('none');
-    expect((await prisma.node.findUniqueOrThrow({ where: { id: node.id } })).status).toBe(
+    return { nodeId: node.id, versionId: id };
+  }
+
+  it('video: transcode HLS 360p/720p mã hoá AES-128, poster, thumbnail, sprite', async () => {
+    // Video thử 8 giây 1280×720 có tiếng, tạo bằng ffmpeg trên máy chạy test.
+    const dir = mkdtempSync(join(tmpdir(), 'luna-vtest-'));
+    const src = join(dir, 'clip.mp4');
+    execFileSync('ffmpeg', [
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-y',
+      '-f',
+      'lavfi',
+      '-i',
+      'testsrc2=size=1280x720:rate=25',
+      '-f',
+      'lavfi',
+      '-i',
+      'sine=frequency=440',
+      '-t',
+      '8',
+      '-c:v',
+      'libx264',
+      '-preset',
+      'ultrafast',
+      '-c:a',
+      'aac',
+      '-shortest',
+      src,
+    ]);
+    const { nodeId, versionId } = await videoUpload(await readFile(src), 'Hướng dẫn.mp4');
+
+    const node = await waitSettled(nodeId);
+    expect(node.status).toBe('READY');
+    const video = await prisma.video.findUniqueOrThrow({ where: { nodeId } });
+    expect(video.versionId).toBe(versionId);
+    expect(video.width).toBe(1280);
+    expect(video.height).toBe(720);
+    expect(Math.round(video.durationSec)).toBe(8);
+    expect((video.renditions as Array<{ name: string }>).map((r) => r.name)).toEqual([
+      '360p',
+      '720p',
+    ]);
+    expect(video.spriteVtt).toMatch(/^WEBVTT[\s\S]*sprite\.jpg#xywh=0,0,160,90/);
+
+    const hls = await prisma.blob.findUniqueOrThrow({ where: { id: video.hlsBlobId } });
+    const get = async (key: string) =>
+      Buffer.from(
+        await (
+          await s3.send(new GetObjectCommand({ Bucket: BUCKETS.S3_BUCKET_HLS, Key: key }))
+        ).Body!.transformToByteArray(),
+      );
+    const master = (await get(`${hls.key}master.m3u8`)).toString();
+    expect(master).toContain('360p/index.m3u8');
+    expect(master).toContain('RESOLUTION=1280x720');
+    const playlist = (await get(`${hls.key}720p/index.m3u8`)).toString();
+    const keyLine = /#EXT-X-KEY:METHOD=AES-128,URI="luna-key",IV=0x([0-9a-f]{32})/i.exec(playlist);
+    expect(keyLine).not.toBeNull();
+    const firstSeg = playlist.split('\n').find((l) => l.endsWith('.ts'))!;
+
+    // Segment trên S3 đã mã hoá; giải bằng khoá trong DB (mở bằng master key) ra luồng TS (byte đồng bộ 0x47).
+    const enc = await get(`${hls.key}720p/${firstSeg}`);
+    expect(enc[0] === 0x47 && enc[188] === 0x47).toBe(false);
+    const key = openVideoKey(video.keyEncrypted, MASTER_KEY);
+    const d = createDecipheriv('aes-128-cbc', key, Buffer.from(keyLine![1]!, 'hex'));
+    const plain = Buffer.concat([d.update(enc), d.final()]);
+    expect(plain[0]).toBe(0x47);
+    expect(plain[188]).toBe(0x47);
+
+    const version = await prisma.fileVersion.findUniqueOrThrow({
+      where: { id: versionId },
+      include: { thumbnail: true },
+    });
+    expect(version.thumbnail?.mime).toBe('image/webp');
+    expect(
+      await prisma.blob.count({ where: { nodeId, kind: { in: ['POSTER', 'SPRITE', 'HLS'] } } }),
+    ).toBe(3);
+
+    // Transcode lại: bản HLS cũ vào hàng đợi dọn, GC xoá cả thư mục.
+    const vt = app.get(
+      (await import('../src/processors/video-transcode.processor.js')).VideoTranscodeProcessor,
+    );
+    await vt.transcode({ nodeId, versionId });
+    const again = await prisma.video.findUniqueOrThrow({ where: { nodeId } });
+    expect(again.hlsBlobId).not.toBe(video.hlsBlobId);
+    await maintenance.collectGarbage();
+    expect(await exists(BUCKETS.S3_BUCKET_HLS, `${hls.key}master.m3u8`)).toBe(false);
+    expect(await exists(BUCKETS.S3_BUCKET_HLS, `${hls.key}720p/${firstSeg}`)).toBe(false);
+  }, 180_000);
+
+  it('job của phiên bản không còn hiện tại không ghi đè; lỗi của nó không đổi trạng thái', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'luna-vtest-'));
+    const src = join(dir, 'small.mp4');
+    execFileSync('ffmpeg', [
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-y',
+      '-f',
+      'lavfi',
+      '-i',
+      'testsrc2=size=320x180:rate=25',
+      '-t',
+      '2',
+      '-c:v',
+      'libx264',
+      '-preset',
+      'ultrafast',
+      src,
+    ]);
+    const { nodeId, versionId } = await videoUpload(await readFile(src), 'Hai phiên bản.mp4');
+    await waitSettled(nodeId);
+    const before = await prisma.video.findUniqueOrThrow({ where: { nodeId } });
+
+    // Một phiên bản khác thành bản hiện tại (upload mới / khôi phục bản khác).
+    const original = await prisma.blob.findFirstOrThrow({ where: { nodeId, kind: 'ORIGINAL' } });
+    const other = await prisma.fileVersion.create({
+      data: {
+        nodeId,
+        versionNo: 2,
+        fileName: 'v2.mp4',
+        originalBlobId: original.id,
+        uploadedById: userId,
+      },
+    });
+    await prisma.fileInfo.update({ where: { nodeId }, data: { currentVersionId: other.id } });
+
+    const vt = app.get(
+      (await import('../src/processors/video-transcode.processor.js')).VideoTranscodeProcessor,
+    );
+    expect(await vt.transcode({ nodeId, versionId })).toEqual({
+      skipped: 'not the current version',
+    });
+    expect((await prisma.video.findUniqueOrThrow({ where: { nodeId } })).hlsBlobId).toBe(
+      before.hlsBlobId,
+    );
+
+    // Lỗi cuối của job phiên bản cũ: không đụng trạng thái.
+    await prisma.node.update({ where: { id: nodeId }, data: { status: 'PROCESSING' } });
+    await vt.onFailed(
+      {
+        name: 'transcode',
+        data: { nodeId, versionId },
+        attemptsMade: 3,
+        opts: { attempts: 3 },
+      } as never,
+      new Error('x'),
+    );
+    expect((await prisma.node.findUniqueOrThrow({ where: { id: nodeId } })).status).toBe(
       'PROCESSING',
     );
+
+    // Lỗi cuối của job phiên bản hiện tại mà HLS đang có dựng từ bản khác: FAILED, không READY giả.
+    await vt.onFailed(
+      {
+        name: 'transcode',
+        data: { nodeId, versionId: other.id },
+        attemptsMade: 3,
+        opts: { attempts: 3 },
+      } as never,
+      new Error('x'),
+    );
+    expect((await prisma.node.findUniqueOrThrow({ where: { id: nodeId } })).status).toBe('FAILED');
+  }, 120_000);
+
+  it('video hỏng (chỉ có header MP4) → FAILED kèm lý do, không thử lại', async () => {
+    const mp4 = Buffer.concat([
+      Buffer.from([0, 0, 0, 0x18]),
+      Buffer.from('ftypisom'),
+      Buffer.from([0, 0, 2, 0]),
+      Buffer.from('isomiso2'),
+      Buffer.alloc(64),
+    ]);
+    const { nodeId } = await videoUpload(mp4, 'hong.mp4');
+    const node = await waitSettled(nodeId);
+    expect(node.status).toBe('FAILED');
+    expect(node.file?.processingError).toMatch(/video/i);
+    expect(await prisma.video.findUnique({ where: { nodeId } })).toBeNull();
+  }, 60_000);
+
+  it('dọn thư mục tạm của job bị ngắt đột ngột (quá 12 giờ), giữ thư mục đang dùng', async () => {
+    const { mkdirSync, existsSync, rmSync, utimesSync } = await import('node:fs');
+    const root = process.env.WORKER_TMP_DIR ?? tmpdir();
+    const old = join(root, `luna-video-stale-${Date.now()}`);
+    const fresh = join(root, `luna-video-fresh-${Date.now()}`);
+    mkdirSync(old);
+    mkdirSync(fresh);
+    const past = new Date(Date.now() - 13 * 3600_000);
+    utimesSync(old, past, past);
+    expect(await maintenance.cleanWorkDirs()).toBeGreaterThanOrEqual(1);
+    expect(existsSync(old)).toBe(false);
+    expect(existsSync(fresh)).toBe(true);
+    rmSync(fresh, { recursive: true });
   });
 
   it('dọn upload bỏ dở quá hạn: xóa mục đang chờ, giữ file đã có', async () => {

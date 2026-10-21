@@ -76,3 +76,24 @@ docker build --target api -t luna-api .      # hoặc worker | collab
 
 - **MinIO**: MinIO đã ngừng phát hành image chính thức, nên môi trường dev dùng bản fork `pgsty/minio` (cùng mã nguồn, có version cố định). Code chỉ dùng S3 API, nên có thể đổi sang RustFS, Garage, R2… mà không phải sửa code. Lựa chọn cho production sẽ chốt ở Phase 7.
 - Cổng mặc định 4000/4001 để tránh trùng với các app Next.js hay chạy ở 3000/3001.
+
+## Backup và khôi phục
+
+File gốc chỉ nằm trên MinIO nên backup là bắt buộc (SPEC §5.6). Đặt trong `.env`:
+
+```bash
+BACKUP_DEST=/mnt/luna-backup   # ổ ngoài, hoặc remote rclone (vd. b2:luna-backup + RCLONE_CONFIG_B2_*)
+BACKUP_PASSWORD=...            # mã hoá kho backup; mất mật khẩu là mất backup, cất ngoài máy chủ
+BACKUP_KEEP_DAYS=30
+```
+
+```bash
+pnpm backup                                    # dump Postgres + bucket originals, assets (mã hoá, rclone trong Docker)
+pnpm restore list                              # các bản dump, lần backup thành công gần nhất
+pnpm restore db latest <DATABASE_URL đích>     # khôi phục vào DB trống; trùng DB đang chạy thì cần --force
+pnpm restore files <endpoint> <key> <secret>   # chép file gốc về một MinIO/S3
+```
+
+Lịch chạy trên máy chủ (cron): `30 2 * * * cd /opt/luna/backend && pnpm backup >> /var/log/luna-backup.log 2>&1`.
+Preview, thumbnail, HLS không backup; sau khi khôi phục tạo lại bằng `POST /files/:id/regenerate`.
+Nên thử khôi phục định kỳ vào máy khác để chắc backup dùng được.

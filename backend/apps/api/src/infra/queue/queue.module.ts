@@ -14,7 +14,11 @@ import { APP_CONFIG, type AppConfig } from '../../config/app-config.js';
         prefix: 'luna',
       }),
     }),
-    BullModule.registerQueue({ name: QUEUES.FILE_PROCESS }, { name: QUEUES.MAINTENANCE }),
+    BullModule.registerQueue(
+      { name: QUEUES.FILE_PROCESS },
+      { name: QUEUES.MAINTENANCE },
+      { name: QUEUES.VIDEO_TRANSCODE },
+    ),
   ],
   exports: [BullModule],
 })

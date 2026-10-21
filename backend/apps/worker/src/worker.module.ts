@@ -12,6 +12,7 @@ import { PrismaService } from './infra/prisma.provider.js';
 import { NodeEventsPublisher } from './infra/redis.provider.js';
 import { StorageService } from './infra/storage.provider.js';
 import { FileProcessProcessor } from './processors/file-process.processor.js';
+import { VideoTranscodeProcessor } from './processors/video-transcode.processor.js';
 import { MaintenanceProcessor } from './processors/maintenance.processor.js';
 import { SystemProcessor } from './processors/system.processor.js';
 
@@ -61,6 +62,7 @@ class WorkerConfigModule {}
     SystemProcessor,
     MaintenanceProcessor,
     FileProcessProcessor,
+    VideoTranscodeProcessor,
   ],
 })
 export class WorkerModule {}

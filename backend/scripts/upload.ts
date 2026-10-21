@@ -112,7 +112,8 @@ try {
 }
 
 await call('POST', `/uploads/${upload.uploadId}/complete`, token, {});
-for (let i = 0; i < 120; i++) {
+// Video: transcode có thể lâu hơn nhiều, CLI chỉ chờ tối đa 5 phút.
+for (let i = 0; i < (kind === 'VIDEO' ? 300 : 120); i++) {
   const file = await call<{
     node: { status: string };
     processingError: string | null;
@@ -131,4 +132,6 @@ for (let i = 0; i < 120; i++) {
   }
   await new Promise((r) => setTimeout(r, 1000));
 }
-console.log('… still processing (video waits for Phase 4 transcode)');
+console.log(
+  `… vẫn đang xử lý (video dài thì transcode lâu): node=${upload.nodeId}, theo dõi GET /api/v1/nodes/${upload.nodeId}/events`,
+);

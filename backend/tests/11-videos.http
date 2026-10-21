@@ -1,0 +1,194 @@
+# @import ./_auth.http
+# Video: upload → transcode HLS (worker + ffmpeg) → phiên xem có bảo vệ (SPEC §4.6, §7.9).
+# Cần `pnpm dev` (API + worker) và ffmpeg trên máy chạy worker.
+@apiUrl = http://localhost:4000/api/v1
+@origin = http://localhost:4000
+
+{{
+  const fs = require('fs');
+  const path = require('path');
+  exports.mp4Size = fs.statSync(path.join(__dirname, 'fixtures', 'sample.mp4')).size;
+}}
+
+### Upload video 4 giây
+# @name vUpload
+# @ref editor
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/uploads
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{ "fileName": "Giới thiệu {{$timestamp}}.mp4", "size": {{mp4Size}}, "kind": "VIDEO" }
+
+?? status == 201
+?? body kind == VIDEO
+
+###
+# @ref vUpload
+PUT {{vUpload.parts[0].url}}
+
+< ./fixtures/sample.mp4
+
+?? status == 200
+
+###
+# @ref vUpload
+POST {{apiUrl}}/uploads/{{vUpload.uploadId}}/complete
+Authorization: Bearer {{editor.accessToken}}
+Content-Type: application/json
+
+{}
+
+?? status == 200
+
+### Sau transcode: READY, có các bậc chất lượng (nguồn 360p → chỉ 360p)
+# Nếu worker đang bận một video dài (mỗi lúc một job), bước này phải chờ video đó xong.
+# @sleep 12000
+# @name vDetail
+# @ref vUpload
+GET {{apiUrl}}/videos/{{vUpload.nodeId}}
+Authorization: Bearer {{viewer.accessToken}}
+
+?? status == 200
+?? body node.status == READY
+?? body video.width == 640
+?? js response.parsedBody.video.renditions.map(r => r.name).join(',') === '360p' == true
+
+### Không tải video được, kể cả OWNER
+# @ref vDetail
+# @ref owner
+GET {{apiUrl}}/files/{{vUpload.nodeId}}/download
+Authorization: Bearer {{owner.accessToken}}
+
+?? status == 403
+
+### Người ngoài workspace không mở được phiên xem → 404
+# @ref vDetail
+# @ref outsider
+POST {{apiUrl}}/videos/{{vUpload.nodeId}}/playback
+Authorization: Bearer {{outsider.accessToken}}
+
+?? status == 404
+
+### Bắt đầu phiên xem
+# @name pb
+# @ref vDetail
+POST {{apiUrl}}/videos/{{vUpload.nodeId}}/playback
+Authorization: Bearer {{viewer.accessToken}}
+
+?? status == 200
+?? body watermark.email == qa.viewer@lunatech.vn
+?? js response.parsedBody.durationSec > 3
+
+### Master playlist (không cần token đăng nhập, chỉ cần phiên xem)
+# @ref pb
+GET {{origin}}{{pb.masterUrl}}
+
+?? status == 200
+?? header content-type includes mpegurl
+?? body includes /hls/360p/index.m3u8?s=
+
+### Media playlist: khoá và segment trỏ về API
+# @name media
+# @ref pb
+GET {{apiUrl}}/videos/{{vUpload.nodeId}}/hls/360p/index.m3u8?s={{pb.token}}
+
+?? status == 200
+?? body includes #EXT-X-KEY:METHOD=AES-128,URI="/api/v1/videos/
+?? body includes seg_0000.ts?s=
+
+### Segment → 302 tới URL MinIO ký sẵn 2 phút
+# @ref pb
+# @noRedirect
+GET {{apiUrl}}/videos/{{vUpload.nodeId}}/hls/360p/seg_0000.ts?s={{pb.token}}
+
+?? status == 302
+?? header location includes X-Amz-Expires=120
+
+### Khoá AES-128: đúng 16 byte, không cache
+# @ref pb
+GET {{apiUrl}}/videos/{{vUpload.nodeId}}/key?s={{pb.token}}
+
+?? status == 200
+?? header cache-control includes no-store
+?? header content-length == 16
+
+### Phiên giả → 404
+# @ref vDetail
+GET {{apiUrl}}/videos/{{vUpload.nodeId}}/key?s=khong-phai-phien-that-0123456789
+
+?? status == 404
+
+### Lưu vị trí xem dở
+# @ref pb
+PUT {{apiUrl}}/videos/{{vUpload.nodeId}}/progress
+Authorization: Bearer {{viewer.accessToken}}
+Content-Type: application/json
+
+{ "positionSec": 2.5 }
+
+?? status == 204
+
+### Mở lại: xem tiếp từ 2,5 giây
+# @ref pb
+GET {{apiUrl}}/videos/{{vUpload.nodeId}}
+Authorization: Bearer {{viewer.accessToken}}
+
+?? status == 200
+?? body resumeAt == 2.5
+?? body video.viewCount == 1
+
+### Ảnh xem trước khi tua (WebVTT, ảnh là URL ký)
+# @ref pb
+GET {{apiUrl}}/videos/{{vUpload.nodeId}}/sprite.vtt
+Authorization: Bearer {{viewer.accessToken}}
+
+?? status == 200
+?? body includes WEBVTT
+?? body includes X-Amz-Signature
+
+### VIEWER không transcode lại được → 403
+# @ref vDetail
+POST {{apiUrl}}/videos/{{vUpload.nodeId}}/retranscode
+Authorization: Bearer {{viewer.accessToken}}
+
+?? status == 403
+
+### System Admin: danh sách video
+# @ref vDetail
+# @ref admin
+GET {{apiUrl}}/admin/videos?limit=5
+Authorization: Bearer {{admin.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.some(v => v.id === vUpload.nodeId) == true
+
+### System Admin: link file gốc dùng một lần
+# @name origLink
+# @ref vDetail
+# @ref admin
+POST {{apiUrl}}/admin/videos/{{vUpload.nodeId}}/original-link
+Authorization: Bearer {{admin.accessToken}}
+
+?? status == 201
+
+###
+# @ref origLink
+GET {{origin}}{{origLink.url}}
+
+?? status == 200
+?? header content-disposition includes attachment
+
+### Link đã dùng → 404
+# @ref origLink
+GET {{origin}}{{origLink.url}}
+
+?? status == 404
+
+### Người dùng thường không lấy được file gốc
+# @ref vDetail
+# @ref owner
+POST {{apiUrl}}/admin/videos/{{vUpload.nodeId}}/original-link
+Authorization: Bearer {{owner.accessToken}}
+
+?? status == 403

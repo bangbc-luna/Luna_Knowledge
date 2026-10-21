@@ -43,6 +43,10 @@ enum BlobKind {
   ORIGINAL
   PREVIEW
   THUMBNAIL
+  /// Thư mục HLS của một lần transcode: key là tiền tố (kết thúc bằng "/"), GC xoá cả thư mục.
+  HLS
+  POSTER
+  SPRITE
 }
 
 enum StorageProvider {
@@ -86,6 +90,7 @@ model User {
   recentViews       RecentView[]
   fileVersions      FileVersion[]
   uploadSessions    UploadSession[]
+  videoWatches      VideoWatch[]
 
   @@map("users")
 }
@@ -212,6 +217,8 @@ model Node {
   file      FileInfo?
   versions  FileVersion[]
   uploads   UploadSession[]
+  video     Video?
+  watches   VideoWatch[]
 
   @@unique([parentId, nameNormalized], map: "nodes_unique_name_in_folder", where: raw("deleted_at IS NULL AND parent_id IS NOT NULL"))
   @@unique([workspaceId, nameNormalized], map: "nodes_unique_name_at_root", where: raw("deleted_at IS NULL AND parent_id IS NULL"))
@@ -392,4 +399,43 @@ model BlobGc {
   createdAt DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
 
   @@map("blob_gc")
+}
+
+/// Bản HLS phát được của một video (SPEC §4.6, VIDEO-1). Một node VIDEO có tối đa một bản đang dùng,
+/// dựng từ phiên bản `versionId`; transcode lại thì thay cả bản (blob cũ vào hàng đợi dọn).
+model Video {
+  nodeId       String   @id @map("node_id") @db.Uuid
+  versionId    String   @map("version_id") @db.Uuid
+  durationSec  Float    @map("duration_sec")
+  width        Int
+  height       Int
+  /// [{name:"720p", width, height, bandwidth, playlist:"720p/index.m3u8"}]
+  renditions   Json
+  hlsBlobId    String   @map("hls_blob_id") @db.Uuid
+  posterBlobId String?  @map("poster_blob_id") @db.Uuid
+  spriteBlobId String?  @map("sprite_blob_id") @db.Uuid
+  /// WebVTT ảnh xem trước khi tua; ảnh sprite ghi là "sprite.jpg", API thay bằng URL ký.
+  spriteVtt    String?  @map("sprite_vtt")
+  /// Khoá AES-128 của video, mã hoá AES-256-GCM bằng VIDEO_MASTER_KEY: iv(12) | tag(16) | ciphertext(16).
+  keyEncrypted Bytes    @map("key_encrypted")
+  viewCount    Int      @default(0) @map("view_count")
+  transcodedAt DateTime @default(now()) @map("transcoded_at") @db.Timestamptz(3)
+
+  node Node @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+
+  @@map("videos")
+}
+
+/// Vị trí đang xem dở của từng người (VIDEO-5).
+model VideoWatch {
+  userId      String   @map("user_id") @db.Uuid
+  nodeId      String   @map("node_id") @db.Uuid
+  positionSec Float    @map("position_sec")
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  node Node @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+
+  @@id([userId, nodeId])
+  @@map("video_watch_progress")
 }

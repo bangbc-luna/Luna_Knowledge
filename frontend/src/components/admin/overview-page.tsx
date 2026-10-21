@@ -15,7 +15,7 @@ function Stat({ label, value, sub, tone }: { label: string; value: string; sub: 
     <div className="row-span-3 grid min-w-0 grid-rows-subgrid content-start gap-1 bg-surface p-4 sm:p-5">
       <p className="text-xs font-medium text-muted">{label}</p>
       <p className="text-xl font-semibold tabular-nums sm:text-2xl">{value}</p>
-      <p className={cn("truncate text-xs", tone === "warn" ? "font-medium text-warn" : "text-muted")}>{sub}</p>
+      <p className={cn("text-xs text-pretty", tone === "warn" ? "font-medium text-warn" : "text-muted")}>{sub}</p>
     </div>
   );
 }
@@ -46,7 +46,7 @@ function ActivityChart({ days }: { days: AdminStats["activity"]["last7Days"] }) 
       </div>
       <div className="mt-3 flex gap-2 border-t border-border pt-3 sm:gap-3">
         {days.map((d, i) => (
-          <p key={d.date} className="flex-1 truncate text-center text-xs text-muted">
+          <p key={d.date} className="min-w-0 flex-1 text-center text-xs/4 text-balance text-muted">
             {label(d.date, i)}
           </p>
         ))}

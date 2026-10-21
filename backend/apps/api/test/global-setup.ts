@@ -48,6 +48,7 @@ export async function setup() {
     GOOGLE_CLIENT_SECRET: 'test-client-secret',
     ALLOWED_GOOGLE_DOMAINS: 'lunatech.vn',
     JWT_ACCESS_SECRET: 'e2e-access-secret-0123456789-abcdefghij',
+    VIDEO_MASTER_KEY: Buffer.alloc(32, 9).toString('base64'),
     AUTH_REDIRECT_URL: 'http://localhost:5173/auth/done',
     SESSION_IDLE_TIMEOUT_MIN: '60',
     SESSION_ABSOLUTE_TIMEOUT_HOURS: '12',

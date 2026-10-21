@@ -1,7 +1,13 @@
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import type { Readable } from 'node:stream';
-import { DeleteObjectCommand, GetObjectCommand, type S3Client } from '@aws-sdk/client-s3';
+import {
+  DeleteObjectCommand,
+  DeleteObjectsCommand,
+  GetObjectCommand,
+  ListObjectsV2Command,
+  type S3Client,
+} from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import type { BlobRef, BlobStorage, PutOptions } from './blob-storage.js';
 
@@ -38,7 +44,31 @@ export class S3BlobStorage implements BlobStorage {
     return { body: res.Body as Readable, size: res.ContentLength };
   }
 
+  /** Key kết thúc bằng "/" là một thư mục (bản HLS): xoá mọi object bên dưới. */
   async delete(ref: BlobRef): Promise<void> {
-    await this.client.send(new DeleteObjectCommand({ Bucket: ref.container, Key: ref.key }));
+    if (!ref.key.endsWith('/')) {
+      await this.client.send(new DeleteObjectCommand({ Bucket: ref.container, Key: ref.key }));
+      return;
+    }
+    let token: string | undefined;
+    do {
+      const page = await this.client.send(
+        new ListObjectsV2Command({
+          Bucket: ref.container,
+          Prefix: ref.key,
+          ContinuationToken: token,
+        }),
+      );
+      const objects = (page.Contents ?? []).map((o) => ({ Key: o.Key! }));
+      if (objects.length) {
+        await this.client.send(
+          new DeleteObjectsCommand({
+            Bucket: ref.container,
+            Delete: { Objects: objects, Quiet: true },
+          }),
+        );
+      }
+      token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (token);
   }
 }

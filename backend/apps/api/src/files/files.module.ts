@@ -4,6 +4,7 @@ import { FilesController } from './files.controller.js';
 import { FilesService } from './files.service.js';
 import { NodeEventsService } from './node-events.service.js';
 import { StorageService } from './storage.service.js';
+import { TranscodeQueueService } from './transcode-queue.service.js';
 import { UploadsController } from './uploads.controller.js';
 import { UploadsService } from './uploads.service.js';
 
@@ -11,6 +12,13 @@ import { UploadsService } from './uploads.service.js';
 @Module({
   imports: [ContentModule],
   controllers: [UploadsController, FilesController],
-  providers: [StorageService, NodeEventsService, UploadsService, FilesService],
+  providers: [
+    StorageService,
+    NodeEventsService,
+    UploadsService,
+    FilesService,
+    TranscodeQueueService,
+  ],
+  exports: [StorageService, NodeEventsService, TranscodeQueueService],
 })
 export class FilesModule {}

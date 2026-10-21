@@ -24,10 +24,35 @@ export const JOBS = {
   PURGE_TRASH: 'purge-trash',
   CLEAN_UPLOADS: 'clean-uploads',
   BLOB_GC: 'blob-gc',
+  TRANSCODE: 'transcode',
 } as const;
 
 export interface ProcessUploadJob {
   uploadId: string;
+}
+/**
+ * Độ ưu tiên job transcode theo dung lượng file gốc (BullMQ: số nhỏ chạy trước): video ngắn không
+ * phải xếp sau video dài đang chờ. Mỗi 50 MB lùi một bậc.
+ */
+export function transcodePriority(sizeBytes: number | bigint): number {
+  return Math.min(1000, 1 + Math.floor(Number(sizeBytes) / (50 * 1024 * 1024)));
+}
+
+/** Tuỳ chọn job transcode dùng chung cho mọi nơi đẩy job (upload, transcode lại, khôi phục phiên bản). */
+export function transcodeJobOptions(sizeBytes: number | bigint, jobId?: string) {
+  return {
+    ...(jobId ? { jobId } : {}),
+    priority: transcodePriority(sizeBytes),
+    attempts: 3,
+    backoff: { type: 'exponential' as const, delay: 30_000 },
+    removeOnComplete: 100,
+    removeOnFail: 500,
+  };
+}
+
+export interface TranscodeJob {
+  nodeId: string;
+  versionId: string;
 }
 export interface RegenerateJob {
   nodeId: string;
@@ -39,4 +64,6 @@ export interface NodeEvent {
   status: 'UPLOADING' | 'PROCESSING' | 'READY' | 'FAILED';
   versionId?: string;
   error?: string;
+  /** Tiến độ transcode video, 0..100. */
+  progress?: number;
 }

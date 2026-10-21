@@ -15,6 +15,8 @@ import {
   type ProcessUploadJob,
   QUEUES,
   type RegenerateJob,
+  type TranscodeJob,
+  transcodeJobOptions,
 } from '@luna/shared';
 import { InjectQueue, OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger, type OnApplicationBootstrap } from '@nestjs/common';
@@ -102,7 +104,7 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
 
     const node = session.node;
     const kind = node.type === 'VIDEO' ? 'VIDEO' : 'FILE';
-    const workDir = await mkdtemp(join(tmpdir(), 'luna-file-'));
+    const workDir = await mkdtemp(join(this.config.WORKER_TMP_DIR ?? tmpdir(), 'luna-file-'));
     const written: WrittenBlob[] = [];
     try {
       const local = join(workDir, 'original');
@@ -196,9 +198,9 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
       await this.storage.s3.send(new DeleteObjectCommand(tmp)).catch(() => undefined);
       if (kind === 'VIDEO') {
         await this.videoQueue.add(
-          'transcode',
-          { nodeId: node.id, versionId: uploadId },
-          { jobId: `transcode-${uploadId}`, removeOnComplete: 100, removeOnFail: 500 },
+          JOBS.TRANSCODE,
+          { nodeId: node.id, versionId: uploadId } satisfies TranscodeJob,
+          transcodeJobOptions(size, `transcode-${uploadId}`),
         );
       }
       await this.events.publish({
@@ -235,7 +237,7 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
         throw new UnrecoverableError(`Unknown stored type ${version.original.mime}`);
       })();
 
-    const workDir = await mkdtemp(join(tmpdir(), 'luna-regen-'));
+    const workDir = await mkdtemp(join(this.config.WORKER_TMP_DIR ?? tmpdir(), 'luna-regen-'));
     const written: WrittenBlob[] = [];
     try {
       const local = join(workDir, 'original');

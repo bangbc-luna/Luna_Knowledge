@@ -5,6 +5,7 @@ import {
   redisEnvSchema,
   s3EnvSchema,
   uploadEnvSchema,
+  videoEnvSchema,
 } from '@luna/shared';
 import { z } from 'zod';
 
@@ -23,6 +24,7 @@ export const apiEnvSchema = baseEnvSchema
   .extend(redisEnvSchema.shape)
   .extend(s3EnvSchema.shape)
   .extend(uploadEnvSchema.shape)
+  .extend(videoEnvSchema.pick({ VIDEO_MASTER_KEY: true }).shape)
   .extend({
     API_PORT: z.coerce.number().int().positive().default(4000),
     API_PUBLIC_URL: z.url().default('http://localhost:4000'),
