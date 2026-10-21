@@ -53,29 +53,47 @@ Luna Knowledge là hệ thống lưu trữ và chia sẻ tri thức nội bộ c
 - **System Admin**: quản lý user, tạo/xóa workspace, xem audit log toàn hệ thống, cấu hình. System Admin có quyền quản trị mọi workspace (sửa, xóa, quản lý thành viên) kể cả khi không phải thành viên, nhưng **không** tự có quyền xem nội dung: muốn xem tài liệu/video phải tự thêm mình làm thành viên (được ghi audit log).
 - **User**: người dùng thông thường, được tự động tạo ở lần đăng nhập Google đầu tiên. Có thể được thêm vào workspace trước khi đăng nhập lần nào: hệ thống tạo sẵn tài khoản theo email công ty.
 
-### 3.2 Vai trò trong workspace
+### 3.2 Thành viên workspace và quyền trên từng mục
 
-| Quyền | OWNER | ADMIN | EDITOR | VIEWER |
-|---|:-:|:-:|:-:|:-:|
-| Xem nội dung, xem video, comment | ✓ | ✓ | ✓ | ✓ |
-| Tải file tài liệu (không áp dụng cho video) | ✓ | ✓ | ✓ | ✓ |
-| Tạo/sửa/di chuyển/upload | ✓ | ✓ | ✓ | |
-| Xóa (vào thùng rác), khôi phục | ✓ | ✓ | ✓ (nội dung của mình) | |
-| Share folder/node | ✓ | ✓ | | |
-| Quản lý thành viên workspace | ✓ | ✓ | | |
-| Xóa vĩnh viễn, đổi tên/xóa workspace, chuyển owner | ✓ | | | |
+Workspace chỉ có **một vai trò: Thành viên**. Chỉ System Admin thêm hoặc gỡ thành viên; thành viên tự rời được.
+
+Quyền trên một mục (folder, tài liệu, tệp, video) là quyền cao nhất trong các nguồn sau:
+
+| Nguồn | Quyền trên mục (`myRole`) |
+|---|---|
+| Thành viên workspace | `EDITOR` |
+| Người tạo mục, hoặc người tạo một folder tổ tiên của mục | `OWNER` |
+| Được share **Được chỉnh sửa** (`EDITOR`) trên mục hoặc folder tổ tiên | `OWNER` |
+| Được share **Chỉ xem** (`VIEWER`) trên mục hoặc folder tổ tiên | `VIEWER` |
+
+| Việc | VIEWER | EDITOR (thành viên) | OWNER |
+|---|:-:|:-:|:-:|
+| Xem, xem video, comment, tải file tài liệu (không áp dụng cho video) | ✓ | ✓ | ✓ |
+| Tạo, upload, sửa nội dung, đổi tên, di chuyển, tải bản mới, khôi phục phiên bản, gắn và tạo tag | | ✓ (có ghi log cho người sở hữu xem) | ✓ |
+| Xoá vào thùng rác | | | ✓ |
+| Chia sẻ mục cho người khác | | | ✓ |
+| Xem log hoạt động của mục (`GET /nodes/:id/activity`) | | | ✓ |
+
+- Thùng rác: thành viên xem được; người đã xoá hoặc System Admin khôi phục; xoá vĩnh viễn và dọn thùng rác chỉ System Admin.
+- Tag: thành viên tạo và gắn; đổi tên, xoá định nghĩa tag chỉ System Admin.
+- Comment: xoá comment là tác giả hoặc OWNER của tài liệu; resolve là người mở thread hoặc thành viên.
+- Log cho người sở hữu: mỗi khi người sửa tài liệu đổi sang người khác, hệ thống tự lưu một phiên bản cho người trước (ghi `document.edit` kèm số từ thêm, bớt). Đổi tên, di chuyển, tải bản mới, chia sẻ cũng có trong log hoạt động của mục.
 
 ### 3.3 Share theo folder/node
 
-- OWNER/ADMIN có thể cấp quyền `EDITOR` hoặc `VIEWER` trên một folder hay node cho **bất kỳ user nào trong công ty**, kể cả người không thuộc workspace.
+- OWNER của mục cấp quyền **Chỉ xem** hoặc **Được chỉnh sửa** trên một folder hay mục cho **bất kỳ user nào trong công ty**, kể cả người không thuộc workspace.
 - Quyền share **được kế thừa** xuống toàn bộ cây con.
-- **Effective role** = quyền cao nhất trong các nguồn: (a) vai trò ở workspace, (b) các share trên node đó và trên các node tổ tiên.
 - MVP chỉ cho phép share **cộng thêm quyền**, chưa hỗ trợ "folder hạn chế" (chặn bớt quyền). Tính năng này để ở bản sau.
 - Người chỉ có share (không thuộc workspace) chỉ nhìn thấy các nhánh được share, qua mục "Được chia sẻ với tôi".
 
+### 3.3b Hai khu Tài liệu và Video
+
+- Mỗi workspace có hai cây thư mục riêng: **Tài liệu** (`section = DOCS`: tài liệu soạn thảo và file tải lên như PDF, Word, Excel, ảnh) và **Video** (`section = VIDEOS`: chỉ folder và video).
+- Folder con theo khu của folder cha; không di chuyển được mục sang khu khác; tên ở gốc chỉ cần không trùng trong cùng khu.
+
 ### 3.4 Quy tắc với video
 
-- **Không có API tải video** cho bất kỳ vai trò nào, kể cả OWNER. File gốc chỉ System Admin truy cập được, qua công cụ quản trị, và mọi lượt truy cập đều ghi audit log.
+- **Không có API tải video** cho bất kỳ ai, kể cả người sở hữu. File gốc chỉ System Admin truy cập được, qua công cụ quản trị, và mọi lượt truy cập đều ghi audit log.
 - Các biện pháp bảo vệ: HLS mã hóa AES-128, khóa giải mã chỉ cấp qua API có xác thực, URL segment hết hạn ngắn, watermark động (email + thời gian) phủ lên player ở FE.
 - Lưu ý: không biện pháp nào chặn được 100% việc quay màn hình. Mục tiêu là chặn tải trực tiếp và truy vết được người làm rò rỉ.
 
@@ -96,9 +114,10 @@ Luna Knowledge là hệ thống lưu trữ và chia sẻ tri thức nội bộ c
 
 ### 4.2 Workspace (WS)
 
-- WS-1: System Admin tạo workspace và chỉ định OWNER.
-- WS-2: OWNER/ADMIN thêm/xóa thành viên và đổi vai trò.
-- WS-3: Liệt kê các workspace mà user là thành viên, kèm vai trò.
+- WS-1: System Admin tạo workspace, có thể kèm danh sách thành viên ban đầu.
+- WS-1b: Có một workspace chung toàn công ty (slug trong env `DEFAULT_WORKSPACE_SLUG`, mặc định `lunatech`). User được tạo lần đầu (đăng nhập, được thêm làm thành viên hay được chia sẻ) tự vào workspace này làm thành viên, có ghi nhật ký. Ai đã bị xoá khỏi workspace chung thì không tự vào lại. User chưa thuộc workspace nào thấy hướng dẫn kèm danh sách quản trị hệ thống để liên hệ (`GET /users/admins`).
+- WS-2: System Admin thêm và gỡ thành viên; thành viên tự rời được. Trong app, thành viên xem danh sách thành viên ở cột bên phải (bật/tắt).
+- WS-3: Liệt kê các workspace mà user là thành viên.
 - WS-4: Thống kê dung lượng theo workspace (tổng file gốc, tổng HLS).
 
 ### 4.3 Cây nội dung (NODE)
@@ -146,7 +165,7 @@ Luna Knowledge là hệ thống lưu trữ và chia sẻ tri thức nội bộ c
 ### 4.7 Tài liệu soạn thảo (DOC)
 
 - DOC-1: Tạo document trống hoặc từ template (template: bản sau).
-- DOC-2: Soạn thảo real-time qua WebSocket (Hocuspocus). Xác thực bằng access token; VIEWER được kết nối ở chế độ chỉ đọc.
+- DOC-2: Soạn thảo real-time qua WebSocket (Hocuspocus). Xác thực bằng access token; người chỉ có share Chỉ xem được kết nối ở chế độ chỉ đọc.
 - DOC-3: Hiển thị con trỏ và tên những người đang cùng sửa (awareness).
 - DOC-4: Persist trạng thái Yjs vào PostgreSQL (debounce 2 giây, tối đa 10 giây). Mỗi lần persist cập nhật luôn bản snapshot JSON/HTML và plain text để tìm kiếm.
 - DOC-5: Lịch sử phiên bản:
@@ -178,7 +197,7 @@ Luna Knowledge là hệ thống lưu trữ và chia sẻ tri thức nội bộ c
 
 - AUDIT-1: Ghi lại các hành động: đăng nhập, tạo/sửa/xóa/khôi phục/di chuyển node, đổi quyền, share, tải file, xem video (bắt đầu phiên xem), truy cập file gốc video, đổi thành viên. Lượt mở thư mục/tài liệu ghi là `node.view`; cùng một người mở lại cùng một mục trong 5 phút chỉ tính một lần.
 - AUDIT-2: Mỗi bản ghi gồm: actor, action, target, workspace, metadata (JSON), IP, user-agent, thời điểm.
-- AUDIT-3: OWNER/ADMIN xem log của workspace mình; System Admin xem toàn hệ thống. Có lọc và xuất CSV.
+- AUDIT-3: System Admin xem log toàn hệ thống, có lọc và xuất CSV. Người sở hữu một mục xem log hoạt động của mục đó.
 - AUDIT-4: Bảng log chỉ cho phép ghi thêm (append-only), lưu tối thiểu 1 năm.
 
 ---
@@ -277,12 +296,13 @@ Client                API                  S3(tmp)        Worker               S
 
 ### 5.5 Collab server
 
-- Extension `onAuthenticate`: xác minh JWT, tính effective role trên document (cache Redis 60 giây), VIEWER thì đặt `connection.readOnly = true`.
-- Extension `Database`: `fetch` và `store` cột `yjs_state` (bytea) trong bảng `documents`.
-- Hook `onStoreDocument` cập nhật snapshot JSON, plain text và `updated_at`, rồi đẩy job index vào hàng đợi.
-- Hook `onDisconnect`: khi document không còn kết nối nào thì đẩy job tạo phiên bản.
-- Extension Redis để chạy nhiều instance khi cần mở rộng.
-- Khi quyền bị thu hồi, API publish sự kiện, collab server ngắt kết nối của user đó.
+- `onAuthenticate`: xác minh collab token (JWT HS256, `aud=luna-collab`, 5 phút, `doc` phải khớp `documentName`), tính effective role từ DB mỗi lần kết nối; VIEWER thì kết nối chỉ đọc.
+- Lưu và nạp cột `yjs_state` (bytea) trong bảng `documents`; tài liệu chưa có state thì dựng từ `content_json`.
+- Hook `onStoreDocument` (debounce 2 giây, tối đa 10 giây) cập nhật snapshot JSON, plain text, số từ, người sửa cuối, rồi đẩy job index vào hàng đợi; sửa liên tục quá 30 phút thì tạo phiên bản tự động.
+- Khi document không còn kết nối nào và có thay đổi chưa vào phiên bản thì tạo phiên bản tự động.
+- Khi quyền thay đổi, API publish kênh Redis `collab:access` `{workspaceId?, userId?, nodeId?}`; collab server kiểm lại các kết nối liên quan, đóng kết nối mất quyền hoặc chuyển sang chỉ đọc.
+- Endpoint nội bộ `POST /internal/documents/:id/snapshot` và `/replace` (header `x-internal-secret`) cho API lấy nội dung mới nhất và khôi phục phiên bản trực tiếp trên tài liệu đang mở.
+- Extension Redis để chạy nhiều instance khi cần mở rộng (chưa bật).
 
 ### 5.6 Triển khai on-premise tại văn phòng
 
@@ -317,7 +337,7 @@ refresh_tokens(id, user_id FK, token_hash, expires_at, revoked_at, user_agent, i
 workspaces(id, name, slug UK, description, icon,
            storage_target_id FK, created_by, created_at, deleted_at)
 
-workspace_members(workspace_id FK, user_id FK, role[OWNER|ADMIN|EDITOR|VIEWER],
+workspace_members(workspace_id FK, user_id FK, role[MEMBER],
                   added_by, created_at, PK(workspace_id,user_id))
 
 nodes(id, workspace_id FK, parent_id FK NULL, type[FOLDER|DOCUMENT|FILE|VIDEO],
@@ -413,28 +433,27 @@ Quy ước chung:
 |---|---|---|---|
 | GET | `/workspaces` | Workspace của tôi | user |
 | POST | `/workspaces` | Tạo workspace `{name, slug, ownerId}` | system admin |
-| GET | `/workspaces/:wsId` | Chi tiết + thống kê dung lượng | VIEWER |
-| PATCH | `/workspaces/:wsId` | Sửa tên, mô tả, icon | OWNER |
-| DELETE | `/workspaces/:wsId` | Xóa mềm workspace | OWNER |
-| GET | `/workspaces/:wsId/members` | Danh sách thành viên | VIEWER |
-| POST | `/workspaces/:wsId/members` | Thêm `{userId|email, role}` | ADMIN |
-| PATCH | `/workspaces/:wsId/members/:userId` | Đổi vai trò | ADMIN (không được tự nâng mình lên OWNER) |
-| DELETE | `/workspaces/:wsId/members/:userId` | Xóa thành viên | ADMIN |
-| POST | `/workspaces/:wsId/transfer-ownership` | Chuyển owner | OWNER |
+| GET | `/workspaces/:wsId` | Chi tiết + thống kê dung lượng | thành viên |
+| PATCH | `/workspaces/:wsId` | Sửa tên, mô tả, icon | system admin |
+| DELETE | `/workspaces/:wsId` | Xóa mềm workspace | system admin |
+| GET | `/workspaces/:wsId/members` | Danh sách thành viên | thành viên |
+| POST | `/workspaces/:wsId/members` | Thêm `{email}` | system admin |
+| DELETE | `/workspaces/:wsId/members/:userId` | Gỡ thành viên | system admin, hoặc chính mình (rời workspace) |
 
 ### 7.4 Nodes (cây nội dung)
 
 | Method | Path | Mô tả | Quyền |
 |---|---|---|---|
-| GET | `/workspaces/:wsId/nodes?parentId=&type=&sort=&cursor=` | Liệt kê con (parentId rỗng = gốc) | VIEWER |
-| POST | `/workspaces/:wsId/folders` | Tạo folder `{parentId, name}` | EDITOR |
+| GET | `/workspaces/:wsId/nodes?parentId=&section=&type=&sort=&cursor=` | Liệt kê con (parentId rỗng = gốc của khu `section`, mặc định DOCS) | VIEWER |
+| POST | `/workspaces/:wsId/folders` | Tạo folder `{parentId, name, section?}` | EDITOR |
 | POST | `/workspaces/:wsId/documents` | Tạo document `{parentId, name}` | EDITOR |
 | GET | `/nodes/:id` | Chi tiết node (kèm effective role, tags, isFavorite, chi tiết theo loại) | VIEWER |
 | GET | `/nodes/:id/breadcrumb` | Đường dẫn từ gốc tới node | VIEWER |
 | PATCH | `/nodes/:id` | Đổi tên `{name}` | EDITOR |
 | POST | `/nodes/:id/move` | Di chuyển `{targetParentId}` (chặn di chuyển vào chính cây con của nó) | EDITOR ở cả nguồn và đích |
 | POST | `/nodes/:id/copy` | Sao chép (chỉ DOCUMENT) | EDITOR |
-| DELETE | `/nodes/:id` | Đưa vào thùng rác (kéo theo cây con) | EDITOR |
+| DELETE | `/nodes/:id` | Đưa vào thùng rác (kéo theo cây con) | OWNER |
+| GET | `/nodes/:id/activity?cursor=&limit=` | Log hoạt động của mục: tạo, sửa nội dung (số từ thêm/bớt), đổi tên, di chuyển, tải bản mới, chia sẻ | OWNER, system admin |
 | GET | `/nodes/:id/events` | SSE: trạng thái xử lý, tiến độ transcode | VIEWER |
 | GET | `/shared-with-me` | Các node được share trực tiếp cho tôi | user |
 
@@ -442,19 +461,19 @@ Quy ước chung:
 
 | Method | Path | Mô tả | Quyền |
 |---|---|---|---|
-| GET | `/nodes/:id/shares` | Danh sách share trực tiếp và kế thừa | ADMIN |
-| POST | `/nodes/:id/shares` | Thêm `{userId, role}` | ADMIN |
-| PATCH | `/nodes/:id/shares/:shareId` | Đổi role | ADMIN |
-| DELETE | `/nodes/:id/shares/:shareId` | Thu hồi share | ADMIN |
+| GET | `/nodes/:id/shares` | Danh sách share trực tiếp và kế thừa | OWNER |
+| POST | `/nodes/:id/shares` | Thêm `{email, role: VIEWER|EDITOR}` | OWNER |
+| PATCH | `/nodes/:id/shares/:shareId` | Đổi role | OWNER |
+| DELETE | `/nodes/:id/shares/:shareId` | Thu hồi share | OWNER |
 
 ### 7.6 Trash
 
 | Method | Path | Mô tả | Quyền |
 |---|---|---|---|
-| GET | `/workspaces/:wsId/trash` | Các mục đã xóa (chỉ mục gốc của mỗi lần xóa) | EDITOR |
-| POST | `/nodes/:id/restore` | Khôi phục | EDITOR |
-| DELETE | `/nodes/:id/permanent` | Xóa vĩnh viễn | OWNER |
-| DELETE | `/workspaces/:wsId/trash` | Dọn sạch thùng rác | OWNER |
+| GET | `/workspaces/:wsId/trash` | Các mục đã xóa (chỉ mục gốc của mỗi lần xóa) | thành viên |
+| POST | `/nodes/:id/restore` | Khôi phục | người đã xoá, system admin |
+| DELETE | `/nodes/:id/permanent` | Xóa vĩnh viễn | system admin |
+| DELETE | `/workspaces/:wsId/trash` | Dọn sạch thùng rác | system admin |
 
 ### 7.7 Uploads
 
@@ -512,11 +531,12 @@ Sửa tiêu đề/mô tả video dùng chung API đổi tên của node (`PATCH 
 | GET | `/documents/:id` | Metadata + `contentJson` (dùng để render nhanh hoặc khi không có WS) | VIEWER |
 | GET | `/documents/:id/collab-token` | Token ngắn hạn để kết nối Hocuspocus | VIEWER |
 | GET | `/documents/:id/export?format=html|md` | Xuất nội dung | VIEWER |
-| POST | `/documents/:id/assets` | Upload ảnh/file nhúng (≤ 20 MB) | EDITOR |
+| POST | `/documents/:id/assets` | Upload ảnh/file nhúng (≤ 20 MB, multipart `file`) | EDITOR |
+| GET | `/documents/:id/assets` | Danh sách ảnh/file nhúng (URL ký) | VIEWER |
 | GET | `/documents/:id/versions` | Danh sách phiên bản | VIEWER |
 | POST | `/documents/:id/versions` | Tạo phiên bản có tên `{name}` | EDITOR |
 | GET | `/documents/:id/versions/:vid` | Nội dung một phiên bản | VIEWER |
-| GET | `/documents/:id/versions/:vid/diff?with=` | Diff giữa 2 phiên bản | VIEWER |
+| GET | `/documents/:id/versions/:vid/diff?with=` | Diff theo từ với phiên bản khác hoặc `with=current` | VIEWER |
 | POST | `/documents/:id/versions/:vid/restore` | Khôi phục (áp lên Yjs qua collab server) | EDITOR |
 
 **WebSocket** `wss://…/collab`: giao thức Hocuspocus, `documentName = doc:{nodeId}`, `token = collabToken`.
@@ -526,10 +546,10 @@ Sửa tiêu đề/mô tả video dùng chung API đổi tên của node (`PATCH 
 | Method | Path | Mô tả | Quyền |
 |---|---|---|---|
 | GET | `/documents/:id/threads?status=` | Danh sách thread + comment | VIEWER |
-| POST | `/documents/:id/threads` | Tạo thread `{anchorId, quotedText, body}` | VIEWER |
-| POST | `/threads/:tid/comments` | Trả lời `{body}` | VIEWER |
+| POST | `/documents/:id/threads` | Tạo thread `{quotedText, body, mentions}`; FE gắn mark comment theo `threadId` trả về | VIEWER |
+| POST | `/threads/:tid/comments` | Trả lời `{body, mentions}` | VIEWER |
 | PATCH | `/comments/:cid` | Sửa comment | tác giả |
-| DELETE | `/comments/:cid` | Xóa comment | tác giả hoặc ADMIN |
+| DELETE | `/comments/:cid` | Xóa comment | tác giả hoặc OWNER của tài liệu |
 | POST | `/threads/:tid/resolve` · `/reopen` | Resolve hoặc mở lại thread | EDITOR hoặc người tạo thread |
 
 ### 7.12 Search, tags, favorites, recent, notifications
@@ -537,19 +557,20 @@ Sửa tiêu đề/mô tả video dùng chung API đổi tên của node (`PATCH 
 | Method | Path | Mô tả | Quyền |
 |---|---|---|---|
 | GET | `/search?q=&workspaceId=&type=&tagIds=&createdBy=&from=&to=&cursor=` | Tìm toàn văn, có highlight | user (lọc theo acl) |
-| GET/POST | `/workspaces/:wsId/tags` | Liệt kê/tạo tag | VIEWER / EDITOR |
-| PATCH/DELETE | `/tags/:tagId` | Sửa/xóa tag | ADMIN |
+| GET/POST | `/workspaces/:wsId/tags` | Liệt kê/tạo tag | thành viên |
+| PATCH/DELETE | `/tags/:tagId` | Sửa/xóa tag | system admin |
 | PUT | `/nodes/:id/tags` | Gán tag `{tagIds:[]}` | EDITOR |
 | GET | `/me/favorites` · PUT/DELETE `/nodes/:id/favorite` | Yêu thích | VIEWER |
 | GET | `/me/recent` | 50 mục mở gần đây | user |
-| GET | `/me/notifications?unread=` · POST `/me/notifications/read` | Notification | user |
+| GET | `/me/notifications?unread=` · POST `/me/notifications/read` `{ids}` hoặc `{all}` | Notification | user |
+| GET | `/me/notifications/stream` | SSE thông báo mới | user |
 | GET | `/me/notifications/stream` | SSE notification real-time | user |
 
 ### 7.13 Audit
 
 | Method | Path | Mô tả | Quyền |
 |---|---|---|---|
-| GET | `/workspaces/:wsId/audit-logs?action=&actorId=&from=&to=` | Log của workspace | ADMIN |
+| GET | `/admin/audit-logs?workspaceId=| GET | `/workspaces/:wsId/audit-logs?action=&actorId=&from=&to=` | Log của workspace | ADMIN |action=| GET | `/workspaces/:wsId/audit-logs?action=&actorId=&from=&to=` | Log của workspace | ADMIN |actorId=| GET | `/workspaces/:wsId/audit-logs?action=&actorId=&from=&to=` | Log của workspace | ADMIN |from=| GET | `/workspaces/:wsId/audit-logs?action=&actorId=&from=&to=` | Log của workspace | ADMIN |to=` | Log (lọc theo workspace) | system admin |
 | GET | `/admin/audit-logs` | Log toàn hệ thống | system admin |
 | GET | `…/audit-logs/export` | Xuất CSV | như trên |
 

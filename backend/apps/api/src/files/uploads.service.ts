@@ -79,12 +79,14 @@ export class UploadsService {
       nodeId = node.id;
     } else {
       const parentId = body.parentId ?? null;
-      await this.requireContainer(user, workspaceId, parentId);
+      const section = body.kind === 'VIDEO' ? 'VIDEOS' : 'DOCS';
+      await this.nodes.requireContainer(user, workspaceId, parentId, section);
       try {
         const node = await this.prisma.client.node.create({
           data: {
             workspaceId,
             parentId,
+            section,
             type: body.kind,
             name: body.fileName,
             nameNormalized: nameKey(body.fileName),
@@ -95,7 +97,14 @@ export class UploadsService {
         });
         nodeId = node.id;
       } catch (err) {
-        throw await this.nodes.mapNameConflict(err, workspaceId, parentId, body.fileName);
+        throw await this.nodes.mapNameConflict(
+          err,
+          workspaceId,
+          parentId,
+          body.fileName,
+          undefined,
+          section,
+        );
       }
     }
 
@@ -296,20 +305,6 @@ export class UploadsService {
     if (body.size > maxMb * MB) {
       throw AppError.tooLarge(`File is larger than ${maxMb} MB`, { maxBytes: maxMb * MB });
     }
-  }
-
-  private async requireContainer(
-    user: AuthenticatedUser,
-    workspaceId: string,
-    parentId: string | null,
-  ) {
-    if (!parentId) {
-      await this.access.requireMember(user, workspaceId, 'EDITOR');
-      return;
-    }
-    const parent = await this.access.requireNode(user, parentId, 'EDITOR');
-    if (parent.workspaceId !== workspaceId) throw AppError.notFound('Item not found');
-    if (parent.type !== 'FOLDER') throw AppError.validation('parentId must be a folder');
   }
 
   private async requireOwn(user: AuthenticatedUser, uploadId: string) {

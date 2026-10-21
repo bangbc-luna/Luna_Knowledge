@@ -1,22 +1,20 @@
-import type { NodeType, WorkspaceRole } from "./types";
+import type { ContentRole, NodeSection, NodeType } from "./types";
 
-export const ROLE_LABEL: Record<WorkspaceRole, string> = {
-  OWNER: "Chủ sở hữu",
-  ADMIN: "Quản trị",
-  EDITOR: "Biên tập",
+export const SHARE_LABEL: Record<"VIEWER" | "EDITOR", string> = {
   VIEWER: "Chỉ xem",
+  EDITOR: "Được chỉnh sửa",
 };
 
-export const ROLE_HINT: Record<WorkspaceRole, string> = {
-  OWNER: "Toàn quyền, xoá vĩnh viễn, chuyển quyền sở hữu",
-  ADMIN: "Quản lý thành viên, chia sẻ, tag",
-  EDITOR: "Tạo, sửa; xoá mục do mình tạo",
-  VIEWER: "Chỉ xem",
+export const SHARE_HINT: Record<"VIEWER" | "EDITOR", string> = {
+  VIEWER: "Xem và bình luận",
+  EDITOR: "Như người sở hữu: sửa, xoá, chia sẻ tiếp",
 };
 
-const RANK: Record<WorkspaceRole, number> = { VIEWER: 1, EDITOR: 2, ADMIN: 3, OWNER: 4 };
-export const roleAtLeast = (role: WorkspaceRole | null | undefined, min: WorkspaceRole) =>
-  !!role && RANK[role] >= RANK[min];
+const RANK: Record<ContentRole, number> = { VIEWER: 1, EDITOR: 2, OWNER: 3 };
+export const roleAtLeast = (role: ContentRole | null | undefined, min: ContentRole) => !!role && RANK[role] >= RANK[min];
+
+export const SECTION_LABEL: Record<NodeSection, string> = { DOCS: "Tài liệu", VIDEOS: "Video" };
+export const sectionPath = (section: NodeSection) => (section === "VIDEOS" ? "v" : "f");
 
 export const TYPE_LABEL: Record<NodeType, string> = {
   FOLDER: "Thư mục",
@@ -63,6 +61,11 @@ export const ACTION_LABEL: Record<string, string> = {
   "node.rename": "Đổi tên",
   "node.move": "Di chuyển",
   "node.trash": "Xoá vào thùng rác",
+  "document.edit": "Sửa nội dung",
+  "document.import": "Tạo từ file Word",
+  "document.version_create": "Lưu phiên bản",
+  "document.version_restore": "Khôi phục phiên bản",
+  "document.export": "Xuất tài liệu",
   "node.restore": "Khôi phục",
   "node.delete_permanent": "Xoá vĩnh viễn",
   "trash.empty": "Dọn thùng rác",
@@ -97,7 +100,7 @@ export const ACTION_GROUPS: Array<{ key: string; label: string; actions: string[
   { key: "download", label: "Tải về", actions: ["file.download", "video.original_access"] },
   { key: "video", label: "Xem video", actions: ["video.play"] },
   { key: "upload", label: "Tải lên, phiên bản", actions: ["file.upload", "upload.start", "upload.abort", "file.version_restore", "file.regenerate"] },
-  { key: "edit", label: "Tạo, sửa, di chuyển", actions: ["node.create", "node.rename", "node.move", "node.restore"] },
+  { key: "edit", label: "Tạo, sửa, di chuyển", actions: ["node.create", "node.rename", "node.move", "node.restore", "document.edit", "document.import", "document.version_create", "document.version_restore"] },
   { key: "delete", label: "Xoá", actions: ["node.trash", "node.delete_permanent", "trash.empty"] },
   { key: "share", label: "Chia sẻ", actions: ["share.add", "share.update", "share.remove"] },
   { key: "login", label: "Đăng nhập, đăng xuất", actions: ["auth.login", "auth.logout"] },

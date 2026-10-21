@@ -1,24 +1,26 @@
 # @import ./_auth.http
 @apiUrl = http://localhost:4000/api/v1
 
+# Tag: thành viên xem, tạo, gắn tag; chỉ System Admin sửa / xóa tag.
+
 ### Folder để gắn tag
 # @name tagged
-# @ref editor
+# @ref member
 # @ref ws
 POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 Content-Type: application/json
 
 { "name": "Báo cáo tháng" }
 
 ?? status == 201
 
-### EDITOR tạo tag
+### Thành viên tạo tag
 # @name tag
-# @ref editor
+# @ref member
 # @ref ws
 POST {{apiUrl}}/workspaces/{{contentWs.id}}/tags
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 Content-Type: application/json
 
 { "name": "Quan trọng", "color": "#E5534B" }
@@ -29,7 +31,7 @@ Content-Type: application/json
 ### Tag trùng tên → 409
 # @ref tag
 POST {{apiUrl}}/workspaces/{{contentWs.id}}/tags
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 Content-Type: application/json
 
 { "name": "Quan trọng", "color": "#000000" }
@@ -37,41 +39,42 @@ Content-Type: application/json
 ?? status == 409
 
 ### Màu sai định dạng → 400
-# @ref editor
+# @ref member
 # @ref ws
 POST {{apiUrl}}/workspaces/{{contentWs.id}}/tags
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 Content-Type: application/json
 
 { "name": "Đỏ", "color": "red" }
 
 ?? status == 400
 
-### VIEWER không tạo tag → 403
-# @ref viewer
+### Người không phải thành viên (chỉ được share) không tạo tag → 404
+# @ref sharedViewer
 # @ref ws
 POST {{apiUrl}}/workspaces/{{contentWs.id}}/tags
-Authorization: Bearer {{viewer.accessToken}}
+Authorization: Bearer {{sharedViewer.accessToken}}
 Content-Type: application/json
 
 { "name": "x", "color": "#000000" }
 
-?? status == 403
+?? status == 404
 
-### Danh sách tag (VIEWER)
-# @ref viewer
+### Danh sách tag (thành viên khác)
+# @ref creator
 # @ref tag
 GET {{apiUrl}}/workspaces/{{contentWs.id}}/tags
-Authorization: Bearer {{viewer.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 
 ?? status == 200
 ?? js response.parsedBody.some(t => t.name === 'Quan trọng') == true
 
-### Gắn tag cho folder
+### Thành viên gắn tag cho mục người khác tạo
+# @ref creator
 # @ref tag
 # @ref tagged
 PUT {{apiUrl}}/nodes/{{tagged.id}}/tags
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 Content-Type: application/json
 
 { "tagIds": ["{{tag.id}}"] }
@@ -79,21 +82,32 @@ Content-Type: application/json
 ?? status == 200
 ?? js response.parsedBody.tags[0].name == Quan trọng
 
-### EDITOR không sửa tag → 403
+### Share "Chỉ xem" không gắn tag được → 403
+# @ref sharedViewer
+# @ref ws
+PUT {{apiUrl}}/nodes/{{viewFolder.id}}/tags
+Authorization: Bearer {{sharedViewer.accessToken}}
+Content-Type: application/json
+
+{ "tagIds": [] }
+
+?? status == 403
+
+### Người tạo tag cũng không sửa tag → 403
 # @ref tag
 PATCH {{apiUrl}}/tags/{{tag.id}}
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 Content-Type: application/json
 
 { "name": "Gấp" }
 
 ?? status == 403
 
-### ADMIN sửa tag
-# @ref wsAdmin
+### System Admin sửa tag
+# @ref admin
 # @ref tag
 PATCH {{apiUrl}}/tags/{{tag.id}}
-Authorization: Bearer {{wsAdmin.accessToken}}
+Authorization: Bearer {{admin.accessToken}}
 Content-Type: application/json
 
 { "name": "Gấp" }
@@ -101,60 +115,84 @@ Content-Type: application/json
 ?? status == 200
 ?? body name == Gấp
 
-### Đánh dấu yêu thích
-# @ref viewer
-# @ref tagged
-PUT {{apiUrl}}/nodes/{{tagged.id}}/favorite
-Authorization: Bearer {{viewer.accessToken}}
+### Đánh dấu yêu thích (người được share "Chỉ xem")
+# @ref sharedViewer
+# @ref ws
+PUT {{apiUrl}}/nodes/{{viewFolder.id}}/favorite
+Authorization: Bearer {{sharedViewer.accessToken}}
 
 ?? status == 204
 
 ### Danh sách yêu thích
-# @ref viewer
-# @ref tagged
+# @ref sharedViewer
+# @ref ws
 GET {{apiUrl}}/me/favorites
-Authorization: Bearer {{viewer.accessToken}}
+Authorization: Bearer {{sharedViewer.accessToken}}
 
 ?? status == 200
-?? js response.parsedBody.some(n => n.id === tagged.id && n.isFavorite) == true
+?? js response.parsedBody.some(n => n.id === viewFolder.id && n.isFavorite) == true
 
 ### Bỏ yêu thích
-# @ref viewer
-# @ref tagged
-DELETE {{apiUrl}}/nodes/{{tagged.id}}/favorite
-Authorization: Bearer {{viewer.accessToken}}
+# @ref sharedViewer
+# @ref ws
+DELETE {{apiUrl}}/nodes/{{viewFolder.id}}/favorite
+Authorization: Bearer {{sharedViewer.accessToken}}
 
 ?? status == 204
 
 ### Không còn trong danh sách yêu thích
-# @ref viewer
+# @ref sharedViewer
+# @ref ws
+GET {{apiUrl}}/me/favorites
+Authorization: Bearer {{sharedViewer.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.some(n => n.id === viewFolder.id) == false
+
+### Thành viên đánh dấu yêu thích
+# @ref creator
+# @ref tagged
+PUT {{apiUrl}}/nodes/{{tagged.id}}/favorite
+Authorization: Bearer {{creator.accessToken}}
+
+?? status == 204
+
+###
+# @ref creator
 # @ref tagged
 GET {{apiUrl}}/me/favorites
-Authorization: Bearer {{viewer.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 
 ?? status == 200
-?? js response.parsedBody.some(n => n.id === tagged.id) == false
+?? js response.parsedBody.some(n => n.id === tagged.id && n.isFavorite) == true
 
 ### Mở gần đây (tài liệu/file/video; folder không được ghi)
-# @ref viewer
+# @ref sharedViewer
 GET {{apiUrl}}/me/recent
-Authorization: Bearer {{viewer.accessToken}}
+Authorization: Bearer {{sharedViewer.accessToken}}
 
 ?? status == 200
 
-### ADMIN xóa tag → gỡ khỏi folder
-# @ref wsAdmin
+### Thành viên không xóa tag → 403
 # @ref tag
 DELETE {{apiUrl}}/tags/{{tag.id}}
-Authorization: Bearer {{wsAdmin.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
+
+?? status == 403
+
+### System Admin xóa tag → gỡ khỏi folder
+# @ref admin
+# @ref tag
+DELETE {{apiUrl}}/tags/{{tag.id}}
+Authorization: Bearer {{admin.accessToken}}
 
 ?? status == 204
 
 ### Folder không còn tag
-# @ref editor
+# @ref member
 # @ref tagged
 GET {{apiUrl}}/nodes/{{tagged.id}}
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 
 ?? status == 200
 ?? js response.parsedBody.tags.length == 0

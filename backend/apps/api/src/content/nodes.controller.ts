@@ -24,6 +24,8 @@ import {
   breadcrumbSchema,
   createFolderBody,
   type CreateFolderBody,
+  activityQuery,
+  activitySchema,
   listNodesQuery,
   type ListNodesQuery,
   moveNodeBody,
@@ -81,6 +83,21 @@ export class NodesController {
     @Req() req: Request,
   ) {
     return this.nodes.get(user, id, requestContext(req));
+  }
+
+  @Get('nodes/:id/activity')
+  @ApiOperation({
+    summary:
+      'Hoạt động trên mục: ai sửa nội dung, đổi tên, di chuyển, tải bản mới (người sở hữu, share chỉnh sửa, System Admin)',
+  })
+  @ApiZodQuery(activityQuery)
+  @ApiZodOk(activitySchema)
+  activity(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', uuid()) id: string,
+    @Query(new ZodValidationPipe(activityQuery)) q: z.output<typeof activityQuery>,
+  ) {
+    return this.nodes.activity(user, id, q);
   }
 
   @Get('nodes/:id/breadcrumb')

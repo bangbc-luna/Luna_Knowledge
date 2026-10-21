@@ -1,4 +1,6 @@
-export type WorkspaceRole = "OWNER" | "ADMIN" | "EDITOR" | "VIEWER";
+export type WorkspaceRole = "MEMBER";
+export type ContentRole = "VIEWER" | "EDITOR" | "OWNER";
+export type NodeSection = "DOCS" | "VIDEOS";
 export type ShareRole = "EDITOR" | "VIEWER";
 export type NodeType = "FOLDER" | "DOCUMENT" | "FILE" | "VIDEO";
 
@@ -23,7 +25,6 @@ export interface Workspace {
   createdAt: string;
   memberCount: number;
   myRole: WorkspaceRole | null;
-  owner?: UserSummary | null;
 }
 
 export interface Member {
@@ -43,12 +44,13 @@ export interface NodeItem {
   workspaceId: string;
   parentId: string | null;
   type: NodeType;
+  section: NodeSection;
   name: string;
   status: "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
   createdBy: UserSummary;
   createdAt: string;
   updatedAt: string;
-  myRole: WorkspaceRole;
+  myRole: ContentRole;
   isFavorite: boolean;
   tags: Tag[];
   childCount: number | null;
@@ -185,5 +187,13 @@ export interface AdminVideo {
   durationSec: number | null;
   viewCount: number;
   createdBy: { id: string; name: string; email: string };
+  createdAt: string;
+}
+
+export interface ActivityItem {
+  id: string;
+  action: string;
+  actor: UserSummary | null;
+  metadata: Record<string, unknown>;
   createdAt: string;
 }

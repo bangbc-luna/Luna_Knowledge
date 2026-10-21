@@ -22,7 +22,7 @@ export class LibraryService {
   ) {}
 
   async listTags(user: AuthenticatedUser, workspaceId: string) {
-    await this.access.requireMember(user, workspaceId, 'VIEWER');
+    await this.access.requireMember(user, workspaceId);
     return this.prisma.client.tag.findMany({
       where: { workspaceId },
       select: tagSelect,
@@ -36,7 +36,7 @@ export class LibraryService {
     body: CreateTagBody,
     ctx: RequestContext,
   ) {
-    await this.access.requireMember(user, workspaceId, 'EDITOR');
+    await this.access.requireMember(user, workspaceId);
     const tag = await this.withTagConflict(() =>
       this.prisma.client.tag.create({ data: { workspaceId, ...body }, select: tagSelect }),
     );
@@ -50,7 +50,7 @@ export class LibraryService {
     body: UpdateTagBody,
     ctx: RequestContext,
   ) {
-    const tag = await this.requireTag(user, tagId, 'ADMIN');
+    const tag = await this.requireTag(user, tagId);
     const updated = await this.withTagConflict(() =>
       this.prisma.client.tag.update({ where: { id: tagId }, data: body, select: tagSelect }),
     );
@@ -59,7 +59,7 @@ export class LibraryService {
   }
 
   async deleteTag(user: AuthenticatedUser, tagId: string, ctx: RequestContext) {
-    const tag = await this.requireTag(user, tagId, 'ADMIN');
+    const tag = await this.requireTag(user, tagId);
     await this.prisma.client.tag.delete({ where: { id: tagId } });
     await this.auditTag(user, 'tag.delete', tag.workspaceId, tagId, { name: tag.name }, ctx);
   }
@@ -127,10 +127,13 @@ export class LibraryService {
     });
   }
 
-  private async requireTag(user: AuthenticatedUser, tagId: string, min: 'ADMIN') {
+  private async requireTag(user: AuthenticatedUser, tagId: string) {
     const tag = await this.prisma.client.tag.findUnique({ where: { id: tagId } });
     if (!tag) throw AppError.notFound('Tag not found');
-    await this.access.requireMember(user, tag.workspaceId, min);
+    if (!user.isSystemAdmin) {
+      await this.access.requireMember(user, tag.workspaceId);
+      throw AppError.forbidden('Only a system admin can rename or delete tags');
+    }
     return tag;
   }
 

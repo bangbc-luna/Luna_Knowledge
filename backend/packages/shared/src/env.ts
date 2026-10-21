@@ -61,6 +61,11 @@ export const videoEnvSchema = z.object({
   FFPROBE_PATH: z.string().default('ffprobe'),
 });
 
+export const collabSecretsSchema = z.object({
+  COLLAB_TOKEN_SECRET: z.string().min(32),
+  COLLAB_INTERNAL_SECRET: z.string().min(32),
+});
+
 function findDotenv(start = process.cwd()): string | undefined {
   let dir = start;
   for (;;) {

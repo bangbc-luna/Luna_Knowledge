@@ -13,3 +13,5 @@ export function createPrismaClient({ connectionString, max = 10 }: CreatePrismaC
   const adapter = new PrismaPg({ connectionString, max });
   return new PrismaClient({ adapter });
 }
+export * from './access.js';
+export * from './documents.js';

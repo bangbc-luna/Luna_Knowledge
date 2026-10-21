@@ -1,8 +1,6 @@
 import { z } from 'zod';
 import { userSummarySchema, workspaceRoleSchema } from '../users/users.schemas.js';
 
-export const assignableRoleSchema = z.enum(['ADMIN', 'EDITOR', 'VIEWER']);
-
 const slug = z
   .string()
   .min(2)
@@ -14,10 +12,13 @@ export const createWorkspaceBody = z.object({
   slug: slug.describe('Định danh trong URL, ví dụ "marketing"'),
   description: z.string().trim().max(500).optional(),
   icon: z.string().max(16).optional().describe('Emoji hoặc mã icon'),
-  ownerEmail: z
-    .email()
-    .transform((v) => v.toLowerCase())
-    .describe('Email @lunatech.vn; user chưa đăng nhập lần nào sẽ được tạo trước'),
+  memberEmails: z
+    .array(z.email().transform((v) => v.toLowerCase()))
+    .max(200)
+    .default([])
+    .describe(
+      'Thành viên ban đầu (email @lunatech.vn); user chưa đăng nhập lần nào sẽ được tạo trước',
+    ),
 });
 
 export const updateWorkspaceBody = z
@@ -43,11 +44,9 @@ export const workspaceSchema = z.object({
   icon: z.string().nullable(),
   createdAt: z.date(),
   memberCount: z.number().int(),
-  myRole: workspaceRoleSchema.nullable().describe('null: System Admin không phải thành viên'),
-  owner: userSummarySchema
+  myRole: workspaceRoleSchema
     .nullable()
-    .optional()
-    .describe('Chủ sở hữu (có trong danh sách workspace)'),
+    .describe('MEMBER, hoặc null nếu là System Admin không phải thành viên'),
 });
 
 export const addMemberBody = z.object({
@@ -55,13 +54,6 @@ export const addMemberBody = z.object({
     .email()
     .transform((v) => v.toLowerCase())
     .describe('Email @lunatech.vn; user chưa đăng nhập lần nào sẽ được tạo trước'),
-  role: assignableRoleSchema,
-});
-
-export const updateMemberBody = z.object({ role: assignableRoleSchema });
-
-export const transferOwnershipBody = z.object({
-  userId: z.uuid().describe('Thành viên hiện tại sẽ trở thành OWNER; OWNER cũ thành ADMIN'),
 });
 
 export const memberSchema = z.object({
@@ -73,4 +65,3 @@ export const memberSchema = z.object({
 export type CreateWorkspaceBody = z.output<typeof createWorkspaceBody>;
 export type UpdateWorkspaceBody = z.output<typeof updateWorkspaceBody>;
 export type AddMemberBody = z.output<typeof addMemberBody>;
-export type UpdateMemberBody = z.output<typeof updateMemberBody>;

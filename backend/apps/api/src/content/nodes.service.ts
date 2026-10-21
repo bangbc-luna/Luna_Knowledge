@@ -1,4 +1,4 @@
-import type { NodeType, Prisma } from '@luna/db';
+import type { NodeSection, NodeType, Prisma } from '@luna/db';
 import { Injectable } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
@@ -6,14 +6,33 @@ import { AppError } from '../common/errors/app-error.js';
 import type { RequestContext } from '../common/http/request-context.js';
 import type { Page } from '../common/pagination/cursor.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
-import { roleAtLeast } from '../workspaces/workspace-roles.js';
+import { CollabEventsService } from '../infra/redis/collab-events.service.js';
 import { isNameConflict } from './conflicts.js';
-import { ContentAccessService, type NodeAccess } from './content-access.service.js';
+import { ContentAccessService } from './content-access.service.js';
 import { NodeDtoService } from './node-dto.service.js';
 import { nameKey, suggestName } from './node-names.js';
 import type { CreateFolderBody, ListNodesQuery, NodeDto } from './nodes.schemas.js';
 
 const userSummary = { id: true, email: true, name: true, avatarUrl: true } as const;
+
+const ACTIVITY_ACTIONS = [
+  'node.create',
+  'node.rename',
+  'node.move',
+  'node.trash',
+  'node.restore',
+  'document.edit',
+  'document.import',
+  'document.version_create',
+  'document.version_restore',
+  'file.upload',
+  'file.version_restore',
+  'file.regenerate',
+  'video.retranscode',
+  'share.add',
+  'share.update',
+  'share.remove',
+];
 
 const encodeCursor = (offset: number) => Buffer.from(String(offset)).toString('base64url');
 function decodeCursor(cursor: string | undefined): number {
@@ -30,6 +49,7 @@ export class NodesService {
     private readonly access: ContentAccessService,
     private readonly dto: NodeDtoService,
     private readonly audit: AuditService,
+    private readonly collab: CollabEventsService,
   ) {}
 
   async list(
@@ -42,7 +62,7 @@ export class NodesService {
       if (parent.workspaceId !== workspaceId) throw AppError.notFound('Item not found');
       if (parent.type !== 'FOLDER') throw AppError.validation('parentId must be a folder');
     } else {
-      await this.access.requireMember(user, workspaceId, 'VIEWER');
+      await this.access.requireMember(user, workspaceId);
     }
 
     const offset = decodeCursor(q.cursor);
@@ -56,6 +76,7 @@ export class NodesService {
       where: {
         workspaceId,
         parentId: q.parentId ?? null,
+        ...(q.parentId ? {} : { section: q.section }),
         deletedAt: null,
         type: q.type,
         OR: [{ status: { not: 'UPLOADING' } }, { createdById: user.id }],
@@ -96,13 +117,49 @@ export class NodesService {
         FROM nodes a
        WHERE a.path @> (SELECT path FROM nodes WHERE id = ${nodeId}::uuid)
        ORDER BY nlevel(a.path)`;
-    const start = node.memberRole
+    const start = node.isMember
       ? 0
       : Math.max(
           0,
           rows.findIndex((r) => r.shared),
         );
     return rows.slice(start).map(({ id, name, type }) => ({ id, name, type }));
+  }
+
+  async activity(user: AuthenticatedUser, nodeId: string, q: { cursor?: string; limit: number }) {
+    const node = (await this.access.resolveMany(user.id, [nodeId])).get(nodeId);
+    if (!node || (!node.role && !user.isSystemAdmin)) throw AppError.notFound('Item not found');
+    if (node.role !== 'OWNER' && !user.isSystemAdmin) {
+      throw AppError.forbidden(
+        'Only the owner or someone with edit sharing can see the activity log',
+      );
+    }
+    const rows = await this.prisma.client.auditLog.findMany({
+      where: {
+        targetId: nodeId,
+        action: { in: ACTIVITY_ACTIONS },
+        ...(q.cursor ? { id: { lt: BigInt(q.cursor) } } : {}),
+      },
+      orderBy: { id: 'desc' },
+      take: q.limit + 1,
+    });
+    const page = rows.slice(0, q.limit);
+    const actorIds = [...new Set(page.map((r) => r.actorId).filter((id): id is string => !!id))];
+    const actors = await this.prisma.client.user.findMany({
+      where: { id: { in: actorIds } },
+      select: userSummary,
+    });
+    const byId = new Map(actors.map((a) => [a.id, a]));
+    return {
+      items: page.map((r) => ({
+        id: r.id.toString(),
+        action: r.action,
+        actor: r.actorId ? (byId.get(r.actorId) ?? null) : null,
+        metadata: (r.metadata ?? {}) as Record<string, unknown>,
+        createdAt: r.createdAt,
+      })),
+      nextCursor: rows.length > q.limit ? page[page.length - 1]!.id.toString() : null,
+    };
   }
 
   async sharedWithMe(user: AuthenticatedUser) {
@@ -142,12 +199,13 @@ export class NodesService {
     ctx: RequestContext,
   ): Promise<NodeDto> {
     const parentId = body.parentId ?? null;
-    await this.requireContainer(user, workspaceId, parentId);
+    const section = await this.requireContainer(user, workspaceId, parentId, body.section);
     try {
       const node = await this.prisma.client.node.create({
         data: {
           workspaceId,
           parentId,
+          section,
           type: 'FOLDER',
           name: body.name,
           nameNormalized: nameKey(body.name),
@@ -166,7 +224,7 @@ export class NodesService {
       });
       return this.dto.one(user.id, node.id);
     } catch (err) {
-      throw await this.mapNameConflict(err, workspaceId, parentId, body.name);
+      throw await this.mapNameConflict(err, workspaceId, parentId, body.name, undefined, section);
     }
   }
 
@@ -183,7 +241,14 @@ export class NodesService {
         data: { name, nameNormalized: nameKey(name), updatedById: user.id },
       });
     } catch (err) {
-      throw await this.mapNameConflict(err, node.workspaceId, node.parentId, name, nodeId);
+      throw await this.mapNameConflict(
+        err,
+        node.workspaceId,
+        node.parentId,
+        name,
+        nodeId,
+        node.section,
+      );
     }
     await this.audit.log({
       actorId: user.id,
@@ -205,7 +270,7 @@ export class NodesService {
   ): Promise<NodeDto> {
     const node = await this.access.requireNode(user, nodeId, 'EDITOR');
     if (targetParentId === node.id) throw AppError.validation('Cannot move an item into itself');
-    await this.requireContainer(user, node.workspaceId, targetParentId);
+    await this.requireContainer(user, node.workspaceId, targetParentId, node.section);
     if (targetParentId === node.parentId) return this.dto.one(user.id, nodeId);
 
     try {
@@ -224,7 +289,14 @@ export class NodesService {
         });
       });
     } catch (err) {
-      throw await this.mapNameConflict(err, node.workspaceId, targetParentId, node.name, nodeId);
+      throw await this.mapNameConflict(
+        err,
+        node.workspaceId,
+        targetParentId,
+        node.name,
+        nodeId,
+        node.section,
+      );
     }
 
     await this.audit.log({
@@ -236,12 +308,12 @@ export class NodesService {
       metadata: { from: node.parentId, to: targetParentId },
       ctx,
     });
+    await this.collab.accessChanged({ workspaceId: node.workspaceId });
     return this.dto.one(user.id, nodeId);
   }
 
   async trash(user: AuthenticatedUser, nodeId: string, ctx: RequestContext): Promise<void> {
-    const node = await this.access.requireNode(user, nodeId, 'EDITOR');
-    this.assertCanDelete(user, node);
+    const node = await this.access.requireNode(user, nodeId, 'OWNER');
     const count = await this.prisma.client.$executeRaw`
       UPDATE nodes
          SET deleted_at = now(), deleted_by = ${user.id}::uuid, deleted_root_id = ${nodeId}::uuid
@@ -256,28 +328,32 @@ export class NodesService {
       metadata: { name: node.name, itemCount: count },
       ctx,
     });
+    await this.collab.accessChanged({ workspaceId: node.workspaceId });
   }
 
-  assertCanDelete(user: AuthenticatedUser, node: NodeAccess) {
-    if (!roleAtLeast(node.role, 'ADMIN') && node.createdById !== user.id) {
-      throw AppError.forbidden('Editors can only delete items they created');
-    }
-  }
-
-  private async requireContainer(
+  async requireContainer(
     user: AuthenticatedUser,
     workspaceId: string,
     parentId: string | null,
-  ) {
+    section?: NodeSection,
+  ): Promise<NodeSection> {
     if (!parentId) {
-      await this.access.requireMember(user, workspaceId, 'EDITOR');
-      return;
+      await this.access.requireMember(user, workspaceId);
+      return section ?? 'DOCS';
     }
     const parent = await this.access.requireNode(user, parentId, 'EDITOR');
     if (parent.workspaceId !== workspaceId) {
       throw AppError.validation('Target folder belongs to another workspace');
     }
     if (parent.type !== 'FOLDER') throw AppError.validation('Target must be a folder');
+    if (section && parent.section !== section) {
+      throw AppError.validation(
+        section === 'VIDEOS'
+          ? 'Videos live in the Video area, pick a folder there'
+          : 'This folder is in the Video area, which only holds videos',
+      );
+    }
+    return parent.section;
   }
 
   async mapNameConflict(
@@ -286,9 +362,10 @@ export class NodesService {
     parentId: string | null,
     name: string,
     excludeId?: string,
+    section: NodeSection = 'DOCS',
   ): Promise<unknown> {
     if (!isNameConflict(err)) return err;
-    const taken = await this.siblingKeys(workspaceId, parentId, excludeId);
+    const taken = await this.siblingKeys(workspaceId, parentId, excludeId, section);
     return AppError.conflict('An item with this name already exists in this folder', {
       suggestion: suggestName(name, taken),
     });
@@ -298,10 +375,12 @@ export class NodesService {
     workspaceId: string,
     parentId: string | null,
     excludeId?: string,
+    section: NodeSection = 'DOCS',
   ): Promise<Set<string>> {
     const where: Prisma.NodeWhereInput = {
       workspaceId,
       parentId,
+      ...(parentId ? {} : { section }),
       deletedAt: null,
       id: excludeId ? { not: excludeId } : undefined,
     };

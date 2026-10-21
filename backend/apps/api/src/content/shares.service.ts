@@ -5,8 +5,9 @@ import type { AuthenticatedUser } from '../auth/auth.service.js';
 import { AppError } from '../common/errors/app-error.js';
 import type { RequestContext } from '../common/http/request-context.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
+import { CollabEventsService } from '../infra/redis/collab-events.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 import { UsersService } from '../users/users.service.js';
-import { roleAtLeast } from '../workspaces/workspace-roles.js';
 import { ContentAccessService } from './content-access.service.js';
 import type { CreateShareBody } from './shares.schemas.js';
 
@@ -26,6 +27,8 @@ export class SharesService {
     private readonly access: ContentAccessService,
     private readonly users: UsersService,
     private readonly audit: AuditService,
+    private readonly collab: CollabEventsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async list(user: AuthenticatedUser, nodeId: string) {
@@ -70,10 +73,21 @@ export class SharesService {
         nodeId,
         {
           userId: target.id,
+          email: target.email,
           role: body.role,
         },
         ctx,
       );
+      if (target.id !== user.id) {
+        await this.notifications.notify([target.id], 'share.added', {
+          nodeId,
+          nodeName: node.name,
+          nodeType: node.type,
+          workspaceId: node.workspaceId,
+          role: body.role,
+          byName: user.name,
+        });
+      }
       return share;
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
@@ -111,6 +125,7 @@ export class SharesService {
       },
       ctx,
     );
+    await this.collab.accessChanged({ workspaceId: node.workspaceId, userId: existing.userId });
     return share;
   }
 
@@ -129,14 +144,11 @@ export class SharesService {
       },
       ctx,
     );
+    await this.collab.accessChanged({ workspaceId: node.workspaceId, userId: existing.userId });
   }
 
   private async requireManager(user: AuthenticatedUser, nodeId: string) {
-    const node = await this.access.requireNode(user, nodeId, 'VIEWER');
-    if (!roleAtLeast(node.memberRole, 'ADMIN')) {
-      throw AppError.forbidden('Only workspace admins can manage sharing');
-    }
-    return node;
+    return this.access.requireNode(user, nodeId, 'OWNER');
   }
 
   private async findShare(nodeId: string, shareId: string) {

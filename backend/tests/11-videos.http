@@ -10,15 +10,51 @@
   exports.mp4Size = fs.statSync(path.join(__dirname, 'fixtures', 'sample.mp4')).size;
 }}
 
-### Upload video 4 giây
-# @name vUpload
-# @ref editor
+### Folder khu Video do creator tạo
+# @name videoFolder
+# @ref creator
 # @ref ws
-POST {{apiUrl}}/workspaces/{{contentWs.id}}/uploads
-Authorization: Bearer {{editor.accessToken}}
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{creator.accessToken}}
 Content-Type: application/json
 
-{ "fileName": "Giới thiệu {{$timestamp}}.mp4", "size": {{mp4Size}}, "kind": "VIDEO" }
+{ "name": "QA Video {{$timestamp}}", "section": "VIDEOS" }
+
+?? status == 201
+?? body section == VIDEOS
+
+### creator share "Chỉ xem" folder video cho sharedViewer (không phải thành viên)
+# @name videoShare
+# @ref videoFolder
+# @ref sharedViewer
+POST {{apiUrl}}/nodes/{{videoFolder.id}}/shares
+Authorization: Bearer {{creator.accessToken}}
+Content-Type: application/json
+
+{ "email": "qa.shared.viewer@lunatech.vn", "role": "VIEWER" }
+
+?? status == 201
+
+### Video không tải vào folder khu Tài liệu → 400
+# @ref member
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/uploads
+Authorization: Bearer {{member.accessToken}}
+Content-Type: application/json
+
+{ "fileName": "Sai khu {{$timestamp}}.mp4", "size": {{mp4Size}}, "kind": "VIDEO", "parentId": "{{viewFolder.id}}" }
+
+?? status == 400
+
+### Upload video 4 giây (thành viên member, vào folder của creator)
+# @name vUpload
+# @ref member
+# @ref videoShare
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/uploads
+Authorization: Bearer {{member.accessToken}}
+Content-Type: application/json
+
+{ "fileName": "Giới thiệu {{$timestamp}}.mp4", "size": {{mp4Size}}, "kind": "VIDEO", "parentId": "{{videoFolder.id}}" }
 
 ?? status == 201
 ?? body kind == VIDEO
@@ -34,7 +70,7 @@ PUT {{vUpload.parts[0].url}}
 ###
 # @ref vUpload
 POST {{apiUrl}}/uploads/{{vUpload.uploadId}}/complete
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 Content-Type: application/json
 
 {}
@@ -47,18 +83,27 @@ Content-Type: application/json
 # @name vDetail
 # @ref vUpload
 GET {{apiUrl}}/videos/{{vUpload.nodeId}}
-Authorization: Bearer {{viewer.accessToken}}
+Authorization: Bearer {{sharedViewer.accessToken}}
 
 ?? status == 200
 ?? body node.status == READY
+?? body node.section == VIDEOS
 ?? body video.width == 640
 ?? js response.parsedBody.video.renditions.map(r => r.name).join(',') === '360p' == true
 
-### Không tải video được, kể cả OWNER
+### Video nằm trong folder khu Video
 # @ref vDetail
-# @ref owner
+GET {{apiUrl}}/workspaces/{{contentWs.id}}/nodes?parentId={{videoFolder.id}}
+Authorization: Bearer {{creator.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.items.some(n => n.id === vUpload.nodeId && n.type === 'VIDEO') == true
+
+### Không tải video được, kể cả OWNER (người tạo folder chứa video)
+# @ref vDetail
+# @ref creator
 GET {{apiUrl}}/files/{{vUpload.nodeId}}/download
-Authorization: Bearer {{owner.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 
 ?? status == 403
 
@@ -74,10 +119,10 @@ Authorization: Bearer {{outsider.accessToken}}
 # @name pb
 # @ref vDetail
 POST {{apiUrl}}/videos/{{vUpload.nodeId}}/playback
-Authorization: Bearer {{viewer.accessToken}}
+Authorization: Bearer {{sharedViewer.accessToken}}
 
 ?? status == 200
-?? body watermark.email == qa.viewer@lunatech.vn
+?? body watermark.email == qa.shared.viewer@lunatech.vn
 ?? js response.parsedBody.durationSec > 3
 
 ### Master playlist (không cần token đăng nhập, chỉ cần phiên xem)
@@ -122,7 +167,7 @@ GET {{apiUrl}}/videos/{{vUpload.nodeId}}/key?s=khong-phai-phien-that-0123456789
 ### Lưu vị trí xem dở
 # @ref pb
 PUT {{apiUrl}}/videos/{{vUpload.nodeId}}/progress
-Authorization: Bearer {{viewer.accessToken}}
+Authorization: Bearer {{sharedViewer.accessToken}}
 Content-Type: application/json
 
 { "positionSec": 2.5 }
@@ -132,7 +177,7 @@ Content-Type: application/json
 ### Mở lại: xem tiếp từ 2,5 giây
 # @ref pb
 GET {{apiUrl}}/videos/{{vUpload.nodeId}}
-Authorization: Bearer {{viewer.accessToken}}
+Authorization: Bearer {{sharedViewer.accessToken}}
 
 ?? status == 200
 ?? body resumeAt == 2.5
@@ -141,16 +186,16 @@ Authorization: Bearer {{viewer.accessToken}}
 ### Ảnh xem trước khi tua (WebVTT, ảnh là URL ký)
 # @ref pb
 GET {{apiUrl}}/videos/{{vUpload.nodeId}}/sprite.vtt
-Authorization: Bearer {{viewer.accessToken}}
+Authorization: Bearer {{sharedViewer.accessToken}}
 
 ?? status == 200
 ?? body includes WEBVTT
 ?? body includes X-Amz-Signature
 
-### VIEWER không transcode lại được → 403
+### Share "Chỉ xem" không transcode lại được → 403
 # @ref vDetail
 POST {{apiUrl}}/videos/{{vUpload.nodeId}}/retranscode
-Authorization: Bearer {{viewer.accessToken}}
+Authorization: Bearer {{sharedViewer.accessToken}}
 
 ?? status == 403
 
@@ -187,8 +232,8 @@ GET {{origin}}{{origLink.url}}
 
 ### Người dùng thường không lấy được file gốc
 # @ref vDetail
-# @ref owner
+# @ref creator
 POST {{apiUrl}}/admin/videos/{{vUpload.nodeId}}/original-link
-Authorization: Bearer {{owner.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 
 ?? status == 403

@@ -150,12 +150,18 @@ export function Sheet({
   onClose,
   title,
   subtitle,
+  actions,
+  footer,
+  width = "sm:w-[28rem]",
   children,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   subtitle?: React.ReactNode;
+  actions?: React.ReactNode;
+  footer?: React.ReactNode;
+  width?: string;
   children: React.ReactNode;
 }) {
   const titleId = useId();
@@ -168,7 +174,7 @@ export function Sheet({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="animate-sheet-right absolute inset-y-0 right-0 flex w-full flex-col border-l border-border bg-surface shadow-modal sm:w-[28rem]"
+        className={cn("animate-sheet-right absolute inset-y-0 right-0 flex w-full flex-col border-l border-border bg-surface shadow-modal", width)}
       >
         <div className="flex items-start gap-3 border-b border-border px-6 pt-5 pb-4">
           <div className="min-w-0 flex-1">
@@ -177,6 +183,7 @@ export function Sheet({
             </h2>
             {subtitle ? <div className="text-sm text-muted">{subtitle}</div> : null}
           </div>
+          {actions}
           <button
             type="button"
             aria-label="Đóng"
@@ -187,6 +194,7 @@ export function Sheet({
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+        {footer ? <div className="flex flex-col-reverse gap-2 border-t border-border px-6 py-4 sm:flex-row sm:justify-end">{footer}</div> : null}
       </aside>
     </div>,
     document.body,

@@ -1,19 +1,26 @@
 "use client";
 
-import { CircleAlert, Download, History, Upload } from "lucide-react";
+import { Activity, CircleAlert, Download, FileText, History, Share2, Tag as TagIcon, Trash2, Upload } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api, describeError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { DOCX_MIME, type DocumentDetail, docHref } from "@/lib/documents";
 import { cn } from "@/lib/cn";
 import { ACCEPT_ATTR, fileKindLabel, formatBytes } from "@/lib/files";
-import { formatDuration, formatNumber, formatWhen, roleAtLeast } from "@/lib/format";
+import { formatDuration, formatNumber, formatWhen, roleAtLeast, SECTION_LABEL, sectionPath } from "@/lib/format";
+import { useReportSection } from "@/lib/section";
 import { subscribeSse } from "@/lib/sse";
-import type { FileDetail, NodeEvent, VideoDetail } from "@/lib/types";
+import type { FileDetail, Member, NodeEvent, VideoDetail } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 import { useUploads } from "@/lib/uploads";
+import { ActivitySheet } from "../content/activity-sheet";
+import { TagsDialog } from "../content/node-dialogs";
 import { NodeIcon, TagChip } from "../content/node-name";
+import { ShareSheet } from "../content/share-sheet";
+import { ConfirmDialog } from "../ui/dialog";
+import { RowMenu } from "../ui/menu";
 import { PageBody, TopBar } from "../shell/shell";
 import { Button } from "../ui/button";
 import { Avatar, Breadcrumb, Card, ErrorBanner } from "../ui/misc";
@@ -74,13 +81,18 @@ export function FilePage() {
   const node = d?.node;
   const v = d?.currentVersion ?? null;
   const canEdit = roleAtLeast(node?.myRole, "EDITOR");
+  const isOwner = roleAtLeast(node?.myRole, "OWNER");
+  useReportSection(node?.section);
+  const [panel, setPanel] = useState<"tags" | "share" | "activity" | "delete" | null>(null);
+  const members = useApi(() => api<Member[]>(`/workspaces/${wsId}/members`), [wsId], { enabled: !!membership && panel === "share" });
+  const memberEmails = new Set((members.data ?? []).map((m) => m.user.email));
   const busy = node?.status === "UPLOADING" || node?.status === "PROCESSING";
   const canDownload = !!d?.canDownload && !!v;
 
   const path = crumbs.data ?? [];
   const parents = [
-    ...(membership && path.length ? [{ label: membership.name, href: `/w/${wsId}/f` }] : []),
-    ...path.slice(0, -1).map((c) => ({ label: c.name, href: `/w/${wsId}/f/${c.id}` })),
+    ...(membership && path.length && node ? [{ label: SECTION_LABEL[node.section], href: `/w/${wsId}/${sectionPath(node.section)}` }] : []),
+    ...path.slice(0, -1).map((c) => ({ label: c.name, href: `/w/${wsId}/${sectionPath(node?.section ?? "DOCS")}/${c.id}` })),
   ];
 
   const download = async (versionId?: string) => {
@@ -102,6 +114,19 @@ export function FilePage() {
       toast("error", describeError(err));
     } finally {
       setRetranscoding(false);
+    }
+  };
+
+  const [converting, setConverting] = useState(false);
+  const convert = async () => {
+    setConverting(true);
+    try {
+      const doc = await api<DocumentDetail>(`/files/${nodeId}/convert-to-document`, { method: "POST" });
+      toast("success", `Đã tạo tài liệu «${doc.node.name}»`);
+      router.push(docHref(wsId, doc.node.id));
+    } catch (err) {
+      toast("error", describeError(err));
+      setConverting(false);
     }
   };
 
@@ -167,6 +192,11 @@ export function FilePage() {
                       <span className="text-muted tabular-nums">{d.versionCount}</span>
                     </Button>
                   ) : null,
+ canEdit && v?.mime === DOCX_MIME && node.status === "READY" ? (
+                    <Button key="convert" icon={FileText} loading={converting} onClick={() => void convert()}>
+                      Chuyển thành tài liệu
+                    </Button>
+                  ) : null,
                   canEdit ? (
                     <Button key="replace" icon={Upload} loading={busy} onClick={() => replaceInput.current?.click()}>
                       Tải bản mới
@@ -178,11 +208,28 @@ export function FilePage() {
                     Tải về
                   </Button>
                 ) : null;
-                if (!secondary.length && !primary) return null;
+                const menu = (
+                  <RowMenu
+                    label="Thêm thao tác"
+                    groups={[
+                      [
+                        { icon: Share2, label: "Chia sẻ", onSelect: () => setPanel("share"), hidden: !isOwner },
+                        { icon: TagIcon, label: "Gắn tag", onSelect: () => setPanel("tags"), hidden: !canEdit || !membership },
+                        { icon: Activity, label: "Hoạt động", onSelect: () => setPanel("activity"), hidden: !isOwner && !me?.isSystemAdmin },
+                      ],
+                      [{ icon: Trash2, label: "Xoá vào thùng rác", danger: true, onSelect: () => setPanel("delete"), hidden: !isOwner }],
+                    ]}
+                  />
+                );
                 return (
-                  <div className={cn("grid gap-2 sm:flex sm:shrink-0 sm:flex-wrap", secondary.length === 2 ? "grid-cols-2" : "grid-cols-1")}>
-                    {secondary}
-                    {primary}
+                  <div className="flex items-start gap-2 sm:shrink-0">
+                    {secondary.length || primary ? (
+                      <div className={cn("grid flex-1 gap-2 sm:flex sm:flex-wrap", secondary.length === 2 ? "grid-cols-2" : "grid-cols-1")}>
+                        {secondary}
+                        {primary}
+                      </div>
+                    ) : null}
+                    <div className="pt-1">{menu}</div>
                   </div>
                 );
               })()}
@@ -268,6 +315,35 @@ export function FilePage() {
               </div>
             </div>
 
+            <ActivitySheet node={node} open={panel === "activity"} onClose={() => setPanel(null)} />
+            <TagsDialog
+              open={panel === "tags"}
+              onClose={() => setPanel(null)}
+              node={panel === "tags" ? node : null}
+              workspaceId={node.workspaceId}
+              onSaved={() => {
+                toast("success", "Đã cập nhật tag");
+                void detail.reload();
+              }}
+            />
+            <ShareSheet node={panel === "share" ? node : null} onClose={() => setPanel(null)} memberEmails={memberEmails} />
+            <ConfirmDialog
+              open={panel === "delete"}
+              onClose={() => setPanel(null)}
+              title="Xoá vào thùng rác?"
+              confirmLabel="Xoá"
+              onConfirm={async () => {
+                try {
+                  await api(`/nodes/${node.id}`, { method: "DELETE" });
+                  toast("success", `Đã chuyển «${node.name}» vào thùng rác`);
+                  router.push(`/w/${wsId}/${sectionPath(node.section)}${node.parentId ? `/${node.parentId}` : ""}`);
+                } catch (err) {
+                  toast("error", describeError(err));
+                }
+              }}
+            >
+              <span className="font-medium text-foreground">{node.name}</span> sẽ vào thùng rác. Khôi phục được trong 30 ngày.
+            </ConfirmDialog>
             <VersionsSheet
               node={node}
               open={versionsOpen}

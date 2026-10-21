@@ -30,13 +30,13 @@ describe('Users & admin (e2e)', () => {
     await http()
       .post('/api/v1/workspaces')
       .set(admin.auth)
-      .send({ name: 'Eng', slug: 'eng', ownerEmail: 'alice.nguyen@lunatech.vn' })
+      .send({ name: 'Eng', slug: 'eng', memberEmails: ['alice.nguyen@lunatech.vn'] })
       .expect(201);
     const res = await http().get('/api/v1/me').set(alice.auth).expect(200);
     expect(res.body).toMatchObject({
       email: 'alice.nguyen@lunatech.vn',
       name: 'Alice Nguyễn',
-      workspaces: [{ slug: 'eng', role: 'OWNER' }],
+      workspaces: [{ slug: 'eng', role: 'MEMBER' }],
     });
   });
 

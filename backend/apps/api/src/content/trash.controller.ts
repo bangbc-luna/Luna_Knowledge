@@ -24,7 +24,8 @@ const trashItemSchema = z.object({
 });
 
 const restoreResultSchema = z.object({
-  node: nodeSchema,
+  node: nodeSchema.nullable().describe('null khi System Admin không phải thành viên workspace'),
+  name: z.string().describe('Tên sau khi khôi phục'),
   movedToRoot: z.boolean().describe('true nếu folder cha cũ không còn nên khôi phục về gốc'),
   renamed: z.boolean().describe('true nếu trùng tên nên được đổi thành "Tên (1)"'),
 });

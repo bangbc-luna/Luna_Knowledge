@@ -1,9 +1,10 @@
 "use client";
 
-import { ChevronRight, Folder, House } from "lucide-react";
+import { ChevronRight, Folder, House, Plus } from "lucide-react";
 import { useState } from "react";
 import { api, ApiError, describeError } from "@/lib/api";
-import type { NodeItem, Page, Tag } from "@/lib/types";
+import { SECTION_LABEL } from "@/lib/format";
+import type { NodeItem, NodeSection, Page, Tag } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 import { cn } from "@/lib/cn";
 import { Button } from "../ui/button";
@@ -102,6 +103,7 @@ export function MoveDialog({
   node,
   workspaceId,
   canUseRoot,
+  section,
   onMoved,
 }: {
   open: boolean;
@@ -109,23 +111,24 @@ export function MoveDialog({
   node: NodeItem | null;
   workspaceId: string;
   canUseRoot: boolean;
+  section: NodeSection;
   onMoved: () => void;
 }) {
-  const [trail, setTrail] = useState<Array<{ id: string | null; name: string }>>([{ id: null, name: "Gốc workspace" }]);
+  const [trail, setTrail] = useState<Array<{ id: string | null; name: string }>>([{ id: null, name: SECTION_LABEL[section] }]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastOpen, setLastOpen] = useState(open);
   if (open !== lastOpen) {
     setLastOpen(open);
     if (open) {
-      setTrail([{ id: null, name: "Gốc workspace" }]);
+      setTrail([{ id: null, name: SECTION_LABEL[section] }]);
       setError(null);
     }
   }
   const current = trail[trail.length - 1]!;
   const { data, loading, error: loadError } = useApi(
-    () => api<Page<NodeItem>>(`/workspaces/${workspaceId}/nodes`, { query: { parentId: current.id ?? undefined, type: "FOLDER", limit: 200 } }),
-    [workspaceId, current.id, open],
+    () => api<Page<NodeItem>>(`/workspaces/${workspaceId}/nodes`, { query: { parentId: current.id ?? undefined, section: current.id ? undefined : section, type: "FOLDER", limit: 200 } }),
+    [workspaceId, current.id, open, section],
     { enabled: open && !!node },
   );
   if (!node) return null;
@@ -212,6 +215,8 @@ export function MoveDialog({
   );
 }
 
+const TAG_COLORS = ["#e5534b", "#ea580c", "#ca8a04", "#16a34a", "#0d9488", "#2563eb", "#4f46e5", "#9333ea", "#db2777", "#6b7280"];
+
 export function TagsDialog({
   open,
   onClose,
@@ -235,7 +240,32 @@ export function TagsDialog({
     setError(null);
   }
   if (!open && lastNode) setLastNode(null);
-  const { data: tags, loading } = useApi(() => api<Tag[]>(`/workspaces/${workspaceId}/tags`), [workspaceId, open], { enabled: open });
+  const { data: tags, loading, setData: setTags } = useApi(() => api<Tag[]>(`/workspaces/${workspaceId}/tags`), [workspaceId, open], { enabled: open });
+  const [newName, setNewName] = useState("");
+  const [creating, setCreating] = useState(false);
+  const createTag = async () => {
+    const name = newName.trim();
+    if (!name) return;
+    const existing = tags?.find((t) => t.name.toLocaleLowerCase("vi") === name.toLocaleLowerCase("vi"));
+    if (existing) {
+      setSelected((prev) => new Set(prev).add(existing.id));
+      setNewName("");
+      return;
+    }
+    setCreating(true);
+    setError(null);
+    try {
+      const color = TAG_COLORS[[...name].reduce((a, c) => a + c.charCodeAt(0), 0) % TAG_COLORS.length]!;
+      const tag = await api<Tag>(`/workspaces/${workspaceId}/tags`, { method: "POST", body: { name, color } });
+      setTags((list) => [...(list ?? []), tag].sort((a, b) => a.name.localeCompare(b.name, "vi")));
+      setSelected((prev) => new Set(prev).add(tag.id));
+      setNewName("");
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setCreating(false);
+    }
+  };
   if (!node) return null;
   return (
     <Dialog
@@ -298,8 +328,26 @@ export function TagsDialog({
           })}
         </ul>
       ) : (
-        <EmptyState text="Workspace chưa có tag nào. Quản trị workspace tạo tag ở mục Tag." />
+        <EmptyState text="Workspace chưa có tag nào. Gõ tên bên dưới để tạo tag đầu tiên." />
       )}
+      <div className="mt-3 flex gap-2 border-t border-border pt-3">
+        <Input
+          aria-label="Tên tag mới"
+          placeholder="Tạo tag mới, ví dụ Hợp đồng"
+          maxLength={40}
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              void createTag();
+            }
+          }}
+        />
+        <Button icon={Plus} loading={creating} disabled={!newName.trim()} className="shrink-0" onClick={() => void createTag()}>
+          Tạo
+        </Button>
+      </div>
       {error ? <p className="mt-2 text-sm text-err-text">{error}</p> : null}
     </Dialog>
   );

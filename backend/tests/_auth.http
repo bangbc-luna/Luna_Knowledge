@@ -1,4 +1,4 @@
-# Token cho từng vai trò (chỉ chạy được khi API ở NODE_ENV=development).
+# Token cho từng người dùng test (chỉ chạy được khi API ở NODE_ENV=development).
 # Các file khác dùng: # @import ./_auth.http  +  # @ref <tên>
 
 @apiUrl = http://localhost:4000/api/v1
@@ -13,30 +13,39 @@ Content-Type: application/json
 ?? status == 200
 ?? body user.isSystemAdmin == true
 
-### owner
-# @name owner
+### creator (thành viên workspace test, người tạo các mục "của creator")
+# @name creator
 POST {{apiUrl}}/dev/token
 Content-Type: application/json
 
-{ "email": "qa.owner@lunatech.vn", "name": "QA Owner" }
+{ "email": "qa.creator@lunatech.vn", "name": "QA Creator" }
 
 ?? status == 200
 
-### editor
-# @name editor
+### member (thành viên workspace test)
+# @name member
 POST {{apiUrl}}/dev/token
 Content-Type: application/json
 
-{ "email": "qa.editor@lunatech.vn", "name": "QA Editor" }
+{ "email": "qa.member@lunatech.vn", "name": "QA Member" }
 
 ?? status == 200
 
-### viewer
-# @name viewer
+### sharedViewer (không phải thành viên; được share "Chỉ xem")
+# @name sharedViewer
 POST {{apiUrl}}/dev/token
 Content-Type: application/json
 
-{ "email": "qa.viewer@lunatech.vn", "name": "QA Viewer" }
+{ "email": "qa.shared.viewer@lunatech.vn", "name": "QA Shared Viewer" }
+
+?? status == 200
+
+### sharedEditor (không phải thành viên; được share "Được chỉnh sửa" ở 06, quyền như người sở hữu)
+# @name sharedEditor
+POST {{apiUrl}}/dev/token
+Content-Type: application/json
+
+{ "email": "qa.shared.editor@lunatech.vn", "name": "QA Shared Editor" }
 
 ?? status == 200
 
@@ -67,60 +76,53 @@ Content-Type: application/json
 
 ?? status == 200
 
-### wsAdmin (sẽ là ADMIN trong workspace test)
-# @name wsAdmin
-POST {{apiUrl}}/dev/token
-Content-Type: application/json
-
-{ "email": "qa.wsadmin@lunatech.vn", "name": "QA WS Admin" }
-
-?? status == 200
-
-### workspace dùng chung cho các file 05–08: owner=OWNER, wsAdmin=ADMIN, editor=EDITOR, viewer=VIEWER
+### Workspace dùng chung cho các file 05–12 (System Admin tạo, không tự thành viên).
+# Quy ước vai trò trong workspace test:
+#   creator, member = thành viên (MEMBER) → quyền EDITOR trên mọi mục; ai tạo mục thì là OWNER của mục đó và mục con
+#   sharedViewer        = KHÔNG phải thành viên, chỉ được share "Chỉ xem" (VIEWER) folder `viewFolder`
+#   sharedEditor  = KHÔNG phải thành viên, được share "Được chỉnh sửa" (EDITOR) trong 06 → OWNER trên nhánh đó
+#   outsider      = không phải thành viên, không được share gì (06 share riêng cho outsider)
+#   admin         = System Admin, không phải thành viên
 # @name contentWs
 # @ref admin
-# @ref owner
-# @ref wsAdmin
-# @ref editor
-# @ref viewer
+# @ref creator
+# @ref member
+# @ref sharedViewer
+# @ref outsider
 POST {{apiUrl}}/workspaces
 Authorization: Bearer {{admin.accessToken}}
 Content-Type: application/json
 
-{ "name": "QA Content", "slug": "qa-content-{{$timestamp}}", "ownerEmail": "qa.owner@lunatech.vn" }
+{
+  "name": "QA Content",
+  "slug": "qa-content-{{$timestamp}}",
+  "memberEmails": ["qa.creator@lunatech.vn", "qa.member@lunatech.vn"]
+}
 
 ?? status == 201
+?? body memberCount == 2
+?? body myRole isFalse
 
-###
-# @name contentWsAdmin
-# @ref owner
+### Folder "Chỉ xem" do creator tạo (creator là OWNER của folder này)
+# @name viewFolder
 # @ref contentWs
-POST {{apiUrl}}/workspaces/{{contentWs.id}}/members
-Authorization: Bearer {{owner.accessToken}}
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{creator.accessToken}}
 Content-Type: application/json
 
-{ "email": "qa.wsadmin@lunatech.vn", "role": "ADMIN" }
+{ "name": "QA Chỉ xem {{$timestamp}}" }
 
 ?? status == 201
+?? body myRole == OWNER
 
-###
-# @name contentWsEditor
-# @ref contentWsAdmin
-POST {{apiUrl}}/workspaces/{{contentWs.id}}/members
-Authorization: Bearer {{owner.accessToken}}
-Content-Type: application/json
-
-{ "email": "qa.editor@lunatech.vn", "role": "EDITOR" }
-
-?? status == 201
-
-### Workspace test đã sẵn sàng (dùng # @ref ws trong các file khác)
+### Workspace test đã sẵn sàng (dùng # @ref ws trong các file khác): sharedViewer được share VIEWER folder viewFolder
 # @name ws
-# @ref contentWsEditor
-POST {{apiUrl}}/workspaces/{{contentWs.id}}/members
-Authorization: Bearer {{owner.accessToken}}
+# @ref viewFolder
+POST {{apiUrl}}/nodes/{{viewFolder.id}}/shares
+Authorization: Bearer {{creator.accessToken}}
 Content-Type: application/json
 
-{ "email": "qa.viewer@lunatech.vn", "role": "VIEWER" }
+{ "email": "qa.shared.viewer@lunatech.vn", "role": "VIEWER" }
 
 ?? status == 201
+?? body role == VIEWER

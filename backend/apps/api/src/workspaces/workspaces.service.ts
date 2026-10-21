@@ -1,27 +1,19 @@
-import { Prisma, type WorkspaceRole } from '@luna/db';
+import { Prisma } from '@luna/db';
 import { Injectable } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
 import { AppError } from '../common/errors/app-error.js';
 import type { RequestContext } from '../common/http/request-context.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
+import { CollabEventsService } from '../infra/redis/collab-events.service.js';
 import { UsersService } from '../users/users.service.js';
-import { roleAtLeast } from './workspace-roles.js';
 import type {
   AddMemberBody,
   CreateWorkspaceBody,
-  UpdateMemberBody,
   UpdateWorkspaceBody,
 } from './workspaces.schemas.js';
 
 const userSummary = { id: true, email: true, name: true, avatarUrl: true } as const;
-const ROLE_ORDER: WorkspaceRole[] = ['OWNER', 'ADMIN', 'EDITOR', 'VIEWER'];
-
-interface Access {
-  workspaceId: string;
-  memberRole: WorkspaceRole | null;
-  effectiveRole: WorkspaceRole;
-}
 
 @Injectable()
 export class WorkspacesService {
@@ -29,26 +21,22 @@ export class WorkspacesService {
     private readonly prisma: PrismaService,
     private readonly users: UsersService,
     private readonly audit: AuditService,
+    private readonly collab: CollabEventsService,
   ) {}
 
-  async requireRole(
-    actor: AuthenticatedUser,
-    workspaceId: string,
-    min: WorkspaceRole,
-  ): Promise<Access> {
+  async requireAccess(actor: AuthenticatedUser, workspaceId: string, { admin = false } = {}) {
     const workspace = await this.prisma.client.workspace.findFirst({
       where: { id: workspaceId, deletedAt: null },
       select: { id: true, members: { where: { userId: actor.id }, select: { role: true } } },
     });
-    const memberRole = workspace?.members[0]?.role ?? null;
-    if (!workspace || (!memberRole && !actor.isSystemAdmin)) {
+    const isMember = !!workspace?.members.length;
+    if (!workspace || (!isMember && !actor.isSystemAdmin)) {
       throw AppError.notFound('Workspace not found');
     }
-    const effectiveRole = actor.isSystemAdmin ? 'OWNER' : memberRole!;
-    if (!roleAtLeast(effectiveRole, min)) {
-      throw AppError.forbidden(`Requires ${min} role in this workspace`);
+    if (admin && !actor.isSystemAdmin) {
+      throw AppError.forbidden('Only a system admin can do this');
     }
-    return { workspaceId, memberRole, effectiveRole };
+    return { workspaceId, isMember };
   }
 
   async list(actor: AuthenticatedUser, scope: 'mine' | 'all') {
@@ -64,21 +52,16 @@ export class WorkspacesService {
       },
       orderBy: { name: 'asc' },
     });
-    const owners = await this.prisma.client.workspaceMember.findMany({
-      where: { workspaceId: { in: rows.map((w) => w.id) }, role: 'OWNER' },
-      select: { workspaceId: true, user: { select: userSummary } },
-    });
-    const ownerMap = new Map(owners.map((o) => [o.workspaceId, o.user]));
-    return rows.map((w) => ({ ...this.toDto(w), owner: ownerMap.get(w.id) ?? null }));
+    return rows.map((w) => this.toDto(w));
   }
 
   async get(actor: AuthenticatedUser, workspaceId: string) {
-    await this.requireRole(actor, workspaceId, 'VIEWER');
+    await this.requireAccess(actor, workspaceId);
     return this.toDto(await this.loadWithCounts(workspaceId, actor.id));
   }
 
   async create(actor: AuthenticatedUser, body: CreateWorkspaceBody, ctx: RequestContext) {
-    const owner = await this.users.findOrProvision(body.ownerEmail);
+    const members = await Promise.all(body.memberEmails.map((e) => this.users.findOrProvision(e)));
     try {
       const workspace = await this.prisma.client.workspace.create({
         data: {
@@ -87,7 +70,13 @@ export class WorkspacesService {
           description: body.description,
           icon: body.icon,
           createdById: actor.id,
-          members: { create: { userId: owner.id, role: 'OWNER', addedById: actor.id } },
+          members: {
+            create: [...new Map(members.map((m) => [m.id, m])).values()].map((m) => ({
+              userId: m.id,
+              role: 'MEMBER' as const,
+              addedById: actor.id,
+            })),
+          },
         },
       });
       await this.audit.log({
@@ -96,7 +85,7 @@ export class WorkspacesService {
         targetType: 'workspace',
         targetId: workspace.id,
         workspaceId: workspace.id,
-        metadata: { slug: body.slug, ownerId: owner.id },
+        metadata: { slug: body.slug, memberIds: members.map((m) => m.id) },
         ctx,
       });
       return this.toDto(await this.loadWithCounts(workspace.id, actor.id));
@@ -114,7 +103,7 @@ export class WorkspacesService {
     body: UpdateWorkspaceBody,
     ctx: RequestContext,
   ) {
-    await this.requireRole(actor, workspaceId, 'OWNER');
+    await this.requireAccess(actor, workspaceId, { admin: true });
     await this.prisma.client.workspace.update({ where: { id: workspaceId }, data: body });
     await this.audit.log({
       actorId: actor.id,
@@ -129,7 +118,7 @@ export class WorkspacesService {
   }
 
   async remove(actor: AuthenticatedUser, workspaceId: string, ctx: RequestContext) {
-    await this.requireRole(actor, workspaceId, 'OWNER');
+    await this.requireAccess(actor, workspaceId, { admin: true });
     const ws = await this.prisma.client.workspace.findUniqueOrThrow({ where: { id: workspaceId } });
     await this.prisma.client.workspace.update({
       where: { id: workspaceId },
@@ -144,19 +133,16 @@ export class WorkspacesService {
       metadata: { slug: ws.slug },
       ctx,
     });
+    await this.collab.accessChanged({ workspaceId });
   }
 
   async listMembers(actor: AuthenticatedUser, workspaceId: string) {
-    await this.requireRole(actor, workspaceId, 'VIEWER');
+    await this.requireAccess(actor, workspaceId);
     const members = await this.prisma.client.workspaceMember.findMany({
       where: { workspaceId },
       select: { role: true, createdAt: true, user: { select: userSummary } },
     });
-    return members.sort(
-      (a, b) =>
-        ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role) ||
-        a.user.name.localeCompare(b.user.name, 'vi'),
-    );
+    return members.sort((a, b) => a.user.name.localeCompare(b.user.name, 'vi'));
   }
 
   async addMember(
@@ -165,22 +151,15 @@ export class WorkspacesService {
     body: AddMemberBody,
     ctx: RequestContext,
   ) {
-    await this.requireRole(actor, workspaceId, 'ADMIN');
+    await this.requireAccess(actor, workspaceId, { admin: true });
     const user = await this.users.findOrProvision(body.email);
-
     try {
       const member = await this.prisma.client.workspaceMember.create({
-        data: { workspaceId, userId: user.id, role: body.role, addedById: actor.id },
+        data: { workspaceId, userId: user.id, role: 'MEMBER', addedById: actor.id },
         select: { role: true, createdAt: true, user: { select: userSummary } },
       });
-      await this.auditMember(
-        actor,
-        workspaceId,
-        'workspace.member_add',
-        user.id,
-        { role: body.role },
-        ctx,
-      );
+      await this.auditMember(actor, workspaceId, 'workspace.member_add', user.id, {}, ctx);
+      await this.collab.accessChanged({ workspaceId, userId: user.id });
       return member;
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
@@ -190,85 +169,19 @@ export class WorkspacesService {
     }
   }
 
-  async updateMember(
-    actor: AuthenticatedUser,
-    workspaceId: string,
-    userId: string,
-    body: UpdateMemberBody,
-    ctx: RequestContext,
-  ) {
-    await this.requireRole(actor, workspaceId, 'ADMIN');
-    const target = await this.findMember(workspaceId, userId);
-    if (target.role === 'OWNER') {
-      throw AppError.forbidden('Owner role can only change via ownership transfer');
-    }
-    const member = await this.prisma.client.workspaceMember.update({
-      where: { workspaceId_userId: { workspaceId, userId } },
-      data: { role: body.role },
-      select: { role: true, createdAt: true, user: { select: userSummary } },
-    });
-    await this.auditMember(
-      actor,
-      workspaceId,
-      'workspace.member_update',
-      userId,
-      {
-        from: target.role,
-        to: body.role,
-      },
-      ctx,
-    );
-    return member;
-  }
-
   async removeMember(
     actor: AuthenticatedUser,
     workspaceId: string,
     userId: string,
     ctx: RequestContext,
   ) {
-    await this.requireRole(actor, workspaceId, userId === actor.id ? 'VIEWER' : 'ADMIN');
-    const target = await this.findMember(workspaceId, userId);
-    if (target.role === 'OWNER') {
-      throw AppError.forbidden('Transfer ownership before removing the owner');
-    }
+    await this.requireAccess(actor, workspaceId, { admin: userId !== actor.id });
+    await this.findMember(workspaceId, userId);
     await this.prisma.client.workspaceMember.delete({
       where: { workspaceId_userId: { workspaceId, userId } },
     });
-    await this.auditMember(
-      actor,
-      workspaceId,
-      'workspace.member_remove',
-      userId,
-      {
-        role: target.role,
-      },
-      ctx,
-    );
-  }
-
-  async transferOwnership(
-    actor: AuthenticatedUser,
-    workspaceId: string,
-    newOwnerId: string,
-    ctx: RequestContext,
-  ) {
-    await this.requireRole(actor, workspaceId, 'OWNER');
-    const target = await this.findMember(workspaceId, newOwnerId);
-    if (target.role === 'OWNER') throw AppError.validation('User is already the owner');
-
-    await this.prisma.client.$transaction([
-      this.prisma.client.workspaceMember.updateMany({
-        where: { workspaceId, role: 'OWNER' },
-        data: { role: 'ADMIN' },
-      }),
-      this.prisma.client.workspaceMember.update({
-        where: { workspaceId_userId: { workspaceId, userId: newOwnerId } },
-        data: { role: 'OWNER' },
-      }),
-    ]);
-    await this.auditMember(actor, workspaceId, 'workspace.transfer_ownership', newOwnerId, {}, ctx);
-    return this.listMembers(actor, workspaceId);
+    await this.auditMember(actor, workspaceId, 'workspace.member_remove', userId, {}, ctx);
+    await this.collab.accessChanged({ workspaceId, userId });
   }
 
   private async findMember(workspaceId: string, userId: string) {

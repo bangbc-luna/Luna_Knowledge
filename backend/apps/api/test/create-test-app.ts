@@ -16,12 +16,16 @@ export interface TestContext {
   close(): Promise<void>;
 }
 
-export async function createTestApp(): Promise<TestContext> {
+export async function createTestApp(
+  overrides: Array<[unknown, unknown]> = [],
+): Promise<TestContext> {
   const google = new FakeGoogleIdentity();
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+  let builder = Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(GOOGLE_IDENTITY)
-    .useValue(google)
-    .compile();
+    .useValue(google);
+  for (const [token, value] of overrides)
+    builder = builder.overrideProvider(token as never).useValue(value);
+  const moduleRef = await builder.compile();
   const app = moduleRef.createNestApplication({ logger: ['error'] });
   setupApp(app, app.get<AppConfig>(APP_CONFIG));
   await app.init();
@@ -30,7 +34,7 @@ export async function createTestApp(): Promise<TestContext> {
 
 export async function resetDatabase(prisma: TestContext['prisma']) {
   await prisma.$executeRawUnsafe(
-    'TRUNCATE blob_gc, audit_logs, recent_views, favorites, node_tags, tags, node_shares, nodes, refresh_tokens, sessions, workspace_members, workspaces, users CASCADE',
+    'TRUNCATE notifications, blob_gc, audit_logs, recent_views, favorites, node_tags, tags, node_shares, nodes, refresh_tokens, sessions, workspace_members, workspaces, users CASCADE',
   );
 }
 

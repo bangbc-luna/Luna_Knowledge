@@ -1,15 +1,17 @@
 "use client";
 
-import { FolderInput, FolderPlus, Pencil, Share2, Star, Tag as TagIcon, Trash2, Upload } from "lucide-react";
+import { FilePlus2, FolderInput, FolderPlus, Pencil, Share2, Star, Tag as TagIcon, Trash2, Upload } from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, describeError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { createDocument, docHref } from "@/lib/documents";
 import { cn } from "@/lib/cn";
-import { ACCEPT_ATTR } from "@/lib/files";
-import { formatWhen, roleAtLeast } from "@/lib/format";
-import type { Member, NodeItem, Page } from "@/lib/types";
+import { DOC_ACCEPT_ATTR, extensionOf, VIDEO_ACCEPT_ATTR, VIDEO_EXTENSIONS } from "@/lib/files";
+import { formatWhen, roleAtLeast, SECTION_LABEL, sectionPath } from "@/lib/format";
+import { useReportSection } from "@/lib/section";
+import type { Member, NodeItem, NodeSection, Page } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 import { useUploads } from "@/lib/uploads";
 import { rememberWorkspace } from "@/lib/workspace";
@@ -59,7 +61,7 @@ function FavoriteButton({ node, onChange }: { node: NodeItem; onChange: (fav: bo
   );
 }
 
-export function FolderPage() {
+export function FolderPage({ section: routeSection }: { section: NodeSection }) {
   const { wsId, folder } = useParams<{ wsId: string; folder?: string[] }>();
   const folderId = folder?.[0] ?? null;
   const { me } = useAuth();
@@ -73,6 +75,19 @@ export function FolderPage() {
     | null
   >(null);
 
+  const router = useRouter();
+  const [creatingDoc, setCreatingDoc] = useState(false);
+  const newDocument = async () => {
+    setCreatingDoc(true);
+    try {
+      const doc = await createDocument(wsId, folderId);
+      router.push(`${docHref(wsId, doc.node.id)}?new=1`);
+    } catch (err) {
+      toast("error", describeError(err));
+      setCreatingDoc(false);
+    }
+  };
+
   useEffect(() => {
     if (membership) rememberWorkspace(wsId);
   }, [membership, wsId]);
@@ -82,22 +97,29 @@ export function FolderPage() {
     [folderId],
   );
   const list = useApi(
-    () => api<Page<NodeItem>>(`/workspaces/${wsId}/nodes`, { query: { parentId: folderId ?? undefined, sort, order: sort === "name" ? "asc" : "desc", limit: 200 } }),
-    [wsId, folderId, sort],
+    () =>
+      api<Page<NodeItem>>(`/workspaces/${wsId}/nodes`, {
+        query: { parentId: folderId ?? undefined, section: folderId ? undefined : routeSection, sort, order: sort === "name" ? "asc" : "desc", limit: 200 },
+      }),
+    [wsId, folderId, sort, routeSection],
   );
   const members = useApi(() => api<Member[]>(`/workspaces/${wsId}/members`), [wsId], { enabled: !!membership });
   const memberEmails = useMemo(() => new Set((members.data ?? []).map((m) => m.user.email)), [members.data]);
 
   const folderNode = current.data?.[0] ?? null;
   const crumbs = current.data?.[1] ?? [];
-  const myRole = folderNode?.myRole ?? membership?.role ?? null;
+  const section = folderNode?.section ?? routeSection;
+  useReportSection(section);
+  const isVideo = section === "VIDEOS";
+  const base = `/w/${wsId}/${sectionPath(section)}`;
+  const myRole = folderNode?.myRole ?? (membership ? "EDITOR" : null);
   const canEdit = roleAtLeast(myRole, "EDITOR");
-  const canShare = roleAtLeast(membership?.role, "ADMIN");
-  const title = folderNode?.name ?? membership?.name ?? "Thư mục";
+  const canShare = roleAtLeast(folderNode?.myRole, "OWNER");
+  const title = folderNode?.name ?? SECTION_LABEL[section];
   const parents = folderId
     ? [
-        ...(membership && (crumbs[0]?.id !== folderId || crumbs.length > 1) ? [{ label: membership.name, href: `/w/${wsId}/f` }] : []),
-        ...crumbs.slice(0, -1).map((c) => ({ label: c.name, href: `/w/${wsId}/f/${c.id}` })),
+        ...(membership && (crumbs[0]?.id !== folderId || crumbs.length > 1) ? [{ label: SECTION_LABEL[section], href: base }] : []),
+        ...crumbs.slice(0, -1).map((c) => ({ label: c.name, href: `${base}/${c.id}` })),
       ]
     : [];
 
@@ -129,7 +151,12 @@ export function FolderPage() {
     return () => clearInterval(timer);
   }, [pending, reloadList]);
   const startUpload = (files: FileList | null) => {
-    if (files?.length) uploads.add(files, { wsId, parentId: folderId });
+    if (!files?.length) return;
+    const all = Array.from(files);
+    const fits = all.filter((f) => VIDEO_EXTENSIONS.includes(extensionOf(f.name)) === isVideo);
+    const skipped = all.length - fits.length;
+    if (skipped) toast("error", isVideo ? `Bỏ qua ${skipped} tệp không phải video. Tệp tài liệu tải lên ở mục Tài liệu.` : `Bỏ qua ${skipped} video. Video tải lên ở mục Video.`);
+    if (fits.length) uploads.add(fits, { wsId, parentId: folderId });
   };
   const hasFiles = (e: React.DragEvent) => e.dataTransfer.types.includes("Files");
   const dropProps = canEdit
@@ -194,23 +221,28 @@ export function FolderPage() {
               <div className="grid grid-cols-2 gap-2 sm:ml-auto sm:flex sm:flex-wrap sm:items-center">
                 <Select prefix="Sắp xếp:" value={sort} options={SORTS} onChange={setSort} className="order-first col-span-2 w-full sm:order-none sm:w-fit" />
                 {folderNode && canShare ? (
-                  <Button icon={Share2} className={cn(!canEdit && "col-span-2")} onClick={() => setDialog({ kind: "share", node: folderNode })}>
+                  <Button icon={Share2} className="col-span-2" onClick={() => setDialog({ kind: "share", node: folderNode })}>
                     Chia sẻ
                   </Button>
                 ) : null}
                 {canEdit ? (
                   <>
-                    <Button icon={FolderPlus} onClick={() => setDialog({ kind: "create" })}>
+                    {isVideo ? null : (
+                      <Button icon={FilePlus2} loading={creatingDoc} onClick={() => void newDocument()}>
+                        Tài liệu mới
+                      </Button>
+                    )}
+                    <Button icon={FolderPlus} className={cn(isVideo && "col-span-2")} onClick={() => setDialog({ kind: "create" })}>
                       Thư mục mới
                     </Button>
-                    <Button icon={Upload} variant="primary" className={cn(folderNode && canShare && "order-first col-span-2 sm:order-none")} onClick={() => fileInput.current?.click()}>
-                      Tải lên
+                    <Button icon={Upload} variant="primary" className="order-first col-span-2 sm:order-none" onClick={() => fileInput.current?.click()}>
+                      {isVideo ? "Tải video lên" : "Tải lên"}
                     </Button>
                     <input
                       ref={fileInput}
                       type="file"
                       multiple
-                      accept={ACCEPT_ATTR}
+                      accept={isVideo ? VIDEO_ACCEPT_ATTR : DOC_ACCEPT_ATTR}
                       className="sr-only"
                       tabIndex={-1}
                       aria-hidden
@@ -227,7 +259,7 @@ export function FolderPage() {
               {dragging ? (
                 <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center rounded-2xl border border-dashed border-foreground/40 bg-background text-center">
                   <Upload className="size-5 text-muted" aria-hidden />
-                  <p className="mt-2 text-sm font-medium text-foreground">Thả tệp để tải lên</p>
+                  <p className="mt-2 text-sm font-medium text-foreground">{isVideo ? "Thả video để tải lên" : "Thả tệp để tải lên"}</p>
                   <p className="mt-1 max-w-[40ch] truncate text-sm text-muted">vào «{title}»</p>
                 </div>
               ) : null}
@@ -243,11 +275,15 @@ export function FolderPage() {
                         `Không có mục nào khớp «${filter}».`
                       ) : canEdit ? (
                         <>
-                          Thư mục này chưa có gì.
-                          <span className="[@media(hover:none)]:hidden"> Kéo thả tệp vào đây để tải lên.</span>
+                          {folderId ? "Thư mục này chưa có gì." : isVideo ? "Chưa có video nào." : "Chưa có tài liệu nào."}
+                          <span className="[@media(hover:none)]:hidden">{isVideo ? " Kéo thả video vào đây để tải lên." : " Kéo thả tệp vào đây để tải lên."}</span>
                         </>
-                      ) : (
+                      ) : folderId ? (
                         "Thư mục này chưa có gì."
+                      ) : isVideo ? (
+                        "Chưa có video nào."
+                      ) : (
+                        "Chưa có tài liệu nào."
                       )
                     }
                     action={
@@ -256,8 +292,13 @@ export function FolderPage() {
                       ) : canEdit ? (
                         <div className="flex flex-wrap justify-center gap-2">
                           <Button icon={Upload} onClick={() => fileInput.current?.click()}>
-                            Tải tệp lên
+                            {isVideo ? "Tải video lên" : "Tải tệp lên"}
                           </Button>
+                          {isVideo ? null : (
+                            <Button icon={FilePlus2} loading={creatingDoc} onClick={() => void newDocument()}>
+                              Tạo tài liệu
+                            </Button>
+                          )}
                           <Button icon={FolderPlus} onClick={() => setDialog({ kind: "create" })}>
                             Tạo thư mục
                           </Button>
@@ -281,7 +322,7 @@ export function FolderPage() {
                       </thead>
                       <tbody>
                         {items.map((n) => {
-                          const canDelete = roleAtLeast(n.myRole, "ADMIN") || (roleAtLeast(n.myRole, "EDITOR") && n.createdBy.id === me?.id);
+                          const rowOwner = roleAtLeast(n.myRole, "OWNER");
                           const rowEdit = roleAtLeast(n.myRole, "EDITOR");
                           return (
                             <tr key={n.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 border-t border-border relative px-4 py-2.5 hover:bg-surface-hover sm:table-row sm:px-0 sm:py-0">
@@ -308,10 +349,10 @@ export function FolderPage() {
                                       [
                                         { icon: Pencil, label: "Đổi tên", onSelect: () => setDialog({ kind: "rename", node: n }), hidden: !rowEdit },
                                         { icon: FolderInput, label: "Di chuyển", onSelect: () => setDialog({ kind: "move", node: n }), hidden: !rowEdit },
-                                        { icon: Share2, label: "Chia sẻ", onSelect: () => setDialog({ kind: "share", node: n }), hidden: !canShare },
+                                        { icon: Share2, label: "Chia sẻ", onSelect: () => setDialog({ kind: "share", node: n }), hidden: !rowOwner },
                                         { icon: TagIcon, label: "Gắn tag", onSelect: () => setDialog({ kind: "tags", node: n }), hidden: !rowEdit || !membership },
                                       ],
-                                      [{ icon: Trash2, label: "Xoá vào thùng rác", danger: true, onSelect: () => setDialog({ kind: "delete", node: n }), hidden: !canDelete }],
+                                      [{ icon: Trash2, label: "Xoá vào thùng rác", danger: true, onSelect: () => setDialog({ kind: "delete", node: n }), hidden: !rowOwner }],
                                     ]}
                                   />
                                 </div>
@@ -342,7 +383,7 @@ export function FolderPage() {
         title="Thư mục mới"
         submitLabel="Tạo thư mục"
         onSubmit={async (name) => {
-          await api(`/workspaces/${wsId}/folders`, { method: "POST", body: { name, parentId: folderId } });
+          await api(`/workspaces/${wsId}/folders`, { method: "POST", body: { name, parentId: folderId, section } });
           toast("success", `Đã tạo thư mục «${name}»`);
           reloadAll();
         }}
@@ -365,7 +406,8 @@ export function FolderPage() {
         onClose={() => setDialog(null)}
         node={dialog?.kind === "move" ? dialog.node : null}
         workspaceId={wsId}
-        canUseRoot={roleAtLeast(membership?.role, "EDITOR")}
+        canUseRoot={!!membership}
+        section={section}
         onMoved={() => {
           toast("success", "Đã di chuyển");
           reloadAll();

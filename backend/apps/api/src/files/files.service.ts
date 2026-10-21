@@ -258,7 +258,7 @@ export class FilesService {
   }
 
   async storageStats(user: AuthenticatedUser, workspaceId: string) {
-    await this.access.requireMember(user, workspaceId, 'VIEWER');
+    await this.access.requireMember(user, workspaceId);
     const [row] = await this.prisma.client.$queryRaw<
       { total: bigint; original: bigint; trash: bigint; files: bigint }[]
     >`

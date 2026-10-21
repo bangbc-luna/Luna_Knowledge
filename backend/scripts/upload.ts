@@ -9,7 +9,7 @@ const { values, positionals } = parseArgs({
     ws: { type: 'string' },
     parent: { type: 'string' },
     replace: { type: 'string' },
-    email: { type: 'string', default: 'qa.owner@lunatech.vn' },
+    email: { type: 'string', default: 'qa.creator@lunatech.vn' },
     api: { type: 'string', default: 'http://localhost:4000' },
   },
 });

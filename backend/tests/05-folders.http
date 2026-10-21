@@ -1,25 +1,29 @@
 # @import ./_auth.http
 @apiUrl = http://localhost:4000/api/v1
 
-### EDITOR tạo folder ở gốc
+# Thành viên nào cũng là EDITOR trên mọi mục; người tạo mục (hoặc folder cha) là OWNER.
+# sharedViewer chỉ được share "Chỉ xem" folder viewFolder.
+
+### member tạo folder ở gốc → là OWNER của folder mình tạo
 # @name projects
-# @ref editor
+# @ref member
 # @ref ws
 POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 Content-Type: application/json
 
 { "name": "Dự án" }
 
 ?? status == 201
 ?? body type == FOLDER
-?? body myRole == EDITOR
+?? body section == DOCS
+?? body myRole == OWNER
 
 ### Tạo folder con
 # @name design
 # @ref projects
 POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 Content-Type: application/json
 
 { "name": "Thiết kế", "parentId": "{{projects.id}}" }
@@ -31,7 +35,7 @@ Content-Type: application/json
 # @name mockups
 # @ref design
 POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 Content-Type: application/json
 
 { "name": "Mockup", "parentId": "{{design.id}}" }
@@ -41,7 +45,7 @@ Content-Type: application/json
 ### Trùng tên (không phân biệt hoa thường) → 409 kèm gợi ý
 # @ref projects
 POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 Content-Type: application/json
 
 { "name": "DỰ ÁN" }
@@ -50,26 +54,68 @@ Content-Type: application/json
 ?? body error.details.suggestion == DỰ ÁN (1)
 
 ### Tên chứa "/" → 400
-# @ref editor
+# @ref member
 # @ref ws
 POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 Content-Type: application/json
 
 { "name": "a/b" }
 
 ?? status == 400
 
-### VIEWER không tạo được folder → 403
-# @ref viewer
+### Thành viên khác (creator) thấy folder của member với quyền EDITOR
+# @ref creator
+# @ref design
+GET {{apiUrl}}/nodes/{{design.id}}
+Authorization: Bearer {{creator.accessToken}}
+
+?? status == 200
+?? body name == Thiết kế
+?? body myRole == EDITOR
+
+### Thành viên khác tạo được folder trong folder của member (và là OWNER của folder mới)
+# @name ownersSub
+# @ref creator
+# @ref projects
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{creator.accessToken}}
+Content-Type: application/json
+
+{ "name": "Của creator {{$timestamp}}", "parentId": "{{projects.id}}" }
+
+?? status == 201
+?? body myRole == OWNER
+
+### Người tạo folder cha cũng là OWNER của mục con người khác tạo
+# @ref ownersSub
+GET {{apiUrl}}/nodes/{{ownersSub.id}}
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 200
+?? body myRole == OWNER
+
+### Người được share "Chỉ xem" không tạo được folder bên trong → 403
+# @ref sharedViewer
 # @ref ws
 POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
-Authorization: Bearer {{viewer.accessToken}}
+Authorization: Bearer {{sharedViewer.accessToken}}
+Content-Type: application/json
+
+{ "name": "Không được", "parentId": "{{viewFolder.id}}" }
+
+?? status == 403
+
+### Người được share không tạo được ở gốc workspace → 404
+# @ref sharedViewer
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{sharedViewer.accessToken}}
 Content-Type: application/json
 
 { "name": "Không được" }
 
-?? status == 403
+?? status == 404
 
 ### Người ngoài → 404
 # @ref outsider
@@ -87,48 +133,72 @@ Authorization: Bearer {{admin.accessToken}}
 
 ?? status == 404
 
-### Liệt kê gốc workspace (VIEWER)
-# @ref viewer
-# @ref projects
+### Liệt kê gốc workspace (khu Tài liệu mặc định)
+# @ref creator
+# @ref mockups
+# @ref ownersSub
 GET {{apiUrl}}/workspaces/{{contentWs.id}}/nodes
-Authorization: Bearer {{viewer.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 
 ?? status == 200
-?? js response.parsedBody.items.some(n => n.name === 'Dự án' && n.childCount === 1) == true
+?? js response.parsedBody.items.some(n => n.name === 'Dự án' && n.childCount === 2) == true
+?? js response.parsedBody.items.every(n => n.section === 'DOCS') == true
 
 ### Liệt kê folder con, sắp theo ngày tạo mới nhất, 1 mục/trang
-# @ref viewer
+# @ref creator
 # @ref mockups
 GET {{apiUrl}}/workspaces/{{contentWs.id}}/nodes?parentId={{projects.id}}&sort=createdAt&order=desc&limit=1
-Authorization: Bearer {{viewer.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 
 ?? status == 200
 ?? js response.parsedBody.items.length == 1
 
-### Chi tiết folder
-# @ref viewer
-# @ref design
-GET {{apiUrl}}/nodes/{{design.id}}
-Authorization: Bearer {{viewer.accessToken}}
+### Folder trong khu "Chỉ xem"
+# @name handbook
+# @ref member
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{member.accessToken}}
+Content-Type: application/json
+
+{ "name": "Sổ tay {{$timestamp}}", "parentId": "{{viewFolder.id}}" }
+
+?? status == 201
+
+### Người được share "Chỉ xem" mở folder con → VIEWER
+# @ref sharedViewer
+# @ref handbook
+GET {{apiUrl}}/nodes/{{handbook.id}}
+Authorization: Bearer {{sharedViewer.accessToken}}
 
 ?? status == 200
-?? body name == Thiết kế
 ?? body myRole == VIEWER
 
+### Người được share "Chỉ xem" đổi tên → 403
+# @ref sharedViewer
+# @ref handbook
+PATCH {{apiUrl}}/nodes/{{handbook.id}}
+Authorization: Bearer {{sharedViewer.accessToken}}
+Content-Type: application/json
+
+{ "name": "x" }
+
+?? status == 403
+
 ### Breadcrumb
-# @ref viewer
+# @ref creator
 # @ref mockups
 GET {{apiUrl}}/nodes/{{mockups.id}}/breadcrumb
-Authorization: Bearer {{viewer.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 
 ?? status == 200
 ?? js response.parsedBody.map(x => x.name).join(' / ') == Dự án / Thiết kế / Mockup
 
-### Đổi tên
-# @ref editor
+### Thành viên đổi tên mục người khác tạo
+# @ref creator
 # @ref mockups
 PATCH {{apiUrl}}/nodes/{{mockups.id}}
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 Content-Type: application/json
 
 { "name": "Mockup v2" }
@@ -136,22 +206,11 @@ Content-Type: application/json
 ?? status == 200
 ?? body name == Mockup v2
 
-### VIEWER đổi tên → 403
-# @ref viewer
-# @ref mockups
-PATCH {{apiUrl}}/nodes/{{mockups.id}}
-Authorization: Bearer {{viewer.accessToken}}
-Content-Type: application/json
-
-{ "name": "x" }
-
-?? status == 403
-
-### Di chuyển "Mockup v2" ra gốc
-# @ref editor
+### Thành viên di chuyển mục người khác tạo: "Mockup v2" ra gốc
+# @ref creator
 # @ref mockups
 POST {{apiUrl}}/nodes/{{mockups.id}}/move
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 Content-Type: application/json
 
 { "targetParentId": null }
@@ -160,10 +219,10 @@ Content-Type: application/json
 ?? body parentId isFalse
 
 ### Di chuyển "Dự án" vào chính folder con của nó → 400
-# @ref editor
+# @ref member
 # @ref design
 POST {{apiUrl}}/nodes/{{projects.id}}/move
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 Content-Type: application/json
 
 { "targetParentId": "{{design.id}}" }
@@ -171,11 +230,11 @@ Content-Type: application/json
 ?? status == 400
 
 ### Đưa "Thiết kế" vào "Mockup v2" (cả nhánh di chuyển theo)
-# @ref editor
+# @ref member
 # @ref design
 # @ref mockups
 POST {{apiUrl}}/nodes/{{design.id}}/move
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 Content-Type: application/json
 
 { "targetParentId": "{{mockups.id}}" }
@@ -184,10 +243,107 @@ Content-Type: application/json
 ?? body parentId == {{mockups.id}}
 
 ### Breadcrumb sau khi di chuyển
-# @ref editor
+# @ref member
 # @ref design
 GET {{apiUrl}}/nodes/{{design.id}}/breadcrumb
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 
 ?? status == 200
 ?? js response.parsedBody.map(x => x.name).join(' / ') == Mockup v2 / Thiết kế
+
+### Khu Video: tạo folder ở gốc với section VIDEOS
+# @name videoArea
+# @ref member
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{member.accessToken}}
+Content-Type: application/json
+
+{ "name": "Video đào tạo {{$timestamp}}", "section": "VIDEOS" }
+
+?? status == 201
+?? body section == VIDEOS
+
+### Folder con trong khu Video theo khu của folder cha
+# @ref videoArea
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{member.accessToken}}
+Content-Type: application/json
+
+{ "name": "Buổi 1", "parentId": "{{videoArea.id}}" }
+
+?? status == 201
+?? body section == VIDEOS
+
+### Khai báo section khác khu của folder cha → 400
+# @ref videoArea
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{member.accessToken}}
+Content-Type: application/json
+
+{ "name": "Sai khu", "parentId": "{{videoArea.id}}", "section": "DOCS" }
+
+?? status == 400
+
+### Gốc khu Tài liệu không chứa folder khu Video
+# @ref videoArea
+GET {{apiUrl}}/workspaces/{{contentWs.id}}/nodes
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.items.some(n => n.id === videoArea.id) == false
+
+### Gốc khu Video (?section=VIDEOS)
+# @ref videoArea
+GET {{apiUrl}}/workspaces/{{contentWs.id}}/nodes?section=VIDEOS
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.items.some(n => n.id === videoArea.id) == true
+?? js response.parsedBody.items.every(n => n.section === 'VIDEOS') == true
+
+### Di chuyển sang khu khác → 400
+# @ref videoArea
+# @ref projects
+POST {{apiUrl}}/nodes/{{projects.id}}/move
+Authorization: Bearer {{member.accessToken}}
+Content-Type: application/json
+
+{ "targetParentId": "{{videoArea.id}}" }
+
+?? status == 400
+
+### Hoạt động trên mục: người tạo (OWNER) xem được, có lượt đổi tên
+# @ref member
+# @ref mockups
+GET {{apiUrl}}/nodes/{{mockups.id}}/activity
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.items.some(a => a.action === 'node.rename' && a.actor.email === 'qa.creator@lunatech.vn') == true
+?? js 'nextCursor' in response.parsedBody == true
+
+### Hoạt động: thành viên thường (không phải OWNER) → 403
+# @ref creator
+# @ref mockups
+GET {{apiUrl}}/nodes/{{mockups.id}}/activity
+Authorization: Bearer {{creator.accessToken}}
+
+?? status == 403
+
+### Hoạt động: người được share "Chỉ xem" → 403
+# @ref sharedViewer
+# @ref handbook
+GET {{apiUrl}}/nodes/{{handbook.id}}/activity
+Authorization: Bearer {{sharedViewer.accessToken}}
+
+?? status == 403
+
+### Hoạt động: System Admin xem được
+# @ref admin
+# @ref mockups
+GET {{apiUrl}}/nodes/{{mockups.id}}/activity
+Authorization: Bearer {{admin.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.items.length >= 1

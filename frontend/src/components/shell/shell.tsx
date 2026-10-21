@@ -5,10 +5,12 @@ import { usePathname } from "next/navigation";
 import { createContext, useContext, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { AccountMenu } from "./account-menu";
+import { MembersPanel, MembersToggle } from "./members-panel";
+import { NotificationBell } from "./notification-bell";
 
 const ShellContext = createContext<{ openMenu: () => void } | null>(null);
 
-export function AppFrame({ sidebar, children }: { sidebar: React.ReactNode; children: React.ReactNode }) {
+export function AppFrame({ sidebar, members = false, children }: { sidebar: React.ReactNode; members?: boolean; children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const pathname = usePathname();
   const [lastPath, setLastPath] = useState(pathname);
@@ -28,6 +30,7 @@ export function AppFrame({ sidebar, children }: { sidebar: React.ReactNode; chil
       <div className="flex min-h-dvh">
         <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col bg-surface lg:flex">{sidebar}</aside>
         <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+        {members ? <MembersPanel /> : null}
       </div>
       {menuOpen
         ? createPortal(
@@ -49,6 +52,7 @@ export function AppFrame({ sidebar, children }: { sidebar: React.ReactNode; chil
 
 export function TopBar({ children, actions }: { children: React.ReactNode; actions?: React.ReactNode }) {
   const shell = useContext(ShellContext);
+  const inAdmin = usePathname().startsWith("/admin");
   return (
     <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b border-border bg-surface px-4 sm:px-6">
       <button
@@ -61,6 +65,8 @@ export function TopBar({ children, actions }: { children: React.ReactNode; actio
       </button>
       <div className="min-w-0 flex-1">{children}</div>
       {actions}
+      {inAdmin ? null : <MembersToggle />}
+      {inAdmin ? null : <NotificationBell />}
       <AccountMenu />
     </header>
   );

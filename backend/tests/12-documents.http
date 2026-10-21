@@ -1,0 +1,309 @@
+# @import ./_auth.http
+# Tài liệu soạn thảo: tạo, collab token, phiên bản, comment + @mention, thông báo, ảnh nhúng, import .docx (SPEC §4.5).
+# Cần `pnpm dev` (API + collab + worker).
+# Tài liệu đặt trong viewFolder: creator là người tạo (OWNER), member là thành viên (EDITOR), sharedViewer có share "Chỉ xem".
+@apiUrl = http://localhost:4000/api/v1
+
+### Tạo tài liệu trống
+# @name doc
+# @ref creator
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/documents
+Authorization: Bearer {{creator.accessToken}}
+Content-Type: application/json
+
+{ "name": "Biên bản họp {{$timestamp}}", "parentId": "{{viewFolder.id}}" }
+
+?? status == 201
+?? body node.type == DOCUMENT
+?? body node.section == DOCS
+?? body node.myRole == OWNER
+?? body wordCount == 0
+
+### Share "Chỉ xem" không tạo được tài liệu
+# @ref sharedViewer
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/documents
+Authorization: Bearer {{sharedViewer.accessToken}}
+Content-Type: application/json
+
+{ "name": "Không được {{$timestamp}}", "parentId": "{{viewFolder.id}}" }
+
+?? status == 403
+
+### Folder khu Video
+# @name videoArea
+# @ref creator
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{creator.accessToken}}
+Content-Type: application/json
+
+{ "name": "Video {{$timestamp}}", "section": "VIDEOS" }
+
+?? status == 201
+
+### Tài liệu không tạo trong khu Video → 400
+# @ref videoArea
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/documents
+Authorization: Bearer {{creator.accessToken}}
+Content-Type: application/json
+
+{ "name": "Sai khu {{$timestamp}}", "parentId": "{{videoArea.id}}" }
+
+?? status == 400
+
+### Share "Chỉ xem" mở tài liệu ở chế độ chỉ đọc
+# @ref doc
+GET {{apiUrl}}/documents/{{doc.node.id}}
+Authorization: Bearer {{sharedViewer.accessToken}}
+
+?? status == 200
+?? body readOnly == true
+
+### Người ngoài workspace → 404
+# @ref doc
+# @ref outsider
+GET {{apiUrl}}/documents/{{doc.node.id}}
+Authorization: Bearer {{outsider.accessToken}}
+
+?? status == 404
+
+### Collab token cho người tạo
+# @ref doc
+GET {{apiUrl}}/documents/{{doc.node.id}}/collab-token
+Authorization: Bearer {{creator.accessToken}}
+
+?? status == 200
+?? body readOnly == false
+?? js response.parsedBody.documentName === `doc:${doc.node.id}` == true
+
+### Thành viên khác cũng sửa được (collab token không chỉ đọc)
+# @ref doc
+# @ref member
+GET {{apiUrl}}/documents/{{doc.node.id}}/collab-token
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 200
+?? body readOnly == false
+
+### Collab token cho share "Chỉ xem" → chỉ đọc
+# @ref doc
+GET {{apiUrl}}/documents/{{doc.node.id}}/collab-token
+Authorization: Bearer {{sharedViewer.accessToken}}
+
+?? status == 200
+?? body readOnly == true
+
+### Lưu phiên bản có tên (lấy nội dung mới nhất từ collab server)
+# @name v1
+# @ref doc
+POST {{apiUrl}}/documents/{{doc.node.id}}/versions
+Authorization: Bearer {{creator.accessToken}}
+Content-Type: application/json
+
+{ "name": "Bản nháp đầu" }
+
+?? status == 201
+?? body isAuto == false
+?? body name == Bản nháp đầu
+
+### Share "Chỉ xem" không lưu phiên bản được
+# @ref doc
+POST {{apiUrl}}/documents/{{doc.node.id}}/versions
+Authorization: Bearer {{sharedViewer.accessToken}}
+Content-Type: application/json
+
+{ "name": "x" }
+
+?? status == 403
+
+### Danh sách phiên bản
+# @ref v1
+GET {{apiUrl}}/documents/{{doc.node.id}}/versions
+Authorization: Bearer {{sharedViewer.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.length >= 1 == true
+
+### So sánh với bản hiện tại
+# @ref v1
+GET {{apiUrl}}/documents/{{doc.node.id}}/versions/{{v1.id}}/diff?with=current
+Authorization: Bearer {{sharedViewer.accessToken}}
+
+?? status == 200
+?? body to.id == current
+
+### Share "Chỉ xem" không khôi phục phiên bản → 403
+# @ref v1
+POST {{apiUrl}}/documents/{{doc.node.id}}/versions/{{v1.id}}/restore
+Authorization: Bearer {{sharedViewer.accessToken}}
+
+?? status == 403
+
+### Thành viên khác khôi phục phiên bản đã lưu → tạo phiên bản mới
+# @ref v1
+# @ref member
+POST {{apiUrl}}/documents/{{doc.node.id}}/versions/{{v1.id}}/restore
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.versionNo > v1.versionNo == true
+?? js response.parsedBody.restoredFrom.id === v1.id == true
+
+### Mở thread, @mention sharedViewer (được share) và người ngoài (người ngoài bị bỏ qua)
+# @name thread
+# @ref doc
+POST {{apiUrl}}/documents/{{doc.node.id}}/threads
+Authorization: Bearer {{creator.accessToken}}
+Content-Type: application/json
+
+{ "quotedText": "đoạn này", "body": "Nhờ @QA Viewer xem lại", "mentions": ["{{sharedViewer.user.id}}", "{{outsider.user.id}}"] }
+
+?? status == 201
+?? js response.parsedBody.ignoredMentions[0] === outsider.user.id == true
+
+### sharedViewer nhận thông báo comment.mention
+# @ref thread
+GET {{apiUrl}}/me/notifications?unread=true
+Authorization: Bearer {{sharedViewer.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.items.some(n => n.type === 'comment.mention' && n.payload.threadId === thread.id) == true
+
+### Share "Chỉ xem" được comment: trả lời
+# @name reply
+# @ref thread
+POST {{apiUrl}}/threads/{{thread.id}}/comments
+Authorization: Bearer {{sharedViewer.accessToken}}
+Content-Type: application/json
+
+{ "body": "Đã xem" }
+
+?? status == 201
+?? js response.parsedBody.comments.length == 2
+
+### Share "Chỉ xem" không resolve thread của người khác
+# @ref thread
+POST {{apiUrl}}/threads/{{thread.id}}/resolve
+Authorization: Bearer {{sharedViewer.accessToken}}
+
+?? status == 403
+
+### Thành viên (EDITOR) resolve thread của người khác
+# @ref thread
+# @ref member
+POST {{apiUrl}}/threads/{{thread.id}}/resolve
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 200
+?? body status == RESOLVED
+
+### Share "Chỉ xem" mở thread riêng
+# @name viewerThread
+# @ref doc
+POST {{apiUrl}}/documents/{{doc.node.id}}/threads
+Authorization: Bearer {{sharedViewer.accessToken}}
+Content-Type: application/json
+
+{ "quotedText": "đoạn khác", "body": "Câu hỏi của sharedViewer" }
+
+?? status == 201
+
+### Người mở thread resolve được thread của mình
+# @ref viewerThread
+POST {{apiUrl}}/threads/{{viewerThread.id}}/resolve
+Authorization: Bearer {{sharedViewer.accessToken}}
+
+?? status == 200
+?? body status == RESOLVED
+
+### Thành viên khác (member) trả lời thread của sharedViewer
+# @name editorReply
+# @ref viewerThread
+POST {{apiUrl}}/threads/{{viewerThread.id}}/comments
+Authorization: Bearer {{member.accessToken}}
+Content-Type: application/json
+
+{ "body": "Trả lời của member" }
+
+?? status == 201
+
+### Không phải tác giả, không phải OWNER tài liệu → không xóa comment người khác (403)
+# @ref editorReply
+DELETE {{apiUrl}}/comments/{{editorReply.comments[0].id}}
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 403
+
+### Share "Chỉ xem" không xóa comment của người khác → 403
+# @ref editorReply
+DELETE {{apiUrl}}/comments/{{editorReply.comments[1].id}}
+Authorization: Bearer {{sharedViewer.accessToken}}
+
+?? status == 403
+
+### Tác giả xóa comment của mình
+# @ref editorReply
+DELETE {{apiUrl}}/comments/{{editorReply.comments[1].id}}
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 200
+?? body threadDeleted == false
+
+### OWNER tài liệu (người tạo) xóa comment của người khác; comment cuối → xóa cả thread
+# @ref editorReply
+DELETE {{apiUrl}}/comments/{{editorReply.comments[0].id}}
+Authorization: Bearer {{creator.accessToken}}
+
+?? status == 200
+?? body threadDeleted == true
+
+### Đánh dấu đã đọc tất cả
+# @ref sharedViewer
+POST {{apiUrl}}/me/notifications/read
+Authorization: Bearer {{sharedViewer.accessToken}}
+Content-Type: application/json
+
+{ "all": true }
+
+?? status == 200
+
+### Ảnh nhúng PNG
+# @ref doc
+POST {{apiUrl}}/documents/{{doc.node.id}}/assets
+Authorization: Bearer {{creator.accessToken}}
+Content-Type: multipart/form-data; boundary=luna
+
+--luna
+Content-Disposition: form-data; name="file"; filename="sample.png"
+Content-Type: image/png
+
+< ./fixtures/sample.png
+--luna--
+
+?? status == 201
+?? body isImage == true
+
+### File .exe đổi đuôi bị từ chối
+# @ref doc
+POST {{apiUrl}}/documents/{{doc.node.id}}/assets
+Authorization: Bearer {{creator.accessToken}}
+Content-Type: multipart/form-data; boundary=luna
+
+--luna
+Content-Disposition: form-data; name="file"; filename="a.png"
+Content-Type: image/png
+
+< ./fixtures/fake-exe.pdf
+--luna--
+
+?? status == 415
+
+### Xuất Markdown
+# @ref doc
+GET {{apiUrl}}/documents/{{doc.node.id}}/export?format=md
+Authorization: Bearer {{sharedViewer.accessToken}}
+
+?? status == 200
+?? header content-type includes text/markdown

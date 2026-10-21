@@ -10,7 +10,7 @@ export default function UserLayout({ children }: { children: React.ReactNode }) 
   return (
     <Guard>
       <UploadProvider>
-        <AppFrame sidebar={<UserSidebar />}>{children}</AppFrame>
+        <AppFrame sidebar={<UserSidebar />} members>{children}</AppFrame>
         <UploadTray />
       </UploadProvider>
     </Guard>

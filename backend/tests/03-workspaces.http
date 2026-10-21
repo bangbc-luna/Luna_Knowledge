@@ -1,19 +1,23 @@
 # @import ./_auth.http
 @apiUrl = http://localhost:4000/api/v1
 
-### User thường không tạo được workspace → 403
-# @ref owner
+# Workspace chỉ có một vai trò thành viên: MEMBER. Chỉ System Admin tạo / sửa / xóa workspace.
+
+### Thành viên thường không tạo được workspace → 403
+# @ref creator
 POST {{apiUrl}}/workspaces
-Authorization: Bearer {{owner.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 Content-Type: application/json
 
-{ "name": "Không được", "slug": "khong-duoc-{{$timestamp}}", "ownerEmail": "qa.owner@lunatech.vn" }
+{ "name": "Không được", "slug": "khong-duoc-{{$timestamp}}" }
 
 ?? status == 403
 
-### Admin tạo workspace
+### Admin tạo workspace kèm thành viên ban đầu (admin không tự thành thành viên)
 # @name createWs
 # @ref admin
+# @ref creator
+# @ref member
 POST {{apiUrl}}/workspaces
 Authorization: Bearer {{admin.accessToken}}
 Content-Type: application/json
@@ -23,12 +27,25 @@ Content-Type: application/json
   "slug": "qa-marketing-{{$timestamp}}",
   "description": "Workspace để test",
   "icon": "📣",
-  "ownerEmail": "qa.owner@lunatech.vn"
+  "memberEmails": ["qa.creator@lunatech.vn", "qa.member@lunatech.vn", "QA.Creator@lunatech.vn"]
 }
 
 ?? status == 201
 ?? body name == QA Marketing
-?? body memberCount == 1
+?? body memberCount == 2
+?? body myRole isFalse
+?? js response.parsedBody.owner === undefined == true
+
+### Admin tạo workspace trống (không có thành viên)
+# @ref admin
+POST {{apiUrl}}/workspaces
+Authorization: Bearer {{admin.accessToken}}
+Content-Type: application/json
+
+{ "name": "QA Trống", "slug": "qa-trong-{{$timestamp}}" }
+
+?? status == 201
+?? body memberCount == 0
 
 ### Slug trùng → 409
 # @ref admin
@@ -37,7 +54,7 @@ POST {{apiUrl}}/workspaces
 Authorization: Bearer {{admin.accessToken}}
 Content-Type: application/json
 
-{ "name": "Trùng", "slug": "{{createWs.slug}}", "ownerEmail": "qa.owner@lunatech.vn" }
+{ "name": "Trùng", "slug": "{{createWs.slug}}" }
 
 ?? status == 409
 ?? body error.code == CONFLICT
@@ -48,62 +65,74 @@ POST {{apiUrl}}/workspaces
 Authorization: Bearer {{admin.accessToken}}
 Content-Type: application/json
 
-{ "name": "", "slug": "Bad Slug", "ownerEmail": "not-an-email" }
+{ "name": "", "slug": "Bad Slug", "memberEmails": ["not-an-email"] }
 
 ?? status == 400
 ?? js response.parsedBody.error.details.length == 3
 
-### OWNER ngoài công ty → 400
+### Thành viên ngoài công ty → 400
 # @ref admin
 POST {{apiUrl}}/workspaces
 Authorization: Bearer {{admin.accessToken}}
 Content-Type: application/json
 
-{ "name": "Ngoài", "slug": "ngoai-{{$timestamp}}", "ownerEmail": "someone@gmail.com" }
+{ "name": "Ngoài", "slug": "ngoai-{{$timestamp}}", "memberEmails": ["someone@gmail.com"] }
 
 ?? status == 400
 
-### OWNER chưa từng đăng nhập → tạo sẵn user
+### Thành viên chưa từng đăng nhập → tạo sẵn user
 # @ref admin
 POST {{apiUrl}}/workspaces
 Authorization: Bearer {{admin.accessToken}}
 Content-Type: application/json
 
-{ "name": "QA Sales", "slug": "qa-sales-{{$timestamp}}", "ownerEmail": "qa.future.owner@lunatech.vn" }
+{ "name": "QA Sales", "slug": "qa-sales-{{$timestamp}}", "memberEmails": ["qa.future.member@lunatech.vn"] }
 
 ?? status == 201
+?? body memberCount == 1
 
-### Workspace của tôi
-# @ref owner
+### Workspace của tôi: vai trò MEMBER
+# @ref creator
 # @ref createWs
 GET {{apiUrl}}/workspaces
-Authorization: Bearer {{owner.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 
 ?? status == 200
-?? js response.parsedBody.some(w => w.id === createWs.id && w.myRole === 'OWNER') == true
+?? js response.parsedBody.some(w => w.id === createWs.id && w.myRole === 'MEMBER') == true
 
 ### Admin xem tất cả (scope=all)
 # @ref admin
+# @ref createWs
 GET {{apiUrl}}/workspaces?scope=all
 Authorization: Bearer {{admin.accessToken}}
 
 ?? status == 200
+?? js response.parsedBody.some(w => w.id === createWs.id && w.myRole === null) == true
 
 ### User thường dùng scope=all → 403
-# @ref owner
+# @ref creator
 GET {{apiUrl}}/workspaces?scope=all
-Authorization: Bearer {{owner.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 
 ?? status == 403
 
-### Chi tiết workspace
-# @ref owner
+### Chi tiết workspace (thành viên)
+# @ref creator
 # @ref createWs
 GET {{apiUrl}}/workspaces/{{createWs.id}}
-Authorization: Bearer {{owner.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 
 ?? status == 200
-?? body myRole == OWNER
+?? body myRole == MEMBER
+
+### System Admin xem chi tiết dù không phải thành viên
+# @ref admin
+# @ref createWs
+GET {{apiUrl}}/workspaces/{{createWs.id}}
+Authorization: Bearer {{admin.accessToken}}
+
+?? status == 200
+?? body myRole isFalse
 
 ### Người ngoài xem → 404
 # @ref outsider
@@ -114,17 +143,28 @@ Authorization: Bearer {{outsider.accessToken}}
 ?? status == 404
 
 ### Id không phải UUID → 400
-# @ref owner
+# @ref creator
 GET {{apiUrl}}/workspaces/abc
-Authorization: Bearer {{owner.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 
 ?? status == 400
 
-### OWNER sửa workspace
-# @ref owner
+### Thành viên không sửa được workspace → 403
+# @ref creator
 # @ref createWs
 PATCH {{apiUrl}}/workspaces/{{createWs.id}}
-Authorization: Bearer {{owner.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
+Content-Type: application/json
+
+{ "name": "Hack" }
+
+?? status == 403
+
+### Admin sửa workspace
+# @ref admin
+# @ref createWs
+PATCH {{apiUrl}}/workspaces/{{createWs.id}}
+Authorization: Bearer {{admin.accessToken}}
 Content-Type: application/json
 
 { "name": "QA Marketing (đã sửa)", "description": "Mô tả mới", "icon": null }
@@ -134,10 +174,10 @@ Content-Type: application/json
 ?? body icon isFalse
 
 ### Sửa với body rỗng → 400
-# @ref owner
+# @ref admin
 # @ref createWs
 PATCH {{apiUrl}}/workspaces/{{createWs.id}}
-Authorization: Bearer {{owner.accessToken}}
+Authorization: Bearer {{admin.accessToken}}
 Content-Type: application/json
 
 {}
@@ -163,19 +203,27 @@ Authorization: Bearer {{outsider.accessToken}}
 
 ?? status == 404
 
-### OWNER xóa workspace → 204
-# @ref owner
+### Thành viên không xóa được workspace → 403
+# @ref member
 # @ref createWs
 DELETE {{apiUrl}}/workspaces/{{createWs.id}}
-Authorization: Bearer {{owner.accessToken}}
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 403
+
+### Admin xóa workspace → 204
+# @ref admin
+# @ref createWs
+DELETE {{apiUrl}}/workspaces/{{createWs.id}}
+Authorization: Bearer {{admin.accessToken}}
 
 ?? status == 204
 
 ### Sau khi xóa → 404
-# @ref owner
+# @ref creator
 # @ref createWs
 GET {{apiUrl}}/workspaces/{{createWs.id}}
-Authorization: Bearer {{owner.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 
 ?? status == 404
 
@@ -186,6 +234,23 @@ POST {{apiUrl}}/workspaces
 Authorization: Bearer {{admin.accessToken}}
 Content-Type: application/json
 
-{ "name": "QA Marketing", "slug": "{{createWs.slug}}", "ownerEmail": "qa.owner@lunatech.vn" }
+{ "name": "QA Marketing", "slug": "{{createWs.slug}}" }
 
 ?? status == 201
+
+### User mới đăng nhập lần đầu → tự vào workspace "lunatech" (MEMBER)
+# @name newcomer
+POST {{apiUrl}}/dev/token
+Content-Type: application/json
+
+{ "email": "qa.newcomer.{{$timestamp}}@lunatech.vn", "name": "QA Newcomer" }
+
+?? status == 200
+
+###
+# @ref newcomer
+GET {{apiUrl}}/workspaces
+Authorization: Bearer {{newcomer.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.some(w => w.slug === 'lunatech' && w.myRole === 'MEMBER') == true

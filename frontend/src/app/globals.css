@@ -43,6 +43,9 @@
   --warning: #bb4d00;
   --neutral-bg: #f4f4f5;
   --neutral: #52525c;
+  --comment-bg: #fef3c7;
+  --comment-bg-active: #fde68a;
+  --comment-line: #fbbf24;
 }
 
 @theme inline {
@@ -128,3 +131,46 @@ summary:focus-visible,
   outline: 2px solid transparent;
   outline-offset: 2px;
 }
+
+.luna-prose {
+  color: var(--foreground);
+  font-size: 1rem;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+.luna-editor { min-height: 50vh; outline: none; }
+.luna-prose > * + * { margin-top: 0.75em; }
+.luna-prose h1 { font-size: 1.75rem; line-height: 2.25rem; font-weight: 650; margin-top: 1.5em; letter-spacing: -0.01em; }
+.luna-prose h2 { font-size: 1.375rem; line-height: 1.875rem; font-weight: 650; margin-top: 1.4em; }
+.luna-prose h3 { font-size: 1.125rem; line-height: 1.625rem; font-weight: 600; margin-top: 1.25em; }
+.luna-prose > :first-child { margin-top: 0; }
+.luna-prose ul { list-style: disc; padding-left: 1.5em; }
+.luna-prose ol { list-style: decimal; padding-left: 1.5em; }
+.luna-prose li > p { margin: 0; }
+.luna-prose li + li { margin-top: 0.25em; }
+.luna-prose ul[data-type="taskList"] { list-style: none; padding-left: 0.25em; }
+.luna-prose ul[data-type="taskList"] li { display: flex; gap: 0.5rem; align-items: flex-start; }
+.luna-prose ul[data-type="taskList"] li > label { margin-top: 0.3rem; flex-shrink: 0; }
+.luna-prose ul[data-type="taskList"] li > label input { width: 1rem; height: 1rem; accent-color: var(--foreground); cursor: pointer; }
+.luna-prose ul[data-type="taskList"] li > div { flex: 1; min-width: 0; }
+.luna-prose ul[data-type="taskList"] li[data-checked="true"] > div { color: var(--muted); text-decoration: line-through; }
+.luna-prose blockquote { border-left: 3px solid var(--border-strong); padding-left: 1em; color: color-mix(in srgb, var(--foreground) 75%, transparent); }
+.luna-prose a { color: var(--primary); text-decoration: underline; text-underline-offset: 2px; }
+.luna-prose code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.875em; background: var(--neutral-bg); border-radius: 0.375rem; padding: 0.1em 0.35em; }
+.luna-prose pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.875rem; line-height: 1.6; background: #18181b; color: #f4f4f5; border-radius: 0.75rem; padding: 0.875rem 1rem; overflow-x: auto; white-space: pre; overflow-wrap: normal; }
+.luna-prose pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
+.luna-prose hr { border: none; border-top: 1px solid var(--border-strong); margin: 1.5em 0; }
+.luna-prose mark { border-radius: 0.2em; padding: 0 0.1em; color: inherit; }
+.luna-prose img { max-width: 100%; height: auto; border-radius: 0.75rem; }
+.luna-prose figure.luna-image { margin: 1em 0; }
+.luna-prose table { width: 100%; border-collapse: collapse; table-layout: fixed; overflow: hidden; font-size: 0.9375rem; }
+.luna-prose .tableWrapper { overflow-x: auto; }
+.luna-prose th, .luna-prose td { border: 1px solid var(--border-strong); padding: 0.4rem 0.6rem; vertical-align: top; min-width: 4rem; }
+.luna-prose th { background: var(--neutral-bg); font-weight: 600; text-align: left; }
+.luna-prose th > p, .luna-prose td > p { margin: 0; }
+.luna-prose .selectedCell { background: color-mix(in srgb, var(--primary) 8%, transparent); }
+.luna-prose p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: var(--muted); float: left; height: 0; pointer-events: none; }
+.luna-prose .ProseMirror-selectednode { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 0.5rem; }
+.collaboration-carets__caret { position: relative; margin: 0 -1px; border-left: 1px solid; border-right: 1px solid; word-break: normal; pointer-events: none; }
+.collaboration-carets__label { position: absolute; top: -1.35em; left: -1px; font-size: 0.75rem; font-weight: 600; line-height: 1.2; color: #fff; padding: 0.1rem 0.375rem; border-radius: 0.375rem 0.375rem 0.375rem 0; white-space: nowrap; user-select: none; }
+.collaboration-carets__selection { background: color-mix(in srgb, currentColor 15%, transparent); }

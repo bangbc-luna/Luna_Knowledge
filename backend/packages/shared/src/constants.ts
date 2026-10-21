@@ -58,3 +58,15 @@ export interface NodeEvent {
   error?: string;
   progress?: number;
 }
+
+export const COLLAB_ACCESS_CHANNEL = 'collab:access';
+export interface CollabAccessEvent {
+  workspaceId?: string;
+  userId?: string;
+  nodeId?: string;
+}
+export const collabDocumentName = (nodeId: string) => `doc:${nodeId}`;
+export const COLLAB_TOKEN_AUDIENCE = 'luna-collab';
+
+export const notifyChannel = (userId: string) => `notify:${userId}`;
+export const NOTIFY_PATTERN = 'notify:*';

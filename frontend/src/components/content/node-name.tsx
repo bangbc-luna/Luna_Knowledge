@@ -10,10 +10,10 @@ import { useThumbnail } from "@/lib/use-thumbnail";
 import { FileTypeIcon } from "../files/file-type-icon";
 import { Badge } from "../ui/misc";
 
-export function nodeHref(node: Pick<NodeItem, "id" | "type" | "workspaceId" | "parentId">) {
-  if (node.type === "FOLDER") return `/w/${node.workspaceId}/f/${node.id}`;
+export function nodeHref(node: Pick<NodeItem, "id" | "type" | "workspaceId" | "parentId" | "section">) {
+  if (node.type === "FOLDER") return `/w/${node.workspaceId}/${node.section === "VIDEOS" ? "v" : "f"}/${node.id}`;
   if (node.type === "FILE" || node.type === "VIDEO") return `/w/${node.workspaceId}/file/${node.id}`;
-  return node.parentId ? `/w/${node.workspaceId}/f/${node.parentId}` : `/w/${node.workspaceId}/f`;
+  return `/w/${node.workspaceId}/doc/${node.id}`;
 }
 
 export function NodeIcon({ node }: { node: NodeItem }) {

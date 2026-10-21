@@ -1,5 +1,5 @@
 import { Inject, Injectable, type OnModuleDestroy } from '@nestjs/common';
-import { type NodeEvent, nodeEventsChannel } from '@luna/shared';
+import { type NodeEvent, nodeEventsChannel, notifyChannel } from '@luna/shared';
 import { Redis } from 'ioredis';
 import { WORKER_CONFIG, type WorkerConfig } from '../config/worker-config.js';
 
@@ -14,6 +14,18 @@ export class NodeEventsPublisher implements OnModuleDestroy {
 
   async publish(event: NodeEvent): Promise<void> {
     await this.redis.publish(nodeEventsChannel(event.nodeId), JSON.stringify(event)).catch(() => 0);
+  }
+
+  async notify(row: {
+    id: string;
+    userId: string;
+    type: string;
+    payload: unknown;
+    readAt: Date | null;
+    createdAt: Date;
+  }) {
+    const { userId, ...dto } = row;
+    await this.redis.publish(notifyChannel(userId), JSON.stringify(dto)).catch(() => 0);
   }
 
   async onModuleDestroy() {

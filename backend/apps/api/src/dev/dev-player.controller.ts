@@ -28,7 +28,7 @@ const PAGE = `<!doctype html>
   pre{background:#f6f8fa;padding:10px;border-radius:6px;white-space:pre-wrap;font-size:13px;max-height:220px;overflow:auto}
 </style></head><body>
 <h1>Phát thử video</h1>
-<div class="row"><input id="email" value="qa.owner@lunatech.vn" aria-label="Email persona">
+<div class="row"><input id="email" value="qa.creator@lunatech.vn" aria-label="Email persona">
 <input id="node" placeholder="ID của mục VIDEO" aria-label="ID video"><button id="go">Phát</button></div>
 <div class="stage"><video id="v" controls playsinline></video><div class="wm" id="wm"></div></div>
 <pre id="log"></pre>

@@ -78,7 +78,10 @@ export class VideoTranscodeProcessor extends WorkerHost implements OnApplication
       return await this.transcode(job.data as TranscodeJob);
     } catch (err) {
       if (err instanceof InvalidVideoError) {
-        this.logger.warn({ nodeId: (job.data as TranscodeJob).nodeId, detail: err.detail }, err.message);
+        this.logger.warn(
+          { nodeId: (job.data as TranscodeJob).nodeId, detail: err.detail },
+          err.message,
+        );
         throw new UnrecoverableError(err.message);
       }
       throw err;
@@ -112,6 +115,7 @@ export class VideoTranscodeProcessor extends WorkerHost implements OnApplication
       });
       await this.prisma.client.node.update({ where: { id: nodeId }, data: { status } });
       await this.events.publish({ nodeId, status, error: message });
+      await this.notifyUploader(nodeId, versionId, 'video.failed', { error: message });
     } catch (e) {
       this.logger.warn({ err: e, nodeId }, 'Could not mark video as failed');
     }
@@ -283,6 +287,9 @@ export class VideoTranscodeProcessor extends WorkerHost implements OnApplication
         return { skipped: 'node deleted or version replaced' };
       }
       await this.events.publish({ nodeId, status: 'READY', versionId, progress: 100 });
+      await this.notifyUploader(nodeId, versionId, 'video.ready', {
+        durationSec: Math.round(info.durationSec),
+      });
       this.logger.log(
         `Transcoded ${nodeId} (${ladder.map((r) => r.name).join('/')}, ${Math.round(info.durationSec)}s)`,
       );
@@ -292,6 +299,31 @@ export class VideoTranscodeProcessor extends WorkerHost implements OnApplication
       throw err;
     } finally {
       await rm(workDir, { recursive: true, force: true });
+    }
+  }
+
+  private async notifyUploader(
+    nodeId: string,
+    versionId: string,
+    type: string,
+    extra: Record<string, string | number>,
+  ) {
+    try {
+      const v = await this.prisma.client.fileVersion.findUnique({
+        where: { id: versionId },
+        select: { uploadedById: true, node: { select: { name: true, workspaceId: true } } },
+      });
+      if (!v) return;
+      const row = await this.prisma.client.notification.create({
+        data: {
+          userId: v.uploadedById,
+          type,
+          payload: { nodeId, nodeName: v.node.name, workspaceId: v.node.workspaceId, ...extra },
+        },
+      });
+      await this.events.notify(row);
+    } catch (err) {
+      this.logger.warn({ err, nodeId }, 'Could not notify uploader');
     }
   }
 

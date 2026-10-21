@@ -6,6 +6,8 @@ export const ALLOWED_EXTENSIONS = [
 ];
 export const VIDEO_EXTENSIONS = ["mp4", "m4v", "mov", "webm", "mkv"];
 export const ACCEPT_ATTR = ALLOWED_EXTENSIONS.map((e) => `.${e}`).join(",");
+export const DOC_ACCEPT_ATTR = ALLOWED_EXTENSIONS.filter((e) => !VIDEO_EXTENSIONS.includes(e)).map((e) => `.${e}`).join(",");
+export const VIDEO_ACCEPT_ATTR = VIDEO_EXTENSIONS.map((e) => `.${e}`).join(",");
 export const MAX_FILE_MB = 500;
 export const MAX_VIDEO_MB = 10_240;
 

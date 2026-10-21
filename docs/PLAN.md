@@ -139,21 +139,35 @@ Nguyên tắc làm việc:
 
 **Việc cần làm**
 
-- [ ] `apps/collab` (Hocuspocus v4):
-  - `onAuthenticate` dùng collab token + permission engine, VIEWER chỉ đọc;
-  - extension Database (persist `yjs_state`), debounce 2 giây, maxDebounce 10 giây;
-  - `onStoreDocument`: chuyển sang JSON/HTML/text bằng `@tiptap/html` + schema Tiptap headless dùng chung trong `packages/shared/editor-schema`, rồi enqueue job index;
-  - auto-version khi không còn kết nối hoặc sau mỗi 30 phút;
-  - extension Redis (để scale), ngắt kết nối khi quyền bị thu hồi.
-- [ ] API documents: tạo, metadata, collab-token, export HTML/Markdown, upload asset.
-- [ ] Phiên bản: liệt kê, tạo có tên, xem, diff (so sánh trên JSON/text), khôi phục (gọi collab server qua Redis để áp transaction Yjs).
-- [ ] Comments: thread, reply, resolve, mention → notification.
-- [ ] Import DOCX → Document (`mammoth` → HTML → Tiptap JSON → Yjs).
-- [ ] Notifications + SSE stream.
+- [x] `packages/editor`: schema Tiptap headless dùng chung cho collab, API và FE sau này (heading, list, checklist, bảng, quote, code block, link, ảnh có `assetId`, gạch chân, highlight/màu chữ, mark comment `data-thread-id`); chuyển đổi Yjs ↔ JSON ↔ HTML/Markdown/text, đếm từ.
+- [x] `apps/collab` (Hocuspocus v4):
+  - `onAuthenticate`: collab token (JWT HS256 5 phút, `aud=luna-collab`), quyền luôn tính lại từ DB, VIEWER chỉ đọc;
+  - lưu `yjs_state`, debounce 2 giây, maxDebounce 10 giây; mỗi lần lưu cập nhật JSON, chữ, số từ, người sửa cuối và đẩy job index;
+  - phiên bản tự động khi không còn ai kết nối hoặc sau mỗi 30 phút sửa (`COLLAB_AUTO_VERSION_MIN`);
+  - API publish `collab:access` khi đổi/xoá thành viên, đổi/gỡ share, khoá tài khoản, di chuyển/xoá mục; collab kiểm lại từng kết nối (đóng hoặc chuyển chỉ đọc);
+  - endpoint nội bộ `snapshot`/`replace` (header `x-internal-secret`) để API lấy nội dung mới nhất và khôi phục phiên bản ngay trên tài liệu đang mở.
+- [ ] Extension Redis của Hocuspocus để chạy nhiều instance (chưa cần với một server).
+- [x] API documents: tạo, metadata, collab-token, export HTML/Markdown (có nhật ký), ảnh nhúng ≤ 20 MB (kiểm loại thật, bucket `assets`, URL ký mới mỗi lần đọc).
+- [x] Phiên bản: liệt kê, tạo có tên, xem (JSON + HTML), diff theo từ (với phiên bản khác hoặc bản hiện tại), khôi phục tạo phiên bản mới "Khôi phục từ phiên bản N".
+- [x] Comments: thread, reply (tự mở lại nếu đã resolve), sửa (tác giả), xoá (tác giả hoặc ADMIN), resolve/reopen (EDITOR hoặc người tạo); @mention chỉ nhận người xem được tài liệu, người khác trả về `ignoredMentions`.
+- [x] Import DOCX → Document cùng thư mục (`mammoth` → HTML → Tiptap JSON → Yjs, ảnh vào bucket `assets`).
+- [x] Notifications trong app + SSE `/me/notifications/stream`: `comment.mention`, `comment.new`, `share.added`, `video.ready`, `video.failed`.
+- [x] Tests: e2e collab 8 ca (2 client hội tụ, VIEWER chỉ đọc, restart không mất dữ liệu, khôi phục khi đang sửa, thu hồi quyền, phiên bản tự động), e2e API 10 ca, worker kiểm thông báo video, `tests/12-documents.http`.
+- [x] Frontend (qua skill `evon:ui-ux`): trang tài liệu `/w/:ws/doc/:id` với Tiptap + Hocuspocus (con trỏ và avatar người đang mở, trạng thái lưu/mất kết nối, chỉ xem cho VIEWER), thanh định dạng, menu nổi khi bôi chữ, ảnh nhúng (chọn, dán, kéo thả), link; khung bình luận (lề phải từ 1280px, sheet ở màn nhỏ) có @mention; lịch sử phiên bản (so với hiện tại, xem nội dung, khôi phục, lưu có tên); chuông thông báo SSE; nút Tài liệu mới trong thư mục, Chuyển thành tài liệu trên file .docx; xuất HTML/Markdown.
 
 **DoD:** test 2 client Yjs (Node, `@hocuspocus/provider`) sửa đồng thời rồi hội tụ cùng nội dung; restart collab server không mất dữ liệu; khôi phục phiên bản khi đang có người sửa vẫn đúng.
 
 **Demo 5:** script mô phỏng 2 người cùng gõ; tạo, xem và khôi phục phiên bản; comment và mention sinh notification.
+
+---
+
+## Đổi mô hình quyền và bố cục (2026-10-21)
+
+- [x] Workspace chỉ còn vai trò Thành viên; System Admin thêm/gỡ thành viên (trang `/admin/workspaces`). Quyền trên mục: thành viên `EDITOR`, người tạo hoặc share "Được chỉnh sửa" `OWNER` (xoá, chia sẻ), share "Chỉ xem" `VIEWER` (SPEC §3.2).
+- [x] Hai khu Tài liệu / Video (`nodes.section`), migration chuyển video cũ về khu Video.
+- [x] Log hoạt động của mục (`GET /nodes/:id/activity`), tự lưu phiên bản khi người sửa đổi sang người khác, số từ thêm/bớt trên mỗi phiên bản.
+- [x] Workspace chung `lunatech`: người mới tự vào làm thành viên; màn hướng dẫn cho người chưa thuộc workspace nào.
+- [x] Frontend: sidebar (tên workspace, Tài liệu, Video, Được chia sẻ, Yêu thích, Gần đây, Thùng rác), cột thành viên bật/tắt bên phải, gắn và tạo tag trong menu của mục, sheet Hoạt động, menu "…" trên trang tệp.
 
 ---
 
@@ -199,7 +213,7 @@ Dựng bằng Next.js 16 trong `frontend/`, giao diện theo skill `evon:ui-ux` 
 - [x] Backend bổ sung: ghi lượt xem mục (chống trùng 5 phút), `GET /admin/audit-logs`, `/admin/audit-logs/export`, `/admin/stats`, chủ sở hữu trong danh sách workspace. 88 e2e test; `tests/09-admin.http`.
 - [x] Responsive: desktop, iPad ngang (1024), iPad dọc (768), điện thoại (375). Kịch bản Playwright chạy app thật qua mọi luồng chính, không lỗi console, không cuộn ngang; `next build` sạch.
 
-Còn lại cho frontend (làm cùng các phase sau): trình xem tài liệu/video, upload (Phase 3–4), editor Tiptap (Phase 5), tìm kiếm (Phase 6).
+Còn lại cho frontend (làm cùng các phase sau): tìm kiếm (Phase 6).
 
 ---
 

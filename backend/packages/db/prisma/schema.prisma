@@ -1,4 +1,3 @@
-
 generator client {
   provider            = "prisma-client"
   previewFeatures     = ["partialIndexes"]
@@ -17,10 +16,12 @@ enum UserStatus {
 }
 
 enum WorkspaceRole {
-  OWNER
-  ADMIN
-  EDITOR
-  VIEWER
+  MEMBER
+}
+
+enum NodeSection {
+  DOCS
+  VIDEOS
 }
 
 enum NodeType {
@@ -44,6 +45,7 @@ enum BlobKind {
   HLS
   POSTER
   SPRITE
+  ASSET
 }
 
 enum StorageProvider {
@@ -87,6 +89,12 @@ model User {
   fileVersions      FileVersion[]
   uploadSessions    UploadSession[]
   videoWatches      VideoWatch[]
+  docVersions       DocumentVersion[]
+  threadsCreated    CommentThread[]   @relation("threadCreatedBy")
+  threadsResolved   CommentThread[]   @relation("threadResolvedBy")
+  comments          Comment[]
+  notifications     Notification[]
+  documentAssets    DocumentAsset[]
 
   @@map("users")
 }
@@ -180,6 +188,7 @@ model Node {
   workspaceId    String                @map("workspace_id") @db.Uuid
   parentId       String?               @map("parent_id") @db.Uuid
   type           NodeType
+  section        NodeSection           @default(DOCS)
   name           String
   nameNormalized String                @map("name_normalized")
   path           Unsupported("ltree")?
@@ -192,25 +201,29 @@ model Node {
   deletedById    String?               @map("deleted_by") @db.Uuid
   deletedRootId  String?               @map("deleted_root_id") @db.Uuid
 
-  workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  parent    Node?           @relation("tree", fields: [parentId], references: [id], onDelete: Cascade)
-  children  Node[]          @relation("tree")
-  createdBy User            @relation("nodeCreatedBy", fields: [createdById], references: [id])
-  updatedBy User?           @relation("nodeUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
-  deletedBy User?           @relation("nodeDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
-  shares    NodeShare[]
-  tags      NodeTag[]
-  favorites Favorite[]
-  recents   RecentView[]
-  blobs     Blob[]
-  file      FileInfo?
-  versions  FileVersion[]
-  uploads   UploadSession[]
-  video     Video?
-  watches   VideoWatch[]
+  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  parent      Node?             @relation("tree", fields: [parentId], references: [id], onDelete: Cascade)
+  children    Node[]            @relation("tree")
+  createdBy   User              @relation("nodeCreatedBy", fields: [createdById], references: [id])
+  updatedBy   User?             @relation("nodeUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  deletedBy   User?             @relation("nodeDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+  shares      NodeShare[]
+  tags        NodeTag[]
+  favorites   Favorite[]
+  recents     RecentView[]
+  blobs       Blob[]
+  file        FileInfo?
+  versions    FileVersion[]
+  uploads     UploadSession[]
+  video       Video?
+  watches     VideoWatch[]
+  document    Document?
+  docVersions DocumentVersion[]
+  threads     CommentThread[]
+  assets      DocumentAsset[]
 
   @@unique([parentId, nameNormalized], map: "nodes_unique_name_in_folder", where: raw("deleted_at IS NULL AND parent_id IS NOT NULL"))
-  @@unique([workspaceId, nameNormalized], map: "nodes_unique_name_at_root", where: raw("deleted_at IS NULL AND parent_id IS NULL"))
+  @@unique([workspaceId, section, nameNormalized], map: "nodes_unique_name_at_root", where: raw("deleted_at IS NULL AND parent_id IS NULL"))
   @@index([path], type: Gist)
   @@index([parentId])
   @@index([workspaceId, deletedRootId])
@@ -298,10 +311,11 @@ model Blob {
   sha256    String?
   createdAt DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  node        Node          @relation(fields: [nodeId], references: [id], onDelete: Cascade)
-  originalOf  FileVersion[] @relation("versionOriginal")
-  previewOf   FileVersion[] @relation("versionPreview")
-  thumbnailOf FileVersion[] @relation("versionThumbnail")
+  node          Node           @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  originalOf    FileVersion[]  @relation("versionOriginal")
+  previewOf     FileVersion[]  @relation("versionPreview")
+  thumbnailOf   FileVersion[]  @relation("versionThumbnail")
+  documentAsset DocumentAsset?
 
   @@index([nodeId])
   @@map("blobs")
@@ -410,4 +424,114 @@ model VideoWatch {
 
   @@id([userId, nodeId])
   @@map("video_watch_progress")
+}
+
+enum ThreadStatus {
+  OPEN
+  RESOLVED
+}
+
+model Document {
+  nodeId            String    @id @map("node_id") @db.Uuid
+  yjsState          Bytes?    @map("yjs_state")
+  contentJson       Json?     @map("content_json")
+  contentText       String?   @map("content_text")
+  wordCount         Int       @default(0) @map("word_count")
+  lastEditedAt      DateTime? @map("last_edited_at") @db.Timestamptz(3)
+  lastEditedBy      String?   @map("last_edited_by") @db.Uuid
+  lastVersionAt     DateTime? @map("last_version_at") @db.Timestamptz(3)
+  dirtySinceVersion Boolean   @default(false) @map("dirty_since_version")
+
+  node Node @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+
+  @@map("documents")
+}
+
+model DocumentVersion {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  nodeId         String   @map("node_id") @db.Uuid
+  versionNo      Int      @map("version_no")
+  name           String?
+  isAuto         Boolean  @default(false) @map("is_auto")
+  restoredFromId String?  @map("restored_from_id") @db.Uuid
+  yjsSnapshot    Bytes    @map("yjs_snapshot")
+  contentJson    Json     @map("content_json")
+  contentText    String   @map("content_text")
+  wordCount      Int      @default(0) @map("word_count")
+  wordsAdded     Int      @default(0) @map("words_added")
+  wordsRemoved   Int      @default(0) @map("words_removed")
+  createdById    String?  @map("created_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  node      Node  @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  createdBy User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([nodeId, versionNo])
+  @@map("document_versions")
+}
+
+model CommentThread {
+  id           String       @id @default(uuid(7)) @db.Uuid
+  nodeId       String       @map("node_id") @db.Uuid
+  quotedText   String       @map("quoted_text")
+  status       ThreadStatus @default(OPEN)
+  createdById  String       @map("created_by") @db.Uuid
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  resolvedById String?      @map("resolved_by") @db.Uuid
+  resolvedAt   DateTime?    @map("resolved_at") @db.Timestamptz(3)
+
+  node       Node      @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  createdBy  User      @relation("threadCreatedBy", fields: [createdById], references: [id])
+  resolvedBy User?     @relation("threadResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+  comments   Comment[]
+
+  @@index([nodeId, status])
+  @@map("comment_threads")
+}
+
+model Comment {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  threadId  String    @map("thread_id") @db.Uuid
+  authorId  String    @map("author_id") @db.Uuid
+  body      String
+  mentions  String[]  @default([]) @db.Uuid
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  editedAt  DateTime? @map("edited_at") @db.Timestamptz(3)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(3)
+
+  thread CommentThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  author User          @relation(fields: [authorId], references: [id])
+
+  @@index([threadId, createdAt])
+  @@map("comments")
+}
+
+model Notification {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  type      String
+  payload   Json
+  readAt    DateTime? @map("read_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
+  @@map("notifications")
+}
+
+model DocumentAsset {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  nodeId      String   @map("node_id") @db.Uuid
+  blobId      String   @unique @map("blob_id") @db.Uuid
+  fileName    String   @map("file_name")
+  createdById String   @map("created_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  node      Node @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  blob      Blob @relation(fields: [blobId], references: [id], onDelete: Cascade)
+  createdBy User @relation(fields: [createdById], references: [id])
+
+  @@index([nodeId])
+  @@map("document_assets")
 }

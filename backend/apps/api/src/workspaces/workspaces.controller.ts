@@ -27,9 +27,6 @@ import {
   type CreateWorkspaceBody,
   listWorkspacesQuery,
   memberSchema,
-  transferOwnershipBody,
-  updateMemberBody,
-  type UpdateMemberBody,
   updateWorkspaceBody,
   type UpdateWorkspaceBody,
   workspaceSchema,
@@ -57,7 +54,7 @@ export class WorkspacesController {
 
   @Post()
   @SystemAdmin()
-  @ApiOperation({ summary: '[Admin] Tạo workspace và chỉ định OWNER' })
+  @ApiOperation({ summary: '[Admin] Tạo workspace, có thể kèm thành viên ban đầu' })
   @ApiZodBody(createWorkspaceBody)
   @ApiZodCreated(workspaceSchema)
   create(
@@ -69,14 +66,14 @@ export class WorkspacesController {
   }
 
   @Get(':wsId')
-  @ApiOperation({ summary: 'Chi tiết workspace (VIEWER)' })
+  @ApiOperation({ summary: 'Chi tiết workspace (thành viên)' })
   @ApiZodOk(workspaceSchema)
   get(@CurrentUser() user: AuthenticatedUser, @Param('wsId', wsId()) id: string) {
     return this.workspaces.get(user, id);
   }
 
   @Patch(':wsId')
-  @ApiOperation({ summary: 'Sửa tên, mô tả, icon (OWNER)' })
+  @ApiOperation({ summary: '[Admin] Sửa tên, mô tả, icon' })
   @ApiZodBody(updateWorkspaceBody)
   @ApiZodOk(workspaceSchema)
   update(
@@ -90,7 +87,7 @@ export class WorkspacesController {
 
   @Delete(':wsId')
   @HttpCode(204)
-  @ApiOperation({ summary: 'Xóa mềm workspace (OWNER)' })
+  @ApiOperation({ summary: '[Admin] Xóa mềm workspace' })
   @ApiNoContentResponse()
   remove(
     @CurrentUser() user: AuthenticatedUser,
@@ -102,7 +99,7 @@ export class WorkspacesController {
 
   @Get(':wsId/members')
   @ApiTags('members')
-  @ApiOperation({ summary: 'Danh sách thành viên (VIEWER)' })
+  @ApiOperation({ summary: 'Danh sách thành viên (thành viên)' })
   @ApiZodOk(z.array(memberSchema))
   members(@CurrentUser() user: AuthenticatedUser, @Param('wsId', wsId()) id: string) {
     return this.workspaces.listMembers(user, id);
@@ -110,7 +107,7 @@ export class WorkspacesController {
 
   @Post(':wsId/members')
   @ApiTags('members')
-  @ApiOperation({ summary: 'Thêm thành viên theo email (ADMIN). Role: ADMIN | EDITOR | VIEWER' })
+  @ApiOperation({ summary: '[Admin] Thêm thành viên theo email' })
   @ApiZodBody(addMemberBody)
   @ApiZodCreated(memberSchema)
   addMember(
@@ -122,25 +119,10 @@ export class WorkspacesController {
     return this.workspaces.addMember(user, id, body, requestContext(req));
   }
 
-  @Patch(':wsId/members/:userId')
-  @ApiTags('members')
-  @ApiOperation({ summary: 'Đổi vai trò (ADMIN). Không đổi được OWNER, không gán được OWNER' })
-  @ApiZodBody(updateMemberBody)
-  @ApiZodOk(memberSchema)
-  updateMember(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('wsId', wsId()) id: string,
-    @Param('userId', new ParseUUIDPipe()) userId: string,
-    @Body(new ZodValidationPipe(updateMemberBody)) body: UpdateMemberBody,
-    @Req() req: Request,
-  ) {
-    return this.workspaces.updateMember(user, id, userId, body, requestContext(req));
-  }
-
   @Delete(':wsId/members/:userId')
   @HttpCode(204)
   @ApiTags('members')
-  @ApiOperation({ summary: 'Xóa thành viên (ADMIN) hoặc tự rời workspace' })
+  @ApiOperation({ summary: '[Admin] Gỡ thành viên, hoặc tự rời workspace' })
   @ApiNoContentResponse()
   removeMember(
     @CurrentUser() user: AuthenticatedUser,
@@ -149,21 +131,5 @@ export class WorkspacesController {
     @Req() req: Request,
   ) {
     return this.workspaces.removeMember(user, id, userId, requestContext(req));
-  }
-
-  @Post(':wsId/transfer-ownership')
-  @HttpCode(200)
-  @ApiTags('members')
-  @ApiOperation({ summary: 'Chuyển quyền OWNER cho thành viên khác (OWNER)' })
-  @ApiZodBody(transferOwnershipBody)
-  @ApiZodOk(z.array(memberSchema))
-  transfer(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('wsId', wsId()) id: string,
-    @Body(new ZodValidationPipe(transferOwnershipBody))
-    body: z.output<typeof transferOwnershipBody>,
-    @Req() req: Request,
-  ) {
-    return this.workspaces.transferOwnership(user, id, body.userId, requestContext(req));
   }
 }

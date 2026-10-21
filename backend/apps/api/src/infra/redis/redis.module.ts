@@ -1,8 +1,11 @@
 import { Global, Inject, Logger, Module, type OnModuleDestroy } from '@nestjs/common';
 import { Redis } from 'ioredis';
 import { APP_CONFIG, type AppConfig } from '../../config/app-config.js';
+import { CollabEventsService } from './collab-events.service.js';
 
-export const REDIS = Symbol('REDIS');
+import { REDIS } from './redis.token.js';
+
+export { REDIS };
 
 @Global()
 @Module({
@@ -26,8 +29,9 @@ export const REDIS = Symbol('REDIS');
         return redis;
       },
     },
+    CollabEventsService,
   ],
-  exports: [REDIS],
+  exports: [REDIS, CollabEventsService],
 })
 export class RedisModule implements OnModuleDestroy {
   constructor(@Inject(REDIS) private readonly redis: Redis) {}

@@ -1,9 +1,9 @@
 export const PERSONAS = [
   { email: "admin@lunatech.vn", name: "System Admin", note: "System Admin" },
-  { email: "qa.owner@lunatech.vn", name: "QA Owner", note: "Chủ sở hữu" },
-  { email: "qa.wsadmin@lunatech.vn", name: "QA WS Admin", note: "Quản trị" },
-  { email: "qa.editor@lunatech.vn", name: "QA Editor", note: "Biên tập" },
-  { email: "qa.viewer@lunatech.vn", name: "QA Viewer", note: "Chỉ xem" },
+  { email: "qa.creator@lunatech.vn", name: "QA Creator", note: "Thành viên, người tạo" },
+  { email: "qa.member@lunatech.vn", name: "QA Member", note: "Thành viên" },
+  { email: "qa.shared.viewer@lunatech.vn", name: "QA Shared Viewer", note: "Share chỉ xem" },
+  { email: "qa.shared.editor@lunatech.vn", name: "QA Shared Editor", note: "Share được chỉnh sửa" },
   { email: "qa.outsider@lunatech.vn", name: "QA Outsider", note: "Ngoài workspace" },
 ] as const;
 

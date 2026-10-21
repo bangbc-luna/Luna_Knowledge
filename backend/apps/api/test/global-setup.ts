@@ -47,6 +47,8 @@ export async function setup() {
     ALLOWED_GOOGLE_DOMAINS: 'lunatech.vn',
     JWT_ACCESS_SECRET: 'e2e-access-secret-0123456789-abcdefghij',
     VIDEO_MASTER_KEY: Buffer.alloc(32, 9).toString('base64'),
+    COLLAB_TOKEN_SECRET: 'e2e-collab-token-secret-0123456789abcdef',
+    COLLAB_INTERNAL_SECRET: 'e2e-collab-internal-secret-0123456789ab',
     AUTH_REDIRECT_URL: 'http://localhost:5173/auth/done',
     SESSION_IDLE_TIMEOUT_MIN: '60',
     SESSION_ABSOLUTE_TIMEOUT_HOURS: '12',

@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 import { api, describeError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { formatWhen, roleAtLeast } from "@/lib/format";
+import { formatWhen } from "@/lib/format";
 import type { TrashItem } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 import { PageBody, TopBar } from "../shell/shell";
@@ -25,14 +25,14 @@ export function TrashPage() {
   const { me } = useAuth();
   const toast = useToast();
   const ws = me?.workspaces.find((w) => w.id === wsId);
-  const role = ws?.role ?? null;
+  const isAdmin = !!me?.isSystemAdmin;
   const { data, loading, error, reload } = useApi(() => api<TrashItem[]>(`/workspaces/${wsId}/trash`), [wsId]);
   const [confirm, setConfirm] = useState<{ kind: "purge"; item: TrashItem } | { kind: "empty" } | null>(null);
 
   const restore = async (item: TrashItem) => {
     try {
-      const res = await api<{ movedToRoot: boolean; renamed: boolean; node: { name: string } }>(`/nodes/${item.id}/restore`, { method: "POST" });
-      toast("success", `Đã khôi phục «${res.node.name}»${res.movedToRoot ? " về gốc workspace (thư mục cũ đã bị xoá)" : ""}${res.renamed ? " (đổi tên vì trùng)" : ""}`);
+      const res = await api<{ movedToRoot: boolean; renamed: boolean; name: string }>(`/nodes/${item.id}/restore`, { method: "POST" });
+      toast("success", `Đã khôi phục «${res.name}»${res.movedToRoot ? " về gốc (thư mục cũ đã bị xoá)" : ""}${res.renamed ? " (đổi tên vì trùng)" : ""}`);
       await reload();
     } catch (err) {
       toast("error", describeError(err));
@@ -46,8 +46,8 @@ export function TrashPage() {
       </TopBar>
       <PageBody>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <p className="min-w-0 flex-1 text-sm text-muted text-pretty">Khôi phục đưa cả nhánh về chỗ cũ; thư mục cha đã bị xoá thì về gốc workspace.</p>
-          {role === "OWNER" && data?.length ? (
+          <p className="min-w-0 flex-1 text-sm text-muted text-pretty">Người đã xoá hoặc quản trị hệ thống khôi phục được. Khôi phục đưa cả nhánh về chỗ cũ; thư mục cha đã bị xoá thì về gốc.</p>
+          {isAdmin && data?.length ? (
             <Button variant="danger" icon={Trash2} className="shrink-0 self-start" onClick={() => setConfirm({ kind: "empty" })}>
               Dọn sạch thùng rác
             </Button>
@@ -79,7 +79,7 @@ export function TrashPage() {
                     {data.map((t) => {
                       const Icon = ICON[t.type];
                       const left = daysLeft(t.deletedAt);
-                      const canRestore = roleAtLeast(role, "ADMIN") || t.deletedBy?.id === me?.id;
+                      const canRestore = isAdmin || t.deletedBy?.id === me?.id;
                       return (
                         <tr key={t.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 border-t border-border px-4 py-2.5 sm:table-row sm:px-0 sm:py-0">
                           <td className="min-w-0 sm:h-14 sm:w-full sm:max-w-0 sm:pr-4 sm:pl-5">
@@ -110,7 +110,7 @@ export function TrashPage() {
                                   Khôi phục
                                 </Button>
                               ) : null}
-                              <RowMenu groups={[[{ icon: Trash2, label: "Xoá vĩnh viễn", danger: true, onSelect: () => setConfirm({ kind: "purge", item: t }), hidden: role !== "OWNER" }]]} />
+                              <RowMenu groups={[[{ icon: Trash2, label: "Xoá vĩnh viễn", danger: true, onSelect: () => setConfirm({ kind: "purge", item: t }), hidden: !isAdmin }]]} />
                             </div>
                           </td>
                         </tr>

@@ -166,6 +166,8 @@ export class AuthService {
       },
     });
 
+    if (!existing) await this.joinDefaultWorkspace(user.id, ctx);
+
     const refresh = this.tokens.newRefreshToken();
     const session = await this.prisma.client.session.create({
       data: {
@@ -188,6 +190,31 @@ export class AuthService {
       ctx,
     });
     return { refreshToken: refresh.token, user };
+  }
+
+  async joinDefaultWorkspace(userId: string, ctx?: RequestContext) {
+    const slug = this.config.DEFAULT_WORKSPACE_SLUG;
+    if (!slug) return;
+    const ws = await this.prisma.client.workspace.findFirst({
+      where: { slug, deletedAt: null },
+      select: { id: true },
+    });
+    if (!ws) return;
+    const role = 'MEMBER' as const;
+    const { count } = await this.prisma.client.workspaceMember.createMany({
+      data: [{ workspaceId: ws.id, userId, role }],
+      skipDuplicates: true,
+    });
+    if (!count) return;
+    await this.audit.log({
+      actorId: null,
+      action: 'workspace.member_add',
+      targetType: 'user',
+      targetId: userId,
+      workspaceId: ws.id,
+      metadata: { auto: true },
+      ctx,
+    });
   }
 
   isAllowedGoogleAccount(email: string, hostedDomain: string | undefined): boolean {

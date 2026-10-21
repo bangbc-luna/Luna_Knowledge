@@ -2,9 +2,9 @@
 @apiUrl = http://localhost:4000/api/v1
 
 ### User thường không xem được số liệu → 403
-# @ref editor
+# @ref member
 GET {{apiUrl}}/admin/stats
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 
 ?? status == 403
 
@@ -19,10 +19,10 @@ Authorization: Bearer {{admin.accessToken}}
 
 ### Tạo một thư mục rồi mở nó để có lượt xem trong nhật ký
 # @name viewed
-# @ref editor
+# @ref member
 # @ref ws
 POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 Content-Type: application/json
 
 { "name": "Nhật ký {{$timestamp}}" }
@@ -32,7 +32,7 @@ Content-Type: application/json
 ### Mở thư mục (ghi node.view)
 # @ref viewed
 GET {{apiUrl}}/nodes/{{viewed.id}}
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 
 ?? status == 200
 
@@ -43,14 +43,14 @@ GET {{apiUrl}}/admin/audit-logs?targetId={{viewed.id}}&actions=node.view
 Authorization: Bearer {{admin.accessToken}}
 
 ?? status == 200
-?? js response.parsedBody.items[0].actor.email == qa.editor@lunatech.vn
+?? js response.parsedBody.items[0].actor.email == qa.member@lunatech.vn
 ?? js response.parsedBody.items[0].target.label === viewed.name == true
 
 ### Nhật ký lọc theo người + phân trang
 # @name logPage
 # @ref admin
-# @ref editor
-GET {{apiUrl}}/admin/audit-logs?actorId={{editor.user.id}}&limit=2
+# @ref member
+GET {{apiUrl}}/admin/audit-logs?actorId={{member.user.id}}&limit=2
 Authorization: Bearer {{admin.accessToken}}
 
 ?? status == 200
@@ -66,11 +66,13 @@ Authorization: Bearer {{admin.accessToken}}
 ?? header content-type includes text/csv
 ?? header content-disposition includes nhat-ky-
 
-### Danh sách workspace (admin) có chủ sở hữu
+### Danh sách workspace (admin): số thành viên, admin không phải thành viên, không còn chủ sở hữu
 # @ref admin
 # @ref ws
 GET {{apiUrl}}/workspaces?scope=all
 Authorization: Bearer {{admin.accessToken}}
 
 ?? status == 200
-?? js response.parsedBody.find(w => w.id === contentWs.id).owner.email == qa.owner@lunatech.vn
+?? js response.parsedBody.find(w => w.id === contentWs.id).memberCount == 2
+?? js response.parsedBody.find(w => w.id === contentWs.id).myRole === null == true
+?? js 'creator' in response.parsedBody.find(w => w.id === contentWs.id) == false

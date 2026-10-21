@@ -46,6 +46,7 @@ export class NodeDtoService {
           workspaceId: n.workspaceId,
           parentId: n.parentId,
           type: n.type,
+          section: n.section,
           name: n.name,
           status: n.status,
           createdBy: n.createdBy,

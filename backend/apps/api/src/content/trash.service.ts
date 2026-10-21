@@ -7,7 +7,6 @@ import type { AuthenticatedUser } from '../auth/auth.service.js';
 import { AppError } from '../common/errors/app-error.js';
 import type { RequestContext } from '../common/http/request-context.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
-import { roleAtLeast } from '../workspaces/workspace-roles.js';
 import { ContentAccessService } from './content-access.service.js';
 import { NodeDtoService } from './node-dto.service.js';
 import { nameKey, suggestName } from './node-names.js';
@@ -29,7 +28,7 @@ export class TrashService {
   ) {}
 
   async list(user: AuthenticatedUser, workspaceId: string) {
-    await this.access.requireMember(user, workspaceId, 'EDITOR');
+    if (!user.isSystemAdmin) await this.access.requireMember(user, workspaceId);
     const roots = await this.prisma.client.$queryRaw<{ id: string; item_count: bigint }[]>`
       SELECT r.id, (SELECT count(*) FROM nodes d WHERE d.deleted_root_id = r.id) AS item_count
         FROM nodes r
@@ -57,9 +56,11 @@ export class TrashService {
   }
 
   async restore(user: AuthenticatedUser, nodeId: string, ctx: RequestContext) {
-    const node = await this.requireTrashRoot(user, nodeId, 'EDITOR');
-    if (!roleAtLeast(node.memberRole, 'ADMIN') && node.deletedById !== user.id) {
-      throw AppError.forbidden('Editors can only restore items they deleted');
+    const node = await this.requireTrashRoot(user, nodeId);
+    if (!user.isSystemAdmin && node.deletedById !== user.id) {
+      throw AppError.forbidden(
+        'Only the person who deleted this item or a system admin can restore it',
+      );
     }
 
     const result = await this.prisma.client.$transaction(async (tx) => {
@@ -68,7 +69,12 @@ export class TrashService {
         : null;
       const parentId = parent && !parent.deletedAt ? node.parentId : null;
 
-      const taken = await this.nodes.siblingKeys(node.workspaceId, parentId);
+      const taken = await this.nodes.siblingKeys(
+        node.workspaceId,
+        parentId,
+        undefined,
+        node.section,
+      );
       const name = taken.has(nameKey(node.name)) ? suggestName(node.name, taken) : node.name;
 
       await tx.node.update({
@@ -96,14 +102,16 @@ export class TrashService {
       ctx,
     });
     return {
-      node: await this.dto.one(user.id, nodeId),
+      node: (await this.dto.one(user.id, nodeId)) ?? null,
+      name: result.name,
       movedToRoot: result.parentId !== node.parentId,
       renamed: result.name !== node.name,
     };
   }
 
   async deletePermanently(user: AuthenticatedUser, nodeId: string, ctx: RequestContext) {
-    const node = await this.requireTrashRoot(user, nodeId, 'OWNER');
+    const node = await this.requireTrashRoot(user, nodeId);
+    if (!user.isSystemAdmin) throw AppError.forbidden('Only a system admin can delete permanently');
     await this.prisma.client.node.delete({ where: { id: nodeId } });
     await this.collectGarbageSoon();
     await this.audit.log({
@@ -118,7 +126,7 @@ export class TrashService {
   }
 
   async empty(user: AuthenticatedUser, workspaceId: string, ctx: RequestContext) {
-    await this.access.requireMember(user, workspaceId, 'OWNER');
+    if (!user.isSystemAdmin) throw AppError.forbidden('Only a system admin can empty the trash');
     const count = await this.prisma.client.$executeRaw`
       DELETE FROM nodes WHERE workspace_id = ${workspaceId}::uuid AND deleted_root_id = id`;
     await this.collectGarbageSoon();
@@ -150,14 +158,12 @@ export class TrashService {
     }
   }
 
-  private async requireTrashRoot(user: AuthenticatedUser, nodeId: string, min: 'EDITOR' | 'OWNER') {
-    const node = await this.access.requireNode(user, nodeId, 'VIEWER', { allowDeleted: true });
+  private async requireTrashRoot(user: AuthenticatedUser, nodeId: string) {
+    const node = (await this.access.resolveMany(user.id, [nodeId])).get(nodeId);
+    if (!node || (!node.isMember && !user.isSystemAdmin)) throw AppError.notFound('Item not found');
     if (!node.deletedAt) throw AppError.validation('Item is not in the trash');
     if (node.deletedRootId !== node.id) {
       throw AppError.validation('Restore or delete the parent folder that was deleted');
-    }
-    if (!roleAtLeast(node.memberRole, min)) {
-      throw AppError.forbidden(`Requires ${min} role in this workspace`);
     }
     return node;
   }

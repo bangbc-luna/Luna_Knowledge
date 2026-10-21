@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { paginationQuery } from '../common/pagination/cursor.js';
 
-export const workspaceRoleSchema = z.enum(['OWNER', 'ADMIN', 'EDITOR', 'VIEWER']);
+export const workspaceRoleSchema = z.enum(['MEMBER']);
+export const contentRoleSchema = z.enum(['VIEWER', 'EDITOR', 'OWNER']);
 
 export const userSummarySchema = z.object({
   id: z.uuid(),

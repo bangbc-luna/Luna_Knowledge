@@ -422,6 +422,10 @@ describe('Worker file-process (e2e)', () => {
       await prisma.blob.count({ where: { nodeId, kind: { in: ['POSTER', 'SPRITE', 'HLS'] } } }),
     ).toBe(3);
 
+    const ready = await prisma.notification.findFirstOrThrow({
+      where: { type: 'video.ready', payload: { path: ['nodeId'], equals: nodeId } },
+    });
+    expect(ready.userId).toBe(userId);
     const vt = app.get(
       (await import('../src/processors/video-transcode.processor.js')).VideoTranscodeProcessor,
     );
@@ -518,6 +522,11 @@ describe('Worker file-process (e2e)', () => {
     expect(node.status).toBe('FAILED');
     expect(node.file?.processingError).toMatch(/video/i);
     expect(node.file?.processingError).not.toMatch(/ffprobe|\/tmp|moov/);
+    const n = await prisma.notification.findFirstOrThrow({
+      where: { type: 'video.failed', payload: { path: ['nodeId'], equals: nodeId } },
+    });
+    expect(n.userId).toBe(userId);
+    expect(n.payload).toMatchObject({ nodeName: 'hong.mp4' });
     expect(await prisma.video.findUnique({ where: { nodeId } })).toBeNull();
   }, 60_000);
 

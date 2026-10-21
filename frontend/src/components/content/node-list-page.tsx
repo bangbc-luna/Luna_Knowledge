@@ -2,9 +2,10 @@
 
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { formatWhen, ROLE_LABEL, TYPE_LABEL } from "@/lib/format";
+import { formatWhen, SHARE_LABEL, TYPE_LABEL } from "@/lib/format";
 import type { NodeItem } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
+import { NoWorkspaceNotice } from "../shell/no-workspace";
 import { PageBody, TopBar } from "../shell/shell";
 import { Card, EmptyState, ErrorBanner, SkeletonRows } from "../ui/misc";
 import { NodeName } from "./node-name";
@@ -23,6 +24,7 @@ function NodeListPage({ title, empty, load }: { title: string; empty: string; lo
         <h1 className="truncate text-base font-semibold">{title}</h1>
       </TopBar>
       <PageBody>
+        <NoWorkspaceNotice />
         <Card>
           {loading && !data ? (
             <SkeletonRows rows={5} />
@@ -61,7 +63,7 @@ export function SharedPage() {
           meta: `${TYPE_LABEL[s.node.type]} · ${s.workspace.name}${s.sharedBy ? ` · bởi ${s.sharedBy.name}` : ""}`,
           right: (
             <>
-              <span className="block text-foreground/80">{ROLE_LABEL[s.shareRole]}</span>
+              <span className="block text-foreground/80">{SHARE_LABEL[s.shareRole]}</span>
               <span className="text-xs">{formatWhen(s.sharedAt)}</span>
             </>
           ),

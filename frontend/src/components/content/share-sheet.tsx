@@ -4,7 +4,7 @@ import { X } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { api, ApiError, describeError } from "@/lib/api";
-import { ROLE_LABEL } from "@/lib/format";
+import { SHARE_HINT, SHARE_LABEL } from "@/lib/format";
 import type { NodeItem, Share, ShareRole } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 import { Button, IconButton } from "../ui/button";
@@ -15,8 +15,8 @@ import { Select } from "../ui/select";
 import { useToast } from "../ui/toast";
 
 const SHARE_ROLES = [
-  { value: "VIEWER" as const, label: ROLE_LABEL.VIEWER },
-  { value: "EDITOR" as const, label: ROLE_LABEL.EDITOR },
+  { value: "VIEWER" as const, label: SHARE_LABEL.VIEWER, hint: SHARE_HINT.VIEWER },
+  { value: "EDITOR" as const, label: SHARE_LABEL.EDITOR, hint: SHARE_HINT.EDITOR },
 ];
 
 interface SharesResponse {
@@ -152,8 +152,8 @@ export function ShareSheet({ node, onClose, memberEmails }: { node: NodeItem | n
                   row(
                     s,
                     <span className="shrink-0 text-right text-sm text-foreground/80">
-                      {ROLE_LABEL[s.role]}
-                      <Link href={`/w/${node!.workspaceId}/f/${s.fromNode.id}`} className="block max-w-36 truncate text-xs text-muted underline-offset-4 hover:underline">
+                      {SHARE_LABEL[s.role]}
+                      <Link href={`/w/${node!.workspaceId}/${node!.section === "VIDEOS" ? "v" : "f"}/${s.fromNode.id}`} className="block max-w-36 truncate text-xs text-muted underline-offset-4 hover:underline">
                         từ {s.fromNode.name}
                       </Link>
                     </span>,

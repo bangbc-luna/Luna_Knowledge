@@ -34,12 +34,18 @@ describe('Videos: phát có bảo vệ (e2e)', () => {
       data: {
         workspaceId: wsId,
         type: 'VIDEO',
+        section: 'VIDEOS',
         name,
         nameNormalized: name.toLowerCase(),
         status: ready ? 'READY' : 'PROCESSING',
         createdById: editor.userId,
       },
     });
+    await http()
+      .post(`/api/v1/nodes/${node.id}/shares`)
+      .set(editor.auth)
+      .send({ email: 'viewer@lunatech.vn', role: 'VIEWER' })
+      .expect(201);
     const put = (Bucket: string, Key: string, Body: Buffer | string) =>
       s3.send(new PutObjectCommand({ Bucket, Key, Body }));
     const versionId = crypto.randomUUID();
@@ -145,19 +151,13 @@ describe('Videos: phát có bảo vệ (e2e)', () => {
     const ws = await http()
       .post('/api/v1/workspaces')
       .set(sysadmin.auth)
-      .send({ name: 'Video', slug: 'video', ownerEmail: 'owner@lunatech.vn' })
+      .send({
+        name: 'Video',
+        slug: 'video',
+        memberEmails: ['owner@lunatech.vn', 'editor@lunatech.vn'],
+      })
       .expect(201);
     wsId = ws.body.id;
-    for (const [email, role] of [
-      ['editor@lunatech.vn', 'EDITOR'],
-      ['viewer@lunatech.vn', 'VIEWER'],
-    ]) {
-      await http()
-        .post(`/api/v1/workspaces/${wsId}/members`)
-        .set(owner.auth)
-        .send({ email, role })
-        .expect(201);
-    }
   });
 
   afterAll(async () => {
@@ -256,17 +256,29 @@ describe('Videos: phát có bảo vệ (e2e)', () => {
     const temp = await loginAs(ctx, 'temp.viewer@lunatech.vn');
     const m = await http()
       .post(`/api/v1/workspaces/${wsId}/members`)
-      .set(owner.auth)
-      .send({ email: 'temp.viewer@lunatech.vn', role: 'VIEWER' })
+      .set(sysadmin.auth)
+      .send({ email: 'temp.viewer@lunatech.vn' })
       .expect(201);
     const pb = await play(temp, nodeId).expect(200);
     await http().get(`/api/v1/videos/${nodeId}/key?s=${pb.body.token}`).expect(200);
     await http()
       .delete(`/api/v1/workspaces/${wsId}/members/${m.body.user.id}`)
-      .set(owner.auth)
+      .set(sysadmin.auth)
       .expect(204);
     await http().get(`/api/v1/videos/${nodeId}/key?s=${pb.body.token}`).expect(404);
     await http().get(pb.body.masterUrl).expect(404);
+  });
+
+  it('thu hồi share chỉ xem giữa chừng: khoá bị chặn ngay', async () => {
+    const { nodeId } = await seedVideo('Thu hồi share.mp4');
+    const pb = await play(viewer, nodeId).expect(200);
+    await http().get(`/api/v1/videos/${nodeId}/key?s=${pb.body.token}`).expect(200);
+    const shares = await http().get(`/api/v1/nodes/${nodeId}/shares`).set(editor.auth).expect(200);
+    await http()
+      .delete(`/api/v1/nodes/${nodeId}/shares/${shares.body.direct[0].id}`)
+      .set(editor.auth)
+      .expect(204);
+    await http().get(`/api/v1/videos/${nodeId}/key?s=${pb.body.token}`).expect(404);
   });
 
   it('lượt xem: mở lại trong 30 phút chỉ tính một lần; nhật ký video.play', async () => {
@@ -360,7 +372,7 @@ describe('Videos: phát có bảo vệ (e2e)', () => {
     await http().post(`/api/v1/files/${nodeId}/regenerate`).set(editor.auth).expect(409);
   });
 
-  it('transcode lại: đẩy job, chặn khi đang xử lý; VIEWER không được', async () => {
+  it('transcode lại: đẩy job, chặn khi đang xử lý; người chỉ xem không được', async () => {
     const { nodeId, versionId } = await seedVideo('Làm lại.mp4');
     await http().post(`/api/v1/videos/${nodeId}/retranscode`).set(viewer.auth).expect(403);
     await http().post(`/api/v1/videos/${nodeId}/retranscode`).set(editor.auth).expect(204);

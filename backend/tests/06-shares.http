@@ -1,12 +1,15 @@
 # @import ./_auth.http
 @apiUrl = http://localhost:4000/api/v1
 
+# member tạo các folder nên là OWNER (được quản lý share); creator chỉ là thành viên thường ở đây.
+# Share "Chỉ xem" (VIEWER): xem + comment. Share "Được chỉnh sửa" (EDITOR) → OWNER: thêm xóa và quản lý share.
+
 ### Folder cha (người ngoài sẽ không thấy)
 # @name dept
-# @ref editor
+# @ref member
 # @ref ws
 POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 Content-Type: application/json
 
 { "name": "Phòng Marketing" }
@@ -17,7 +20,7 @@ Content-Type: application/json
 # @name sharedFolder
 # @ref dept
 POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 Content-Type: application/json
 
 { "name": "Chiến dịch Q4", "parentId": "{{dept.id}}" }
@@ -28,31 +31,38 @@ Content-Type: application/json
 # @name subFolder
 # @ref sharedFolder
 POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 Content-Type: application/json
 
 { "name": "Banner", "parentId": "{{sharedFolder.id}}" }
 
 ?? status == 201
 
-### EDITOR không share được → 403
-# @ref editor
+### Thành viên không phải người tạo không share được → 403
+# @ref creator
 # @ref sharedFolder
 POST {{apiUrl}}/nodes/{{sharedFolder.id}}/shares
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 Content-Type: application/json
 
 { "email": "qa.outsider@lunatech.vn", "role": "VIEWER" }
 
 ?? status == 403
 
-### ADMIN share cho người ngoài workspace (VIEWER)
+### Thành viên không phải người tạo không xem danh sách share → 403
+# @ref creator
+# @ref sharedFolder
+GET {{apiUrl}}/nodes/{{sharedFolder.id}}/shares
+Authorization: Bearer {{creator.accessToken}}
+
+?? status == 403
+
+### Người tạo (OWNER) share "Chỉ xem" cho người ngoài workspace
 # @name share
-# @ref wsAdmin
 # @ref outsider
 # @ref sharedFolder
 POST {{apiUrl}}/nodes/{{sharedFolder.id}}/shares
-Authorization: Bearer {{wsAdmin.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 Content-Type: application/json
 
 { "email": "qa.outsider@lunatech.vn", "role": "VIEWER" }
@@ -64,7 +74,7 @@ Content-Type: application/json
 ### Share trùng → 409
 # @ref share
 POST {{apiUrl}}/nodes/{{sharedFolder.id}}/shares
-Authorization: Bearer {{wsAdmin.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 Content-Type: application/json
 
 { "email": "qa.outsider@lunatech.vn", "role": "EDITOR" }
@@ -111,7 +121,46 @@ Authorization: Bearer {{outsider.accessToken}}
 
 ?? status == 404
 
-### VIEWER (qua share) không tạo được → 403
+### Folder con do member tạo (để thử quyền xóa của người được share)
+# @name tempFolder
+# @ref sharedFolder
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{member.accessToken}}
+Content-Type: application/json
+
+{ "name": "Tạm", "parentId": "{{sharedFolder.id}}" }
+
+?? status == 201
+
+### Share "Chỉ xem": mở folder con → VIEWER
+# @ref share
+# @ref subFolder
+GET {{apiUrl}}/nodes/{{subFolder.id}}
+Authorization: Bearer {{outsider.accessToken}}
+
+?? status == 200
+?? body myRole == VIEWER
+
+### Share "Chỉ xem" không đổi tên được → 403
+# @ref share
+# @ref subFolder
+PATCH {{apiUrl}}/nodes/{{subFolder.id}}
+Authorization: Bearer {{outsider.accessToken}}
+Content-Type: application/json
+
+{ "name": "Đổi tên" }
+
+?? status == 403
+
+### Share "Chỉ xem" không xóa được → 403
+# @ref share
+# @ref tempFolder
+DELETE {{apiUrl}}/nodes/{{tempFolder.id}}
+Authorization: Bearer {{outsider.accessToken}}
+
+?? status == 403
+
+### Share "Chỉ xem" không tạo được → 403
 # @ref share
 POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
 Authorization: Bearer {{outsider.accessToken}}
@@ -121,16 +170,25 @@ Content-Type: application/json
 
 ?? status == 403
 
-### Nâng share lên EDITOR
+### Nâng share lên EDITOR ("Được chỉnh sửa")
 # @ref share
 PATCH {{apiUrl}}/nodes/{{sharedFolder.id}}/shares/{{share.id}}
-Authorization: Bearer {{wsAdmin.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 Content-Type: application/json
 
 { "role": "EDITOR" }
 
 ?? status == 200
 ?? body role == EDITOR
+
+### Share "Được chỉnh sửa" → OWNER trên folder được share và mục con
+# @ref share
+# @ref subFolder
+GET {{apiUrl}}/nodes/{{subFolder.id}}
+Authorization: Bearer {{outsider.accessToken}}
+
+?? status == 200
+?? body myRole == OWNER
 
 ### Giờ người được share tạo được folder bên trong
 # @ref share
@@ -147,23 +205,32 @@ Content-Type: application/json
 # @ref share
 # @ref subFolder
 GET {{apiUrl}}/nodes/{{subFolder.id}}/shares
-Authorization: Bearer {{wsAdmin.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 
 ?? status == 200
 ?? js response.parsedBody.direct.length == 0
 ?? js response.parsedBody.inherited[0].fromNode.name == Chiến dịch Q4
 
-### Người được share không quản lý share được → 403
+### Share "Được chỉnh sửa" quản lý được share (xem danh sách)
 # @ref share
 GET {{apiUrl}}/nodes/{{sharedFolder.id}}/shares
 Authorization: Bearer {{outsider.accessToken}}
 
-?? status == 403
+?? status == 200
+?? js response.parsedBody.direct.some(s => s.id === share.id) == true
+
+### Share "Được chỉnh sửa" xóa được mục người khác tạo bên trong
+# @ref share
+# @ref tempFolder
+DELETE {{apiUrl}}/nodes/{{tempFolder.id}}
+Authorization: Bearer {{outsider.accessToken}}
+
+?? status == 204
 
 ### Thu hồi share
 # @ref share
 DELETE {{apiUrl}}/nodes/{{sharedFolder.id}}/shares/{{share.id}}
-Authorization: Bearer {{wsAdmin.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 
 ?? status == 204
 
@@ -172,5 +239,76 @@ Authorization: Bearer {{wsAdmin.accessToken}}
 # @ref subFolder
 GET {{apiUrl}}/nodes/{{subFolder.id}}
 Authorization: Bearer {{outsider.accessToken}}
+
+?? status == 404
+
+### Folder cho người được share "Được chỉnh sửa"
+# @name editFolder
+# @ref dept
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{member.accessToken}}
+Content-Type: application/json
+
+{ "name": "Hợp đồng {{$timestamp}}", "parentId": "{{dept.id}}" }
+
+?? status == 201
+
+### Mục bên trong do member tạo
+# @name editChild
+# @ref editFolder
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{member.accessToken}}
+Content-Type: application/json
+
+{ "name": "Bản nháp", "parentId": "{{editFolder.id}}" }
+
+?? status == 201
+
+### Share "Được chỉnh sửa" cho sharedEditor
+# @name editShare
+# @ref editChild
+# @ref sharedEditor
+POST {{apiUrl}}/nodes/{{editFolder.id}}/shares
+Authorization: Bearer {{member.accessToken}}
+Content-Type: application/json
+
+{ "email": "qa.shared.editor@lunatech.vn", "role": "EDITOR" }
+
+?? status == 201
+?? body role == EDITOR
+
+### sharedEditor là OWNER trên mục con
+# @ref editShare
+GET {{apiUrl}}/nodes/{{editChild.id}}
+Authorization: Bearer {{sharedEditor.accessToken}}
+
+?? status == 200
+?? body myRole == OWNER
+
+### sharedEditor xem được danh sách share
+# @ref editShare
+GET {{apiUrl}}/nodes/{{editFolder.id}}/shares
+Authorization: Bearer {{sharedEditor.accessToken}}
+
+?? status == 200
+
+### sharedEditor xem được hoạt động
+# @ref editShare
+GET {{apiUrl}}/nodes/{{editChild.id}}/activity
+Authorization: Bearer {{sharedEditor.accessToken}}
+
+?? status == 200
+
+### sharedEditor xoá được mục do member tạo
+# @ref editShare
+DELETE {{apiUrl}}/nodes/{{editChild.id}}
+Authorization: Bearer {{sharedEditor.accessToken}}
+
+?? status == 204
+
+### sharedEditor không thấy thư mục cha ngoài nhánh được share → 404
+# @ref editShare
+GET {{apiUrl}}/nodes/{{dept.id}}
+Authorization: Bearer {{sharedEditor.accessToken}}
 
 ?? status == 404

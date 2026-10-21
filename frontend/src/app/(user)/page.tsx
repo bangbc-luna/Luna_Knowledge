@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { NoWorkspaceNotice } from "@/components/shell/no-workspace";
 import { PageBody, TopBar } from "@/components/shell/shell";
-import { Card, EmptyState } from "@/components/ui/misc";
 import { useAuth } from "@/lib/auth";
 import { lastWorkspace } from "@/lib/workspace";
 
@@ -22,16 +22,12 @@ export default function HomePage() {
         <h1 className="truncate text-base font-semibold">Luna Knowledge</h1>
       </TopBar>
       <PageBody>
-        <Card>
-          <EmptyState
-            text="Bạn chưa thuộc workspace nào. Tài liệu người khác chia sẻ cho bạn nằm ở mục Được chia sẻ."
-            action={
-              <Link href="/shared" className="inline-flex min-h-10 items-center rounded-xl border border-border-strong bg-surface px-4 text-sm font-medium hover:bg-button-hover">
-                Mở Được chia sẻ
-              </Link>
-            }
-          />
-        </Card>
+        <NoWorkspaceNotice />
+        <div>
+          <Link href="/shared" className="inline-flex min-h-10 items-center rounded-xl border border-border-strong bg-surface px-4 text-sm font-medium hover:bg-button-hover">
+            Mở Được chia sẻ
+          </Link>
+        </div>
       </PageBody>
     </>
   );

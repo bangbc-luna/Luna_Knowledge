@@ -1,12 +1,15 @@
 # @import ./_auth.http
 @apiUrl = http://localhost:4000/api/v1
 
+# Xóa (đưa vào thùng rác): OWNER của mục (người tạo mục / folder cha, hoặc share "Được chỉnh sửa").
+# Thùng rác: thành viên xem; người đã xóa hoặc System Admin khôi phục; chỉ System Admin xóa vĩnh viễn / dọn sạch.
+
 ### Folder sẽ xóa
 # @name trashRoot
-# @ref editor
+# @ref member
 # @ref ws
 POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 Content-Type: application/json
 
 { "name": "Tài liệu cũ" }
@@ -17,85 +20,95 @@ Content-Type: application/json
 # @name trashChild
 # @ref trashRoot
 POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 Content-Type: application/json
 
 { "name": "2024", "parentId": "{{trashRoot.id}}" }
 
 ?? status == 201
 
-### Folder của OWNER
+### Folder của creator
 # @name ownersFolder
-# @ref owner
+# @ref creator
 # @ref ws
 POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
-Authorization: Bearer {{owner.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 Content-Type: application/json
 
-{ "name": "Của owner {{$timestamp}}" }
+{ "name": "Của creator {{$timestamp}}" }
 
 ?? status == 201
 
-### EDITOR không xóa mục người khác tạo → 403
-# @ref editor
+### Thành viên không xóa mục người khác tạo → 403
+# @ref member
 # @ref ownersFolder
 DELETE {{apiUrl}}/nodes/{{ownersFolder.id}}
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 
 ?? status == 403
 
-### EDITOR xóa folder của mình (cả nhánh) → 204
+### member xóa folder của mình (cả nhánh) → 204
 # @ref trashChild
 DELETE {{apiUrl}}/nodes/{{trashRoot.id}}
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 
 ?? status == 204
 
 ### Mục con không còn truy cập → 404
 # @ref trashChild
 GET {{apiUrl}}/nodes/{{trashChild.id}}
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 
 ?? status == 404
 
-### Thùng rác: mỗi lần xóa một dòng, kèm số mục
+### Thùng rác (thành viên bất kỳ xem được): mỗi lần xóa một dòng, kèm số mục
+# @ref creator
 # @ref trashChild
 GET {{apiUrl}}/workspaces/{{contentWs.id}}/trash
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 
 ?? status == 200
 ?? js response.parsedBody.find(t => t.id === trashRoot.id).itemCount == 2
+?? js response.parsedBody.find(t => t.id === trashRoot.id).deletedBy.email == qa.member@lunatech.vn
 
-### VIEWER không xem thùng rác → 403
-# @ref viewer
+### Người không phải thành viên (chỉ được share) không xem thùng rác → 404
+# @ref sharedViewer
 # @ref ws
 GET {{apiUrl}}/workspaces/{{contentWs.id}}/trash
-Authorization: Bearer {{viewer.accessToken}}
+Authorization: Bearer {{sharedViewer.accessToken}}
 
-?? status == 403
+?? status == 404
 
 ### Chỉ khôi phục được mục gốc của lần xóa → 400
 # @ref trashChild
 POST {{apiUrl}}/nodes/{{trashChild.id}}/restore
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 
 ?? status == 400
 
+### Thành viên khác (không phải người xóa) không khôi phục được → 403
+# @ref creator
+# @ref trashChild
+POST {{apiUrl}}/nodes/{{trashRoot.id}}/restore
+Authorization: Bearer {{creator.accessToken}}
+
+?? status == 403
+
 ### Tạo folder trùng tên ở chỗ cũ
-# @ref editor
+# @ref member
 # @ref ws
 POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 Content-Type: application/json
 
 { "name": "Tài liệu cũ" }
 
 ?? status == 201
 
-### Khôi phục: trùng tên nên tự đổi thành "Tài liệu cũ (1)"
+### Người đã xóa khôi phục: trùng tên nên tự đổi thành "Tài liệu cũ (1)"
 # @ref trashChild
 POST {{apiUrl}}/nodes/{{trashRoot.id}}/restore
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 
 ?? status == 200
 ?? body renamed == true
@@ -105,56 +118,80 @@ Authorization: Bearer {{editor.accessToken}}
 ### Xóa lại để thử xóa vĩnh viễn
 # @ref trashChild
 DELETE {{apiUrl}}/nodes/{{trashRoot.id}}
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 
 ?? status == 204
 
-### ADMIN không xóa vĩnh viễn được → 403
-# @ref wsAdmin
+### Người đã xóa cũng không xóa vĩnh viễn được → 403
 # @ref trashChild
 DELETE {{apiUrl}}/nodes/{{trashRoot.id}}/permanent
-Authorization: Bearer {{wsAdmin.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 
 ?? status == 403
 
-### OWNER xóa vĩnh viễn → 204
-# @ref owner
+### Thành viên khác không xóa vĩnh viễn được → 403
+# @ref creator
 # @ref trashChild
 DELETE {{apiUrl}}/nodes/{{trashRoot.id}}/permanent
-Authorization: Bearer {{owner.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
+
+?? status == 403
+
+### System Admin xóa vĩnh viễn → 204
+# @ref admin
+# @ref trashChild
+DELETE {{apiUrl}}/nodes/{{trashRoot.id}}/permanent
+Authorization: Bearer {{admin.accessToken}}
 
 ?? status == 204
 
-### ADMIN xóa folder của OWNER → 204
-# @ref wsAdmin
+### creator xóa folder của mình → 204
+# @ref creator
 # @ref ownersFolder
 DELETE {{apiUrl}}/nodes/{{ownersFolder.id}}
-Authorization: Bearer {{wsAdmin.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 
 ?? status == 204
 
-### EDITOR không dọn sạch thùng rác được → 403
-# @ref editor
+### System Admin khôi phục mục người khác đã xóa
+# @ref admin
+# @ref ownersFolder
+POST {{apiUrl}}/nodes/{{ownersFolder.id}}/restore
+Authorization: Bearer {{admin.accessToken}}
+
+?? status == 200
+?? body renamed == false
+
+### Xóa lại để dọn thùng rác
+# @ref creator
+# @ref ownersFolder
+DELETE {{apiUrl}}/nodes/{{ownersFolder.id}}
+Authorization: Bearer {{creator.accessToken}}
+
+?? status == 204
+
+### Thành viên không dọn sạch thùng rác được → 403
+# @ref creator
 # @ref ws
 DELETE {{apiUrl}}/workspaces/{{contentWs.id}}/trash
-Authorization: Bearer {{editor.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 
 ?? status == 403
 
-### OWNER dọn sạch thùng rác
-# @ref owner
+### System Admin dọn sạch thùng rác
+# @ref admin
 # @ref ws
 DELETE {{apiUrl}}/workspaces/{{contentWs.id}}/trash
-Authorization: Bearer {{owner.accessToken}}
+Authorization: Bearer {{admin.accessToken}}
 
 ?? status == 200
 ?? body deleted >= 1
 
 ### Thùng rác trống
-# @ref owner
+# @ref creator
 # @ref ws
 GET {{apiUrl}}/workspaces/{{contentWs.id}}/trash
-Authorization: Bearer {{owner.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 
 ?? status == 200
 ?? js response.parsedBody.length == 0

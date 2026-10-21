@@ -42,6 +42,15 @@ export class UsersController {
     return this.users.search(query.q, query.limit);
   }
 
+  @Get('users/admins')
+  @ApiOperation({
+    summary: 'Quản trị hệ thống đang hoạt động (người cần liên hệ để được thêm vào workspace)',
+  })
+  @ApiZodOk(z.array(userSummarySchema))
+  admins() {
+    return this.users.systemAdmins();
+  }
+
   @Get('admin/users')
   @SystemAdmin()
   @ApiTags('admin')

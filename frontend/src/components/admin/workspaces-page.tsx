@@ -1,15 +1,15 @@
 "use client";
 
-import { Plus, ScrollText, Trash2, Users } from "lucide-react";
+import { Plus, ScrollText, Trash2, UserMinus, UserPlus, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { api, ApiError, describeError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { formatWhen, ROLE_LABEL } from "@/lib/format";
+import { formatWhen } from "@/lib/format";
 import type { Member, Workspace } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 import { PageBody, TopBar } from "../shell/shell";
-import { Button } from "../ui/button";
+import { Button, IconButton } from "../ui/button";
 import { ConfirmDialog, Dialog, Sheet } from "../ui/dialog";
 import { Field, Input, SearchInput } from "../ui/input";
 import { RowMenu } from "../ui/menu";
@@ -26,31 +26,95 @@ const slugify = (s: string) =>
     .replace(/^-+|-+$/g, "")
     .slice(0, 50);
 
-function MembersSheet({ ws, onClose }: { ws: Workspace | null; onClose: () => void }) {
+function MembersSheet({ ws, onClose, onChanged }: { ws: Workspace | null; onClose: () => void; onChanged: () => void }) {
+  const toast = useToast();
   const { data, loading, error, reload } = useApi(() => api<Member[]>(`/workspaces/${ws!.id}/members`), [ws?.id], { enabled: !!ws });
+  const [email, setEmail] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<Member | null>(null);
+  const add = async () => {
+    const value = email.trim().toLowerCase();
+    if (!value || !ws) return;
+    setAdding(true);
+    setAddError(null);
+    try {
+      await api(`/workspaces/${ws.id}/members`, { method: "POST", body: { email: value } });
+      setEmail("");
+      toast("success", `Đã thêm ${value} vào «${ws.name}»`);
+      await reload();
+      onChanged();
+    } catch (err) {
+      setAddError(err instanceof ApiError && err.code === "CONFLICT" ? "Người này đã là thành viên." : describeError(err));
+    } finally {
+      setAdding(false);
+    }
+  };
   return (
-    <Sheet open={!!ws} onClose={onClose} title={ws ? `Thành viên · ${ws.name}` : ""} subtitle={ws ? `${ws.memberCount} thành viên` : undefined}>
-      {loading && !data ? (
-        <div className="px-6 py-6">
-          <SkeletonRows rows={4} />
-        </div>
-      ) : error ? (
-        <ErrorBanner error={error} what="thành viên" onRetry={reload} />
-      ) : (
-        <ul className="divide-y divide-border px-6 py-2">
-          {(data ?? []).map((m) => (
-            <li key={m.user.id} className="flex min-h-14 items-center gap-3 py-2">
-              <Avatar name={m.user.name} src={m.user.avatarUrl} />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{m.user.name}</p>
-                <p className="truncate text-xs text-muted">{m.user.email}</p>
+    <>
+      <Sheet open={!!ws} onClose={onClose} title={ws ? `Thành viên · ${ws.name}` : ""} subtitle={data ? `${data.length} thành viên` : undefined}>
+        <form
+          className="border-b border-border px-6 py-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void add();
+          }}
+        >
+          <Field label="Thêm thành viên" error={addError} hint="Email @lunatech.vn. Người chưa đăng nhập lần nào vẫn thêm được.">
+            {(id) => (
+              <div className="flex gap-2">
+                <Input id={id} type="email" placeholder="ten@lunatech.vn" value={email} invalid={!!addError} onChange={(e) => (setEmail(e.target.value), setAddError(null))} />
+                <Button type="submit" icon={UserPlus} variant="primary" loading={adding} disabled={!email.trim()} className="shrink-0">
+                  Thêm
+                </Button>
               </div>
-              <span className="shrink-0 text-sm text-foreground/80">{ROLE_LABEL[m.role]}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Sheet>
+            )}
+          </Field>
+        </form>
+        {loading && !data ? (
+          <div className="px-6 py-6">
+            <SkeletonRows rows={4} />
+          </div>
+        ) : error ? (
+          <ErrorBanner error={error} what="thành viên" onRetry={reload} />
+        ) : !data?.length ? (
+          <EmptyState text="Workspace chưa có thành viên nào." />
+        ) : (
+          <ul className="divide-y divide-border px-6 py-2">
+            {data.map((m) => (
+              <li key={m.user.id} className="flex min-h-14 items-center gap-3 py-2">
+                <Avatar name={m.user.name} src={m.user.avatarUrl} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{m.user.name}</p>
+                  <p className="truncate text-xs text-muted">{m.user.email}</p>
+                </div>
+                <IconButton icon={UserMinus} label={`Gỡ ${m.user.name} khỏi workspace`} onClick={() => setRemoving(m)} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </Sheet>
+      <ConfirmDialog
+        open={!!removing}
+        onClose={() => setRemoving(null)}
+        icon={UserMinus}
+        title="Gỡ khỏi workspace?"
+        confirmLabel="Gỡ thành viên"
+        onConfirm={async () => {
+          if (!removing || !ws) return;
+          try {
+            await api(`/workspaces/${ws.id}/members/${removing.user.id}`, { method: "DELETE" });
+            toast("success", `Đã gỡ ${removing.user.name}`);
+            await reload();
+            onChanged();
+          } catch (err) {
+            toast("error", describeError(err));
+          }
+        }}
+      >
+        <span className="font-medium text-foreground">{removing?.user.name}</span> sẽ không xem được nội dung của «{ws?.name}» nữa, trừ các mục được chia sẻ riêng.
+      </ConfirmDialog>
+    </>
   );
 }
 
@@ -61,7 +125,7 @@ export function WorkspacesPage() {
   const { data, loading, error, reload } = useApi(() => api<Workspace[]>("/workspaces", { query: { scope: "all" } }), []);
   const [q, setQ] = useState("");
   const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({ name: "", slug: "", ownerEmail: "", slugTouched: false });
+  const [form, setForm] = useState({ name: "", slug: "", memberEmails: "", slugTouched: false });
   const [formError, setFormError] = useState<{ field?: string; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [viewing, setViewing] = useState<Workspace | null>(null);
@@ -76,7 +140,7 @@ export function WorkspacesPage() {
     setBusy(true);
     setFormError(null);
     try {
-      await api("/workspaces", { method: "POST", body: { name: form.name.trim(), slug: form.slug, ownerEmail: form.ownerEmail.trim() } });
+      await api("/workspaces", { method: "POST", body: { name: form.name.trim(), slug: form.slug, memberEmails: form.memberEmails.split(/[\s,;]+/).map((e) => e.trim()).filter(Boolean) } });
       toast("success", `Đã tạo workspace «${form.name.trim()}»`);
       setCreating(false);
       await Promise.all([reload(), reloadMe()]);
@@ -84,7 +148,7 @@ export function WorkspacesPage() {
       if (err instanceof ApiError && err.code === "CONFLICT") setFormError({ field: "slug", message: "Đường dẫn này đã có workspace khác dùng." });
       else if (err instanceof ApiError && err.code === "VALIDATION_ERROR") {
         const first = (err.details as Array<{ path: string; message: string }> | undefined)?.[0];
-        setFormError({ field: first?.path ?? "ownerEmail", message: first ? first.message : err.message });
+        setFormError({ field: first?.path?.startsWith("memberEmails") ? "memberEmails" : (first?.path ?? "memberEmails"), message: first ? first.message : err.message });
       } else setFormError({ message: describeError(err) });
     } finally {
       setBusy(false);
@@ -104,7 +168,7 @@ export function WorkspacesPage() {
             variant="primary"
             className="sm:ml-auto"
             onClick={() => {
-              setForm({ name: "", slug: "", ownerEmail: "", slugTouched: false });
+              setForm({ name: "", slug: "", memberEmails: "", slugTouched: false });
               setFormError(null);
               setCreating(true);
             }}
@@ -126,7 +190,6 @@ export function WorkspacesPage() {
                   <thead className="hidden sm:table-header-group">
                     <tr className="text-left text-xs font-medium text-muted">
                       <th className="h-10 px-4 font-medium sm:pl-5">Workspace</th>
-                      <th className="hidden h-10 w-px px-4 font-medium whitespace-nowrap @3xl:table-cell">Chủ sở hữu</th>
                       <th className="h-10 w-px px-4 text-right font-medium whitespace-nowrap">Thành viên</th>
                       <th className="hidden h-10 w-px px-4 font-medium whitespace-nowrap @2xl:table-cell">Ngày tạo</th>
                       <th className="h-10 w-px px-2 whitespace-nowrap sm:pr-3">
@@ -148,12 +211,10 @@ export function WorkspacesPage() {
                               </p>
                               <p className="truncate text-xs text-muted">
                                 /{w.slug}
-                                <span className="@3xl:hidden"> · {w.owner?.name ?? "chưa có chủ"}</span>
                               </p>
                             </div>
                           </div>
                         </td>
-                        <td className="hidden px-4 text-sm whitespace-nowrap text-foreground/80 @3xl:table-cell">{w.owner?.name ?? "—"}</td>
                         <td className="px-1 text-right text-sm whitespace-nowrap text-foreground/80 tabular-nums sm:px-4">{w.memberCount}</td>
                         <td className="hidden px-4 text-sm whitespace-nowrap text-muted tabular-nums @2xl:table-cell">{formatWhen(w.createdAt)}</td>
                         <td className="whitespace-nowrap sm:w-px sm:px-2 sm:pr-3">
@@ -161,7 +222,7 @@ export function WorkspacesPage() {
                             <RowMenu
                               groups={[
                                 [
-                                  { icon: Users, label: "Xem thành viên", onSelect: () => setViewing(w) },
+                                  { icon: Users, label: "Quản lý thành viên", onSelect: () => setViewing(w) },
                                   { icon: ScrollText, label: "Xem nhật ký workspace", onSelect: () => router.push(`/admin/logs?workspaceId=${w.id}`) },
                                 ],
                                 [{ icon: Trash2, label: "Xoá workspace", danger: true, onSelect: () => setDeleting(w) }],
@@ -186,7 +247,7 @@ export function WorkspacesPage() {
         open={creating}
         onClose={() => setCreating(false)}
         title="Tạo workspace"
-        description="Chủ sở hữu chưa từng đăng nhập vẫn chỉ định được; họ thấy workspace ở lần đăng nhập Google đầu tiên."
+        description="Thành viên chưa từng đăng nhập vẫn thêm được; họ thấy workspace ở lần đăng nhập Google đầu tiên."
         onSubmit={create}
         footer={
           <>
@@ -215,14 +276,24 @@ export function WorkspacesPage() {
           <Field label="Đường dẫn" hint="Chữ thường, số và dấu gạch, ví dụ marketing" error={formError?.field === "slug" ? formError.message : undefined}>
             {(id) => <Input id={id} required value={form.slug} invalid={formError?.field === "slug"} onChange={(e) => setForm({ ...form, slug: slugify(e.target.value), slugTouched: true })} />}
           </Field>
-          <Field label="Email chủ sở hữu" error={formError?.field === "ownerEmail" ? formError.message : undefined}>
-            {(id) => <Input id={id} type="email" required placeholder="ten@lunatech.vn" value={form.ownerEmail} invalid={formError?.field === "ownerEmail"} onChange={(e) => setForm({ ...form, ownerEmail: e.target.value })} />}
+          <Field label="Thành viên ban đầu" hint="Không bắt buộc. Nhiều email cách nhau bằng dấu phẩy hoặc xuống dòng." error={formError?.field === "memberEmails" ? formError.message : undefined}>
+            {(id) => (
+              <textarea
+                id={id}
+                rows={3}
+                placeholder="an@lunatech.vn, binh@lunatech.vn"
+                value={form.memberEmails}
+                aria-invalid={formError?.field === "memberEmails" || undefined}
+                onChange={(e) => setForm({ ...form, memberEmails: e.target.value })}
+                className="w-full resize-y rounded-xl border border-border-strong bg-surface px-4 py-2.5 text-base text-foreground outline-hidden placeholder:text-muted focus:border-focus focus:ring-2 focus:ring-focus aria-invalid:border-err-line md:text-sm"
+              />
+            )}
           </Field>
           {formError && !formError.field ? <p className="text-sm text-err-text">{formError.message}</p> : null}
         </div>
       </Dialog>
 
-      <MembersSheet ws={viewing} onClose={() => setViewing(null)} />
+      <MembersSheet ws={viewing} onClose={() => setViewing(null)} onChanged={() => void Promise.all([reload(), reloadMe()])} />
 
       <ConfirmDialog
         open={!!deleting}
@@ -240,7 +311,7 @@ export function WorkspacesPage() {
           }
         }}
       >
-        <span className="font-medium text-foreground">{deleting?.name}</span> cùng {deleting?.memberCount} thành viên sẽ không truy cập được nội dung bên trong nữa.
+        <span className="font-medium text-foreground">{deleting?.name}</span> sẽ bị xoá; {deleting?.memberCount} thành viên không truy cập được nội dung bên trong nữa.
       </ConfirmDialog>
     </>
   );

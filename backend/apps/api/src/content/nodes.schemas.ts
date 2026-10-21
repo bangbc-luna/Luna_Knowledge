@@ -1,6 +1,8 @@
 import { z } from 'zod';
-import { userSummarySchema, workspaceRoleSchema } from '../users/users.schemas.js';
+import { userSummarySchema, contentRoleSchema } from '../users/users.schemas.js';
 import { nodeNameSchema } from './node-names.js';
+
+export const sectionSchema = z.enum(['DOCS', 'VIDEOS']);
 
 export const nodeTypeSchema = z.enum(['FOLDER', 'DOCUMENT', 'FILE', 'VIDEO']);
 
@@ -16,7 +18,10 @@ export const nodeSchema = z.object({
   createdBy: userSummarySchema,
   createdAt: z.date(),
   updatedAt: z.date(),
-  myRole: workspaceRoleSchema.describe('Quyền thực tế của bạn (vai trò workspace + share)'),
+  myRole: contentRoleSchema.describe(
+    'Quyền thực tế: VIEWER (share chỉ xem), EDITOR (thành viên: xem, tạo, sửa), OWNER (người tạo/được share chỉnh sửa: thêm xoá, chia sẻ)',
+  ),
+  section: sectionSchema.describe('Khu chứa: DOCS (Tài liệu) hoặc VIDEOS (Video)'),
   isFavorite: z.boolean(),
   tags: z.array(tagSchema),
   childCount: z.number().int().nullable().describe('Số mục con (chỉ với FOLDER)'),
@@ -25,7 +30,8 @@ export const nodeSchema = z.object({
 });
 
 export const listNodesQuery = z.object({
-  parentId: z.uuid().optional().describe('Bỏ trống = gốc của workspace'),
+  parentId: z.uuid().optional().describe('Bỏ trống = gốc của khu `section`'),
+  section: sectionSchema.default('DOCS').describe('Khu cần liệt kê khi không có parentId'),
   type: nodeTypeSchema.optional(),
   sort: z.enum(['name', 'updatedAt', 'createdAt']).default('name'),
   order: z.enum(['asc', 'desc']).default('asc'),
@@ -34,7 +40,8 @@ export const listNodesQuery = z.object({
 });
 
 export const createFolderBody = z.object({
-  parentId: z.uuid().nullable().optional().describe('Bỏ trống/null = gốc của workspace'),
+  parentId: z.uuid().nullable().optional().describe('Bỏ trống/null = gốc của khu `section`'),
+  section: sectionSchema.optional().describe('Khu khi tạo ở gốc; có parentId thì theo thư mục cha'),
   name: nodeNameSchema,
 });
 
@@ -59,3 +66,25 @@ export const sharedWithMeSchema = z.object({
 export type ListNodesQuery = z.output<typeof listNodesQuery>;
 export type CreateFolderBody = z.output<typeof createFolderBody>;
 export type NodeDto = z.output<typeof nodeSchema>;
+
+export const activityQuery = z.object({
+  cursor: z.string().regex(/^\d+$/).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+});
+
+export const activitySchema = z.object({
+  items: z.array(
+    z.object({
+      id: z.string(),
+      action: z
+        .string()
+        .describe(
+          'node.create · node.rename · node.move · document.edit (kèm wordsAdded/wordsRemoved) · file.upload · share.add …',
+        ),
+      actor: userSummarySchema.nullable(),
+      metadata: z.record(z.string(), z.unknown()),
+      createdAt: z.date(),
+    }),
+  ),
+  nextCursor: z.string().nullable(),
+});

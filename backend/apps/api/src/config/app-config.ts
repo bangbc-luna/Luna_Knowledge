@@ -6,6 +6,7 @@ import {
   s3EnvSchema,
   uploadEnvSchema,
   videoEnvSchema,
+  collabSecretsSchema,
 } from '@luna/shared';
 import { z } from 'zod';
 
@@ -25,9 +26,12 @@ export const apiEnvSchema = baseEnvSchema
   .extend(s3EnvSchema.shape)
   .extend(uploadEnvSchema.shape)
   .extend(videoEnvSchema.pick({ VIDEO_MASTER_KEY: true }).shape)
+  .extend(collabSecretsSchema.shape)
   .extend({
     API_PORT: z.coerce.number().int().positive().default(4000),
     API_PUBLIC_URL: z.url().default('http://localhost:4000'),
+    COLLAB_INTERNAL_URL: z.url().default('http://localhost:4001'),
+    COLLAB_PUBLIC_URL: z.string().default('ws://localhost:4001'),
     WEB_PUBLIC_URL: z.url().default('http://localhost:5173'),
     CORS_ORIGINS: csv,
     TRUST_PROXY: z.string().default('loopback, uniquelocal'),
@@ -40,6 +44,7 @@ export const apiEnvSchema = baseEnvSchema
     SESSION_IDLE_TIMEOUT_MIN: z.coerce.number().int().positive().default(60),
     SESSION_ABSOLUTE_TIMEOUT_HOURS: z.coerce.number().int().positive().default(12),
     AUTH_REDIRECT_URL: z.url().optional(),
+    DEFAULT_WORKSPACE_SLUG: z.string().trim().default('lunatech'),
     COOKIE_SECURE: z
       .enum(['true', 'false'])
       .transform((v) => v === 'true')

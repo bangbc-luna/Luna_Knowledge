@@ -6,6 +6,7 @@ import { AppError } from '../common/errors/app-error.js';
 import type { RequestContext } from '../common/http/request-context.js';
 import { toPage } from '../common/pagination/cursor.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
+import { CollabEventsService } from '../infra/redis/collab-events.service.js';
 import type { AdminListUsersQuery, AdminUpdateUserBody } from './users.schemas.js';
 
 const summarySelect = { id: true, email: true, name: true, avatarUrl: true } as const;
@@ -23,6 +24,7 @@ export class UsersService {
     private readonly prisma: PrismaService,
     private readonly auth: AuthService,
     private readonly audit: AuditService,
+    private readonly collab: CollabEventsService,
   ) {}
 
   async me(user: AuthenticatedUser) {
@@ -80,6 +82,7 @@ export class UsersService {
     });
     if (body.status === 'DISABLED' && existing.status !== 'DISABLED') {
       await this.auth.revokeAllSessions(userId, 'account_disabled');
+      await this.collab.accessChanged({ userId });
     }
     await this.audit.log({
       actorId: actor.id,
@@ -95,15 +98,30 @@ export class UsersService {
     return user;
   }
 
+  async systemAdmins(): Promise<
+    Array<{ id: string; email: string; name: string; avatarUrl: string | null }>
+  > {
+    return this.prisma.client.user.findMany({
+      where: { isSystemAdmin: true, status: 'ACTIVE' },
+      select: { id: true, email: true, name: true, avatarUrl: true },
+      orderBy: { name: 'asc' },
+      take: 10,
+    });
+  }
+
   async findOrProvision(email: string) {
     if (!this.auth.isAllowedEmail(email)) {
       throw AppError.validation(`Only company accounts are allowed (${email})`);
     }
-    const user = await this.prisma.client.user.upsert({
-      where: { email },
-      create: { email, name: email.split('@')[0]! },
-      update: {},
-    });
+    const existing = await this.prisma.client.user.findUnique({ where: { email } });
+    const user =
+      existing ??
+      (await this.prisma.client.user.upsert({
+        where: { email },
+        create: { email, name: email.split('@')[0]! },
+        update: {},
+      }));
+    if (!existing) await this.auth.joinDefaultWorkspace(user.id);
     if (user.status === 'DISABLED') throw AppError.validation('User account is disabled');
     return user;
   }
