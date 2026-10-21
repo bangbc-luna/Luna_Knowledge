@@ -5,7 +5,6 @@ import type { NodeDto } from './nodes.schemas.js';
 
 const userSummary = { id: true, email: true, name: true, avatarUrl: true } as const;
 
-/** Dựng NodeDto (kèm quyền, tag, yêu thích, số mục con) cho một danh sách node theo đúng thứ tự. */
 @Injectable()
 export class NodeDtoService {
   constructor(

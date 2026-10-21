@@ -15,7 +15,6 @@ interface Row {
   right: React.ReactNode;
 }
 
-/** Danh sách gom từ nhiều workspace (Được chia sẻ, Yêu thích, Gần đây): dòng theo list-row.md. */
 function NodeListPage({ title, empty, load }: { title: string; empty: string; load: () => Promise<Row[]> }) {
   const { data, loading, error, reload } = useApi(load, []);
   return (

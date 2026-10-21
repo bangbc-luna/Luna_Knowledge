@@ -32,7 +32,6 @@ const time = (d: Date) =>
 const date = (d: Date) =>
   new Intl.DateTimeFormat("vi-VN", { timeZone: TZ, day: "2-digit", month: "2-digit", year: "numeric" }).format(d);
 
-/** "Hôm nay, 09:42" · "Hôm qua, 17:05" · "02/10/2026" (withTime: thêm giờ cho ngày cũ). */
 export function formatWhen(iso: string, { withTime = false } = {}): string {
   const d = new Date(iso);
   const today = dayKey(new Date());
@@ -45,7 +44,6 @@ export function formatWhen(iso: string, { withTime = false } = {}): string {
 
 export const formatNumber = (n: number) => n.toLocaleString("vi-VN");
 
-/** Hai chữ cái cho avatar: chữ đầu của hai từ cuối ("Bùi Chính Bằng" → "CB"); email thì phần trước @. */
 export function initials(nameOrEmail: string): string {
   const base = nameOrEmail.includes("@") ? nameOrEmail.split("@")[0]!.replace(/[._-]+/g, " ") : nameOrEmail;
   const words = base.trim().split(/\s+/).filter(Boolean);
@@ -55,7 +53,6 @@ export function initials(nameOrEmail: string): string {
     .toUpperCase();
 }
 
-/** Nhãn tiếng Việt cho hành động trong audit log. */
 export const ACTION_LABEL: Record<string, string> = {
   "auth.login": "Đăng nhập",
   "auth.login_failed": "Đăng nhập thất bại",
@@ -92,7 +89,6 @@ export const ACTION_LABEL: Record<string, string> = {
   "workspace.transfer_ownership": "Chuyển quyền sở hữu",
 };
 
-/** Nhóm hành động cho bộ lọc nhật ký (giá trị gửi API là danh sách action). */
 export const ACTION_GROUPS: Array<{ key: string; label: string; actions: string[] }> = [
   { key: "view", label: "Xem", actions: ["node.view"] },
   { key: "download", label: "Tải về", actions: ["file.download"] },

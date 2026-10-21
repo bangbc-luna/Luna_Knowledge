@@ -8,7 +8,6 @@ export function loggerParams(config: AppConfig): Params {
   return {
     pinoHttp: {
       level: config.LOG_LEVEL,
-      // Giữ request-id do proxy gửi lên (nếu hợp lệ) để truy vết xuyên hệ thống.
       genReqId: (req, res) => {
         const incoming = req.headers['x-request-id'];
         const id =

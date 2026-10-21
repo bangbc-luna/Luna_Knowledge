@@ -30,7 +30,6 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-/** Trang xem tệp: đầu trang (tên + nút), vùng xem trước bên trái, thông tin tệp bên phải (khung ≥ 70rem). */
 export function FilePage() {
   const { wsId, nodeId } = useParams<{ wsId: string; nodeId: string }>();
   const router = useRouter();
@@ -44,7 +43,6 @@ export function FilePage() {
   const detail = useApi(() => api<FileDetail>(`/files/${nodeId}`), [nodeId]);
   const crumbs = useApi(() => api<Array<{ id: string; name: string }>>(`/nodes/${nodeId}/breadcrumb`), [nodeId]);
 
-  // Trạng thái xử lý đổi (worker xong, phiên bản mới) thì tải lại chi tiết.
   const status = detail.data?.node.status;
   const currentId = detail.data?.currentVersion?.id;
   const statusRef = useRef({ status, currentId });
@@ -70,7 +68,6 @@ export function FilePage() {
   const canDownload = !!d?.canDownload && !!v;
 
   const path = crumbs.data ?? [];
-  // Thành viên luôn thấy gốc workspace; người chỉ được share thấy từ folder được share trở xuống.
   const parents = [
     ...(membership && path.length ? [{ label: membership.name, href: `/w/${wsId}/f` }] : []),
     ...path.slice(0, -1).map((c) => ({ label: c.name, href: `/w/${wsId}/f/${c.id}` })),
@@ -125,7 +122,6 @@ export function FilePage() {
           </div>
         ) : (
           <>
-            {/* Đầu trang: tên <h1> + dòng tóm tắt, nút bên phải (xuống dưới ở màn hẹp) */}
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
               <div className="flex min-w-0 flex-1 items-start gap-3">
                 <NodeIcon node={node} />

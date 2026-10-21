@@ -1,7 +1,6 @@
 import { HttpStatus } from '@nestjs/common';
 import { ErrorCode } from './error-codes.js';
 
-/** Lỗi nghiệp vụ: service ném AppError, filter chuyển thành response chuẩn. */
 export class AppError extends Error {
   constructor(
     readonly code: ErrorCode,
@@ -34,7 +33,6 @@ export class AppError extends Error {
     return new AppError(ErrorCode.FORBIDDEN, message, HttpStatus.FORBIDDEN);
   }
 
-  /** Dùng cả khi user không có quyền xem, để không lộ sự tồn tại của tài nguyên. */
   static notFound(message = 'Resource not found') {
     return new AppError(ErrorCode.NOT_FOUND, message, HttpStatus.NOT_FOUND);
   }

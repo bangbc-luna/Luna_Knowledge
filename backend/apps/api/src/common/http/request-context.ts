@@ -1,6 +1,5 @@
 import type { Request } from 'express';
 
-/** Thông tin client ghi vào session và audit log. */
 export interface RequestContext {
   ip: string | null;
   userAgent: string | null;

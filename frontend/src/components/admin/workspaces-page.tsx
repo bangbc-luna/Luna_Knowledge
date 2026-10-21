@@ -16,7 +16,6 @@ import { RowMenu } from "../ui/menu";
 import { Avatar, Card, EmptyState, ErrorBanner, SkeletonRows } from "../ui/misc";
 import { useToast } from "../ui/toast";
 
-/** "Phòng Marketing 2026" → "phong-marketing-2026" (bỏ dấu tiếng Việt). */
 const slugify = (s: string) =>
   s
     .normalize("NFD")

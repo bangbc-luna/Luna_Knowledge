@@ -4,7 +4,6 @@ import { Injectable } from '@nestjs/common';
 import type { Queue } from 'bullmq';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 
-/** Một chỗ duy nhất ở API đẩy job transcode (khôi phục phiên bản, tạo lại, transcode lại). */
 @Injectable()
 export class TranscodeQueueService {
   constructor(

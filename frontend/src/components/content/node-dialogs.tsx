@@ -11,7 +11,6 @@ import { Dialog } from "../ui/dialog";
 import { Field, Input } from "../ui/input";
 import { EmptyState, SkeletonRows } from "../ui/misc";
 
-/** Tạo thư mục / đổi tên: trùng tên → 409 kèm gợi ý, bấm để dùng tên gợi ý. */
 export function NameDialog({
   open,
   onClose,
@@ -97,7 +96,6 @@ export function NameDialog({
   );
 }
 
-/** Chọn thư mục đích: duyệt từng cấp (chỉ thư mục), không cho chọn chính nó hay thư mục con của nó. */
 export function MoveDialog({
   open,
   onClose,
@@ -214,7 +212,6 @@ export function MoveDialog({
   );
 }
 
-/** Gắn tag: thay toàn bộ danh sách tag của mục. */
 export function TagsDialog({
   open,
   onClose,

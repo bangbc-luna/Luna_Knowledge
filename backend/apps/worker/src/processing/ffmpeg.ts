@@ -4,7 +4,6 @@ import { join } from 'node:path';
 
 export interface ProbeResult {
   durationSec: number;
-  /** Kích thước hiển thị (đã tính xoay 90°/270° của video quay dọc trên điện thoại). */
   width: number;
   height: number;
   hasAudio: boolean;
@@ -24,7 +23,6 @@ export interface FfmpegTools {
   encoder: 'libx264' | 'h264_nvenc';
 }
 
-/** Không đọc được video (hỏng, không có luồng hình): lỗi vĩnh viễn, không thử lại. */
 export class InvalidVideoError extends Error {
   override readonly name = 'InvalidVideoError';
 }
@@ -108,10 +106,6 @@ export async function probe(tools: FfmpegTools, path: string): Promise<ProbeResu
 
 const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
 
-/**
- * Bậc chất lượng theo cạnh ngắn (video dọc 1080×1920 vẫn là "1080p"): 360/720/1080, không phóng to
- * vượt nguồn. Nguồn nhỏ hơn 360 thì một bậc đúng cỡ nguồn.
- */
 export function buildLadder(width: number, height: number): Rendition[] {
   const short = Math.min(width, height);
   const steps = [
@@ -132,11 +126,6 @@ export function buildLadder(width: number, height: number): Rendition[] {
   });
 }
 
-/**
- * Transcode sang HLS (TS, segment 6 giây, AES-128) mọi bậc trong một lần chạy ffmpeg.
- * Kết quả: outDir/master.m3u8, outDir/<bậc>/index.m3u8, outDir/<bậc>/seg_0000.ts…
- * Khoá nằm ngoài outDir (keyPath) để không bị tải lên cùng.
- */
 export async function transcodeHls(
   tools: FfmpegTools,
   opts: {
@@ -154,7 +143,6 @@ export async function transcodeHls(
   const keyPath = join(opts.workDir, 'video.key');
   const keyInfo = join(opts.workDir, 'video.keyinfo');
   await writeFile(keyPath, opts.key);
-  // Dòng 1 là URI ghi vào playlist: API thay bằng endpoint cấp khoá có kiểm phiên xem.
   await writeFile(keyInfo, `luna-key\n${keyPath}\n${opts.iv.toString('hex')}\n`);
 
   const n = opts.ladder.length;
@@ -204,7 +192,6 @@ export async function transcodeHls(
     'main',
     '-pix_fmt',
     'yuv420p',
-    // Khung khoá đúng mỗi 6 giây: mọi bậc cắt segment cùng chỗ, đổi chất lượng giữa chừng không giật.
     '-force_key_frames',
     'expr:gte(t,n_forced*6)',
     '-sc_threshold',
@@ -242,7 +229,6 @@ export async function transcodeHls(
   });
 }
 
-/** Ảnh poster (khung ở ~10% thời lượng, tối đa giây thứ 5), rộng tối đa 1280px. */
 export async function extractPoster(
   tools: FfmpegTools,
   src: string,
@@ -269,10 +255,6 @@ export async function extractPoster(
   ]);
 }
 
-/**
- * Sprite xem trước khi tua: tối đa 100 khung 160px xếp lưới 10 cột, kèm WebVTT (#xywh).
- * Ảnh trong VTT ghi là "sprite.jpg"; API thay bằng URL ký lúc trả về.
- */
 export async function buildSprite(
   tools: FfmpegTools,
   src: string,

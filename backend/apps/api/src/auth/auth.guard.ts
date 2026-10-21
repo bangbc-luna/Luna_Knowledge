@@ -7,7 +7,6 @@ import type { AuthenticatedRequest } from './decorators/current-user.decorator.j
 import { IS_PUBLIC } from './decorators/public.decorator.js';
 import { REQUIRE_SYSTEM_ADMIN } from './decorators/system-admin.decorator.js';
 
-/** Guard toàn cục: mọi route cần `Authorization: Bearer <accessToken>` trừ khi có `@Public()`. */
 @Injectable()
 export class AuthGuard implements CanActivate {
   constructor(

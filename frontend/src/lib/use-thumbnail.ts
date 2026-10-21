@@ -3,10 +3,6 @@
 import { useEffect, useState } from "react";
 import { authHeaders } from "./api";
 
-/**
- * Thumbnail cần đăng nhập nên không gắn thẳng vào <img src>: tải bằng token rồi tạo object URL.
- * Lỗi thì trả null để nơi gọi hiện icon thay thế.
- */
 export function useThumbnail(nodeId: string, enabled: boolean): string | null {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {

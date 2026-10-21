@@ -1,10 +1,8 @@
 import { HttpStatus } from '@nestjs/common';
 
-/** Mã lỗi ổn định trả cho client (SPEC §7). FE dịch thông báo dựa trên mã này. */
 export const ErrorCode = {
   VALIDATION_ERROR: 'VALIDATION_ERROR',
   UNAUTHENTICATED: 'UNAUTHENTICATED',
-  /** Phiên hết hạn (idle/absolute timeout, bị thu hồi): FE chuyển về trang đăng nhập. */
   SESSION_EXPIRED: 'SESSION_EXPIRED',
   FORBIDDEN: 'FORBIDDEN',
   NOT_FOUND: 'NOT_FOUND',

@@ -8,10 +8,6 @@ interface State<T> {
   loading: boolean;
 }
 
-/**
- * Tải dữ liệu khi `deps` đổi; trả trạng thái để vẽ đủ bốn ca (đang tải, có dữ liệu, rỗng, lỗi — I19).
- * `deps` so bằng JSON nên truyền giá trị đơn giản (id, chuỗi lọc), không truyền hàm.
- */
 export function useApi<T>(fetcher: () => Promise<T>, deps: unknown[], { enabled = true } = {}) {
   const key = JSON.stringify(deps);
   const fetcherRef = useRef(fetcher);

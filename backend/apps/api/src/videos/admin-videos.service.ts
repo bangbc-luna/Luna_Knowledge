@@ -14,10 +14,6 @@ import type { AdminVideosQuery } from './videos.schemas.js';
 
 const LINK_TTL_SEC = 60;
 
-/**
- * File gốc video chỉ System Admin lấy được (SPEC §3.4), qua nút trong trang quản trị:
- * tạo link dùng một lần, mọi lượt lấy đều ghi `video.original_access`.
- */
 @Injectable()
 export class AdminVideosService {
   constructor(

@@ -1,9 +1,5 @@
 import { authHeaders, refreshSession } from "./api";
 
-/**
- * Nghe Server-Sent Events từ API bằng fetch (EventSource không gửi được header Authorization).
- * Mất kết nối thì tự nối lại sau vài giây; token hết hạn thì refresh rồi nối lại. Trả hàm huỷ.
- */
 export function subscribeSse<T>(path: string, onEvent: (type: string, data: T) => void): () => void {
   const controller = new AbortController();
   let stopped = false;
@@ -39,7 +35,6 @@ export function subscribeSse<T>(path: string, onEvent: (type: string, data: T) =
               try {
                 onEvent(type, JSON.parse(data.join("\n")) as T);
               } catch {
-                // Bỏ qua sự kiện hỏng.
               }
             }
           }

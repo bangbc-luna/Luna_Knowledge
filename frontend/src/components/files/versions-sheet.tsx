@@ -12,7 +12,6 @@ import { Sheet } from "../ui/dialog";
 import { Badge, EmptyState, ErrorBanner, SkeletonRows } from "../ui/misc";
 import { useToast } from "../ui/toast";
 
-/** Lịch sử phiên bản trong panel trượt: mới nhất trước, bản hiện tại có badge, khôi phục / tải bản cũ. */
 export function VersionsSheet({
   node,
   open,

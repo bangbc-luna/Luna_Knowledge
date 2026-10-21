@@ -11,7 +11,6 @@ import { MenuItem, MenuSeparator, PopoverPanel, usePopover } from "../ui/popover
 import { useToast } from "../ui/toast";
 import { IS_DEV, PERSONAS } from "./personas";
 
-/** Menu tài khoản ở góc phải thanh trên: đổi vai nhanh (dev), vào trang quản trị, làm mới token, đăng xuất. */
 export function AccountMenu() {
   const { me, loginDev, logout, refreshToken } = useAuth();
   const { open, setOpen, toggle, rootRef } = usePopover();

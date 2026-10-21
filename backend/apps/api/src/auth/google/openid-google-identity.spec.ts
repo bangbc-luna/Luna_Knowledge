@@ -12,7 +12,6 @@ describe('OpenIdGoogleIdentity.buildAuthorizationUrl', () => {
 
   it('tạo URL Google đúng tham số bảo mật', async () => {
     const provider = new OpenIdGoogleIdentity(config);
-    // Bỏ qua discovery qua mạng: dùng metadata tĩnh của Google.
     (provider as unknown as { configuration: Promise<oidc.Configuration> }).configuration =
       Promise.resolve(
         new oidc.Configuration(

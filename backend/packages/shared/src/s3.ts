@@ -19,7 +19,6 @@ export function createS3Client(env: S3Env): S3Client {
   });
 }
 
-/** Client chỉ dùng để ký URL cho trình duyệt (host trong chữ ký = S3_PUBLIC_ENDPOINT). */
 export function createPresignClient(env: S3Env): S3Client {
   return createS3Client({ ...env, S3_ENDPOINT: env.S3_PUBLIC_ENDPOINT ?? env.S3_ENDPOINT });
 }
@@ -46,10 +45,6 @@ async function bucketExists(client: S3Client, bucket: string): Promise<boolean> 
   }
 }
 
-/**
- * Tạo các bucket còn thiếu (mặc định private) và đặt lifecycle cho bucket tmp.
- * Chỉ dùng S3 API nên chạy được với MinIO, RustFS, R2, AWS S3.
- */
 export async function ensureBuckets(client: S3Client, env: S3Env): Promise<string[]> {
   const created: string[] = [];
   for (const bucket of Object.values(bucketNames(env))) {

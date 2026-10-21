@@ -11,7 +11,6 @@ import { SharesService } from './shares.service.js';
 import { TrashController } from './trash.controller.js';
 import { TrashService } from './trash.service.js';
 
-/** Cây nội dung, phân quyền, share, thùng rác, tag/yêu thích/gần đây (Phase 2). */
 @Module({
   imports: [UsersModule],
   controllers: [NodesController, TrashController, SharesController, LibraryController],

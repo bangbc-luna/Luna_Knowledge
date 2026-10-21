@@ -18,7 +18,6 @@ import { VideosModule } from './videos/videos.module.js';
 import { UsersModule } from './users/users.module.js';
 import { WorkspacesModule } from './workspaces/workspaces.module.js';
 
-// Đọc cấu hình (đã nạp .env) ngay lúc import: danh sách module phụ thuộc vào môi trường.
 const isDevelopment = loadAppConfig().NODE_ENV === 'development';
 
 @Module({
@@ -41,7 +40,6 @@ const isDevelopment = loadAppConfig().NODE_ENV === 'development';
     FilesModule,
     VideosModule,
     AdminModule,
-    // Trang thử đăng nhập chỉ có ở môi trường dev.
     ...(isDevelopment ? [DevModule] : []),
   ],
 })

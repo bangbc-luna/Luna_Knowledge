@@ -14,15 +14,8 @@ import { StorageService } from '../infra/storage.provider.js';
 const GC_BATCH = 200;
 const GC_MAX_ATTEMPTS = 10;
 const KEEP_FINISHED_UPLOADS_DAYS = 7;
-/** Thư mục làm việc của job bị ngắt đột ngột (mất điện, bị kill): job thật không chạy quá chừng này. */
 const STALE_WORKDIR_HOURS = 12;
 
-/**
- * Việc định kỳ:
- * - 03:00 giờ VN: dọn thùng rác quá 30 ngày (SPEC NODE-6);
- * - mỗi giờ: hủy upload bỏ dở quá hạn (PLAN Phase 3);
- * - mỗi 10 phút (và ngay sau khi xóa vĩnh viễn): xóa object của các blob đã bị xóa khỏi DB.
- */
 @Processor(QUEUES.MAINTENANCE)
 export class MaintenanceProcessor extends WorkerHost implements OnApplicationBootstrap {
   private readonly logger = new Logger(MaintenanceProcessor.name);
@@ -36,7 +29,6 @@ export class MaintenanceProcessor extends WorkerHost implements OnApplicationBoo
     super();
   }
 
-  /** Đăng ký lịch (idempotent: chạy nhiều worker cũng chỉ có một lịch). */
   async onApplicationBootstrap() {
     const opts = { removeOnComplete: 30, removeOnFail: 100 };
     await this.queue.upsertJobScheduler(
@@ -61,7 +53,6 @@ export class MaintenanceProcessor extends WorkerHost implements OnApplicationBoo
       case JOBS.PURGE_TRASH: {
         const purged = await purgeExpiredTrash(this.prisma.client);
         this.logger.log(`Purged ${purged} expired trash item(s)`);
-        // Object của các file vừa xóa được dọn luôn thay vì chờ lượt GC kế tiếp.
         const gc = await this.collectGarbage();
         return { purged, ...gc };
       }
@@ -74,7 +65,6 @@ export class MaintenanceProcessor extends WorkerHost implements OnApplicationBoo
     }
   }
 
-  /** Xóa object trên MinIO theo hàng đợi `blob_gc` (do trigger ghi khi xóa dòng `blobs`). */
   async collectGarbage() {
     let deleted = 0;
     let failed = 0;
@@ -105,7 +95,6 @@ export class MaintenanceProcessor extends WorkerHost implements OnApplicationBoo
     return { deleted, failed };
   }
 
-  /** Xoá thư mục tạm luna-* bị bỏ lại (video có thể để lại vài GB). */
   async cleanWorkDirs(now = Date.now()) {
     const root = this.config.WORKER_TMP_DIR ?? tmpdir();
     let removed = 0;
@@ -122,7 +111,6 @@ export class MaintenanceProcessor extends WorkerHost implements OnApplicationBoo
     return removed;
   }
 
-  /** Hủy upload quá hạn chưa hoàn tất; xóa bản ghi upload đã xong lâu ngày. */
   async cleanUploads(now = new Date()) {
     const expired = await this.prisma.client.uploadSession.findMany({
       where: { status: 'PENDING', expiresAt: { lt: now } },

@@ -48,7 +48,6 @@ export class InfraHealthIndicators {
     }
   }
 
-  /** Kiểm tra mọi bucket tồn tại: thiếu bucket nghĩa là chưa chạy `pnpm infra:init`. */
   async storage() {
     const check = this.health.check('storage');
     try {

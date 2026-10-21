@@ -8,7 +8,6 @@ import { TranscodeQueueService } from './transcode-queue.service.js';
 import { UploadsController } from './uploads.controller.js';
 import { UploadsService } from './uploads.service.js';
 
-/** Upload multipart, xem trước, tải về, phiên bản file, sự kiện xử lý (Phase 3). */
 @Module({
   imports: [ContentModule],
   controllers: [UploadsController, FilesController],

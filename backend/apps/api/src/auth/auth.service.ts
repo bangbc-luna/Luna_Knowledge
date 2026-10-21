@@ -15,7 +15,6 @@ import {
 } from './google/google-identity.js';
 import { TokenService } from './token.service.js';
 
-/** Mã lỗi đăng nhập trả về FE qua `?error=` (FE hiển thị thông báo tương ứng). */
 export type LoginErrorCode =
   | 'ACCESS_DENIED'
   | 'INVALID_STATE'
@@ -53,9 +52,7 @@ export interface TokenResponse {
   user: AuthenticatedUser;
 }
 
-/** Hai tab cùng refresh một lúc: request đến sau trong khoảng này không bị coi là token reuse. */
 const REFRESH_GRACE_MS = 10_000;
-/** Chỉ ghi `last_seen_at` khi đã cũ hơn ngưỡng này, tránh ghi DB ở mọi request. */
 const TOUCH_INTERVAL_MS = 60_000;
 const OAUTH_STATE_TTL_SEC = 600;
 
@@ -82,9 +79,6 @@ export class AuthService {
     private readonly audit: AuditService,
   ) {}
 
-  // ---------------------------------------------------------------- Google login
-
-  /** Bước 1: tạo state/nonce/PKCE, lưu vào Redis (dùng một lần), trả URL Google. */
   async startGoogleLogin(): Promise<{ url: URL; state: string }> {
     const state = oidc.randomState();
     const nonce = oidc.randomNonce();
@@ -103,10 +97,6 @@ export class AuthService {
     return { url, state };
   }
 
-  /**
-   * Bước 2: Google chuyển hướng về. Kiểm tra state khớp cookie của trình duyệt,
-   * đổi code lấy ID token, kiểm tra domain rồi tạo session mới.
-   */
   async completeGoogleLogin(params: {
     callbackUrl: URL;
     cookieState: string | undefined;
@@ -122,7 +112,6 @@ export class AuthService {
     if (!state || !cookieState || state !== cookieState) {
       throw new LoginError('INVALID_STATE', 'OAuth state mismatch');
     }
-    // GETDEL: state chỉ dùng được một lần (chống replay callback).
     const stored = await this.redis.getdel(this.oauthKey(state));
     if (!stored) throw new LoginError('INVALID_STATE', 'OAuth state expired or already used');
     const { nonce, codeVerifier } = JSON.parse(stored) as { nonce: string; codeVerifier: string };
@@ -150,10 +139,6 @@ export class AuthService {
     );
   }
 
-  /**
-   * Tạo phiên cho một email công ty đã được xác minh (Google, hoặc `/dev/token` ở môi trường dev).
-   * Tự tạo user ở lần đăng nhập đầu (AUTH-2); user được thêm trước thì cập nhật tên/ảnh.
-   */
   async signIn(
     profile: { email: string; name?: string; picture?: string; method: 'google' | 'dev' },
     ctx: RequestContext,
@@ -205,7 +190,6 @@ export class AuthService {
     return { refreshToken: refresh.token, user };
   }
 
-  /** Domain phải nằm trong ALLOWED_GOOGLE_DOMAINS ở cả email lẫn claim `hd` (chặn Gmail cá nhân). */
   isAllowedGoogleAccount(email: string, hostedDomain: string | undefined): boolean {
     const domain = email.split('@')[1];
     const allowed = this.config.ALLOWED_GOOGLE_DOMAINS;
@@ -217,12 +201,6 @@ export class AuthService {
     return !!domain && this.config.ALLOWED_GOOGLE_DOMAINS.includes(domain);
   }
 
-  // ---------------------------------------------------------------- Refresh / logout
-
-  /**
-   * Đổi refresh token lấy access token mới và xoay vòng refresh token.
-   * Trả `refreshToken: null` khi không cần đặt cookie mới (request song song trong grace period).
-   */
   async refresh(
     refreshToken: string | undefined,
     ctx: RequestContext,
@@ -242,14 +220,12 @@ export class AuthService {
       if (Date.now() - record.rotatedAt.getTime() <= REFRESH_GRACE_MS) {
         return { ...(await this.issueAccess(session)), refreshToken: null };
       }
-      // Token đã xoay mà bị dùng lại: có thể bị đánh cắp, thu hồi cả session.
       await this.revokeSession(session.id, 'refresh_token_reuse', ctx, session.userId);
       throw AppError.sessionExpired('refresh_token_reuse');
     }
 
     const next = this.tokens.newRefreshToken();
     const rotated = await this.prisma.client.$transaction(async (tx) => {
-      // Điều kiện `rotatedAt: null` để chỉ một request thắng khi có race.
       const { count } = await tx.refreshToken.updateMany({
         where: { id: record.id, rotatedAt: null },
         data: { rotatedAt: new Date() },
@@ -262,7 +238,6 @@ export class AuthService {
     return { ...(await this.issueAccess(session)), refreshToken: rotated ? next.token : null };
   }
 
-  /** Đăng xuất bằng refresh cookie (hoặc session của access token). Luôn thành công. */
   async logout(params: {
     refreshToken?: string;
     sessionId?: string;
@@ -305,7 +280,6 @@ export class AuthService {
     }
   }
 
-  /** Thu hồi mọi phiên của user (khi admin khóa tài khoản). */
   async revokeAllSessions(userId: string, reason: string): Promise<number> {
     const { count } = await this.prisma.client.session.updateMany({
       where: { userId, revokedAt: null },
@@ -314,9 +288,6 @@ export class AuthService {
     return count;
   }
 
-  // ---------------------------------------------------------------- Per-request auth
-
-  /** Dùng trong AuthGuard: xác minh access token, kiểm tra session còn hiệu lực, cập nhật hoạt động. */
   async authenticate(accessToken: string): Promise<AuthContext> {
     const payload = await this.tokens.verifyAccess(accessToken);
     if (!payload) throw AppError.unauthenticated('Invalid or expired access token');
@@ -330,7 +301,6 @@ export class AuthService {
     }
     await this.assertSessionActive(session);
 
-    // Idle timeout tính theo request thật của người dùng (refresh token không tính là hoạt động).
     if (Date.now() - session.lastSeenAt.getTime() > TOUCH_INTERVAL_MS) {
       await this.prisma.client.session.update({
         where: { id: session.id },

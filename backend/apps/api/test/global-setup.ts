@@ -1,5 +1,3 @@
-// Dựng hạ tầng riêng cho e2e bằng Testcontainers: PostgreSQL, Redis, MinIO.
-// Không dùng DB dev, nên test chạy được song song với `pnpm dev` và trên CI.
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createS3Client, ensureBuckets, loadEnv, s3EnvSchema } from '@luna/shared';

@@ -24,7 +24,6 @@ describe('Auth (e2e)', () => {
     await ctx.close();
   });
 
-  /** Bắt đầu đăng nhập, trả agent + state nhận được. */
   async function startLogin() {
     const agent = request.agent(ctx.app.getHttpServer());
     const res = await agent.get('/api/v1/auth/google').expect(302);
@@ -63,7 +62,6 @@ describe('Auth (e2e)', () => {
       expect(cookie).toMatch(/HttpOnly/i);
       expect(cookie).toMatch(/SameSite=Strict/i);
       expect(cookie).toMatch(/Path=\/api\/v1\/auth/);
-      // Session cookie: trình duyệt xóa khi đóng → mỗi lần mở lại phải đăng nhập lại.
       expect(cookie).not.toMatch(/Expires=|Max-Age=/i);
 
       const user = await ctx.prisma.user.findUnique({ where: { email: 'new.user@lunatech.vn' } });
@@ -118,7 +116,6 @@ describe('Auth (e2e)', () => {
       const { agent, state } = await startLogin();
       ctx.google.nextClaims = companyClaims('replay@lunatech.vn');
       await agent.get('/api/v1/auth/google/callback').query({ code: 'c', state }).expect(302);
-      // Gửi lại cùng state bằng cookie cũ.
       const res = await http()
         .get('/api/v1/auth/google/callback')
         .set('Cookie', `luna_oauth_state=${state}`)
@@ -166,7 +163,6 @@ describe('Auth (e2e)', () => {
     it('refresh xoay vòng token; dùng lại token cũ sau grace period thu hồi cả phiên', async () => {
       const { agent, userId } = await loginAs(ctx, 'rotate@lunatech.vn');
       const session = await ctx.prisma.session.findFirstOrThrow({ where: { userId } });
-      // Mỗi lần refresh đặt cookie mới; chỉ token mới nhất còn chưa bị xoay.
       const stolenCookie = cookiePair(
         await agent.post('/api/v1/auth/refresh').expect(200),
         'luna_rt',
@@ -176,7 +172,6 @@ describe('Auth (e2e)', () => {
         await ctx.prisma.refreshToken.count({ where: { sessionId: session.id, rotatedAt: null } }),
       ).toBe(1);
 
-      // Kẻ gian dùng token đã bị xoay từ lâu (đẩy rotatedAt ra ngoài grace period).
       await ctx.prisma.refreshToken.updateMany({
         where: { sessionId: session.id, rotatedAt: { not: null } },
         data: { rotatedAt: new Date(Date.now() - MINUTE) },
@@ -188,7 +183,6 @@ describe('Auth (e2e)', () => {
         details: { reason: 'refresh_token_reuse' },
       });
 
-      // Cả phiên bị thu hồi: token mới nhất của người dùng thật cũng hết hiệu lực.
       await agent.post('/api/v1/auth/refresh').expect(401);
       const revoked = await ctx.prisma.session.findUniqueOrThrow({ where: { id: session.id } });
       expect(revoked.revokedReason).toBe('refresh_token_reuse');
@@ -198,7 +192,6 @@ describe('Auth (e2e)', () => {
       const { agent } = await loginAs(ctx, 'tabs@lunatech.vn');
       const cookie = cookiePair(await agent.post('/api/v1/auth/refresh').expect(200), 'luna_rt')!;
       await http().post('/api/v1/auth/refresh').set('Cookie', cookie).expect(200);
-      // Tab thứ hai vẫn gửi token vừa bị xoay, trong vòng vài giây.
       const second = await http().post('/api/v1/auth/refresh').set('Cookie', cookie);
       expect(second.status).toBe(200);
       expect(cookiePair(second, 'luna_rt')).toBeUndefined();
@@ -243,7 +236,6 @@ describe('Auth (e2e)', () => {
       const res = await agent.post('/api/v1/auth/logout').set(auth).expect(204);
       expect(setCookies(res).some((c) => c.startsWith('luna_rt=;'))).toBe(true);
       await http().get('/api/v1/me').set(auth).expect(401);
-      // Cookie đã bị xoá: refresh coi như chưa đăng nhập.
       await agent.post('/api/v1/auth/refresh').expect(204);
     });
 

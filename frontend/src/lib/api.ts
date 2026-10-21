@@ -1,8 +1,3 @@
-/**
- * Gọi backend qua /api/v1 (Next rewrites → localhost:4000, cùng origin nên cookie refresh tự gửi).
- * Access token giữ trong bộ nhớ (không localStorage): đóng tab là mất, đúng yêu cầu "mỗi lần vào đăng nhập lại".
- * Token hết hạn (401 UNAUTHENTICATED) thì tự refresh một lần rồi gọi lại.
- */
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -31,7 +26,6 @@ export function setSession(token: TokenResponse | null) {
   accessToken = token?.accessToken ?? null;
   tokenExpiresAt = token ? Date.now() + token.expiresIn * 1000 : 0;
 }
-/** Header Authorization cho các lệnh gọi tự dựng (SSE, ảnh cần đăng nhập). */
 export const authHeaders = (): Record<string, string> => (accessToken ? { Authorization: `Bearer ${accessToken}` } : {});
 export const tokenSecondsLeft = () => Math.max(0, Math.round((tokenExpiresAt - Date.now()) / 1000));
 export function onSessionExpired(handler: (code: string) => void) {
@@ -46,11 +40,9 @@ async function parseError(res: Response): Promise<ApiError> {
   return new ApiError(res.status, e?.code ?? `HTTP_${res.status}`, e?.message ?? res.statusText, e?.details, e?.requestId);
 }
 
-/** Đổi refresh cookie lấy access token. Nhiều request cùng hết hạn thì chỉ refresh một lần. */
 export function refreshSession(): Promise<TokenResponse | null> {
   refreshing ??= fetch("/api/v1/auth/refresh", { method: "POST", credentials: "same-origin" })
     .then(async (res) => {
-      // 204 = chưa đăng nhập (không có cookie), 401 = phiên hết hạn / bị thu hồi.
       if (!res.ok || res.status === 204) {
         setSession(null);
         return null;
@@ -110,7 +102,6 @@ export async function api<T = unknown>(
   return (await res.json()) as T;
 }
 
-/** Tải tệp (CSV) bằng token hiện tại rồi lưu bằng thẻ a tạm. */
 export async function downloadFile(path: string, query: Query, fallbackName: string) {
   const res = await api<Response>(path, { query, raw: true });
   const name = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? fallbackName;
@@ -122,7 +113,6 @@ export async function downloadFile(path: string, query: Query, fallbackName: str
   URL.revokeObjectURL(url);
 }
 
-/** Câu báo lỗi cho người dùng: thông điệp + mã + requestId để tra log. */
 export function describeError(err: unknown): string {
   if (err instanceof ApiError) return `${err.message} (${err.code}${err.requestId ? ` · req ${err.requestId.slice(0, 8)}` : ""})`;
   return err instanceof Error ? err.message : String(err);

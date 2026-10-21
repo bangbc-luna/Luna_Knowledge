@@ -19,9 +19,7 @@ const ROLE_ORDER: WorkspaceRole[] = ['OWNER', 'ADMIN', 'EDITOR', 'VIEWER'];
 
 interface Access {
   workspaceId: string;
-  /** Vai trò thành viên thật; null nếu là System Admin không thuộc workspace. */
   memberRole: WorkspaceRole | null;
-  /** Vai trò dùng để phân quyền quản trị: System Admin được coi như OWNER. */
   effectiveRole: WorkspaceRole;
 }
 
@@ -33,12 +31,6 @@ export class WorkspacesService {
     private readonly audit: AuditService,
   ) {}
 
-  // ---------------------------------------------------------------- Access
-
-  /**
-   * Kiểm tra quyền trên workspace. Không phải thành viên → 404 (không lộ sự tồn tại).
-   * System Admin có quyền quản trị mọi workspace (SPEC §3.1); quyền xem nội dung xét ở Phase 2.
-   */
   async requireRole(
     actor: AuthenticatedUser,
     workspaceId: string,
@@ -59,8 +51,6 @@ export class WorkspacesService {
     return { workspaceId, memberRole, effectiveRole };
   }
 
-  // ---------------------------------------------------------------- Workspaces
-
   async list(actor: AuthenticatedUser, scope: 'mine' | 'all') {
     if (scope === 'all' && !actor.isSystemAdmin) throw AppError.forbidden('System admin only');
     const rows = await this.prisma.client.workspace.findMany({
@@ -74,7 +64,6 @@ export class WorkspacesService {
       },
       orderBy: { name: 'asc' },
     });
-    // Chủ sở hữu của từng workspace (màn Workspace ở trang admin cần biết ai chịu trách nhiệm).
     const owners = await this.prisma.client.workspaceMember.findMany({
       where: { workspaceId: { in: rows.map((w) => w.id) }, role: 'OWNER' },
       select: { workspaceId: true, user: { select: userSummary } },
@@ -139,7 +128,6 @@ export class WorkspacesService {
     return this.toDto(await this.loadWithCounts(workspaceId, actor.id));
   }
 
-  /** Xóa mềm; slug được giải phóng để tạo lại workspace cùng tên. */
   async remove(actor: AuthenticatedUser, workspaceId: string, ctx: RequestContext) {
     await this.requireRole(actor, workspaceId, 'OWNER');
     const ws = await this.prisma.client.workspace.findUniqueOrThrow({ where: { id: workspaceId } });
@@ -157,8 +145,6 @@ export class WorkspacesService {
       ctx,
     });
   }
-
-  // ---------------------------------------------------------------- Members
 
   async listMembers(actor: AuthenticatedUser, workspaceId: string) {
     await this.requireRole(actor, workspaceId, 'VIEWER');
@@ -235,7 +221,6 @@ export class WorkspacesService {
     return member;
   }
 
-  /** ADMIN trở lên xóa thành viên khác; ai cũng có thể tự rời workspace (trừ OWNER). */
   async removeMember(
     actor: AuthenticatedUser,
     workspaceId: string,
@@ -285,8 +270,6 @@ export class WorkspacesService {
     await this.auditMember(actor, workspaceId, 'workspace.transfer_ownership', newOwnerId, {}, ctx);
     return this.listMembers(actor, workspaceId);
   }
-
-  // ---------------------------------------------------------------- Helpers
 
   private async findMember(workspaceId: string, userId: string) {
     const member = await this.prisma.client.workspaceMember.findUnique({

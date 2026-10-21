@@ -52,7 +52,6 @@ export interface NodeItem {
   isFavorite: boolean;
   tags: Tag[];
   childCount: number | null;
-  /** Kích thước và MIME của phiên bản hiện tại (FILE/VIDEO đã xử lý xong). */
   size: number | null;
   mime: string | null;
 }

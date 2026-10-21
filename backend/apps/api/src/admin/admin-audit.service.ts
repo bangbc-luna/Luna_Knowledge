@@ -6,7 +6,6 @@ import type { AuditQuery } from './admin.schemas.js';
 const userSummary = { id: true, email: true, name: true, avatarUrl: true } as const;
 const EXPORT_LIMIT = 10_000;
 
-/** Đọc audit log cho trang admin: lọc, gắn tên người/đối tượng/workspace để đọc được ngay. */
 @Injectable()
 export class AdminAuditService {
   constructor(private readonly prisma: PrismaService) {}
@@ -35,7 +34,6 @@ export class AdminAuditService {
     };
   }
 
-  /** CSV (UTF-8 có BOM để Excel đọc đúng tiếng Việt), tối đa 10.000 dòng mới nhất theo bộ lọc. */
   async exportCsv(q: AuditQuery): Promise<string> {
     const rows = await this.prisma.client.auditLog.findMany({
       where: this.where(q),
@@ -110,7 +108,6 @@ export class AdminAuditService {
 
     return rows.map((r) => {
       const meta = (r.metadata ?? null) as Record<string, unknown> | null;
-      // Mục đã bị xoá hẳn: lấy tên lưu trong metadata lúc ghi log (nếu có).
       const fallback =
         typeof meta?.name === 'string'
           ? meta.name
@@ -143,7 +140,6 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const isUuid = (v: string) => UUID_RE.test(v);
 
 function csvCell(value: string): string {
-  // Chặn CSV injection: ô bắt đầu bằng = + - @ bị Excel hiểu là công thức.
   const safe = /^[=+\-@]/.test(value) ? `'${value}` : value;
   return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }

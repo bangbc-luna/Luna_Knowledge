@@ -48,11 +48,6 @@ interface NewBlob {
   mime: string;
 }
 
-/**
- * Transcode video sang HLS mã hoá AES-128 (SPEC VIDEO-1, VIDEO-2): ffprobe → bậc chất lượng →
- * ffmpeg (một lần cho mọi bậc) → poster, thumbnail, sprite → tải lên bucket hls → thay bản HLS cũ.
- * Tiến độ (%) phát qua SSE `/nodes/:id/events`.
- */
 @Processor(QUEUES.VIDEO_TRANSCODE)
 export class VideoTranscodeProcessor extends WorkerHost implements OnApplicationBootstrap {
   private readonly logger = new Logger(VideoTranscodeProcessor.name);
@@ -105,9 +100,7 @@ export class VideoTranscodeProcessor extends WorkerHost implements OnApplication
         }),
         this.prisma.client.video.findUnique({ where: { nodeId }, select: { versionId: true } }),
       ]);
-      // Job của một phiên bản không còn là bản hiện tại: bỏ qua, job của bản hiện tại tự báo kết quả.
       if (info?.currentVersionId !== versionId) return;
-      // Chỉ còn phát được khi bản HLS đang có dựng đúng từ phiên bản hiện tại.
       const status = playable?.versionId === versionId ? 'READY' : 'FAILED';
       await this.prisma.client.fileInfo.upsert({
         where: { nodeId },
@@ -179,7 +172,6 @@ export class VideoTranscodeProcessor extends WorkerHost implements OnApplication
         .toFile(thumbPath);
       const spriteVtt = await buildSprite(this.tools, src, spritePath, info);
 
-      // Tải thư mục HLS lên (song song có giới hạn). Ghi nhận trước để lỗi giữa chừng vẫn dọn được.
       written.push({ container: bucket, key: prefix });
       const files = await listFiles(outDir);
       let hlsBytes = 0n;
@@ -227,8 +219,6 @@ export class VideoTranscodeProcessor extends WorkerHost implements OnApplication
       }));
 
       const done = await this.prisma.client.$transaction(async (tx) => {
-        // Khoá node: hai job cùng video không ghi đè nhau; phiên bản đã bị thay (upload mới, khôi phục
-        // bản khác trong lúc chạy) thì bỏ kết quả này.
         const [row] = await tx.$queryRaw<
           { id: string }[]
         >`SELECT id FROM nodes WHERE id = ${nodeId}::uuid FOR UPDATE`;
@@ -270,7 +260,6 @@ export class VideoTranscodeProcessor extends WorkerHost implements OnApplication
           where: { id: versionId },
           data: { thumbnailBlobId: thumb!.id },
         });
-        // Bản HLS cũ (và thumbnail cũ của phiên bản này) vào hàng đợi dọn qua trigger blobs_enqueue_gc.
         const stale = [
           old?.hlsBlobId,
           old?.posterBlobId,

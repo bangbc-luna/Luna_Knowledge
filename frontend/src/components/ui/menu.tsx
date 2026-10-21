@@ -13,7 +13,6 @@ export interface MenuAction {
   hidden?: boolean;
 }
 
-/** Menu ⋯ của một dòng. Nhóm cuối là nhóm nguy hiểm (xoá), tách bằng đường kẻ. */
 export function RowMenu({ groups, label = "Thao tác" }: { groups: MenuAction[][]; label?: string }) {
   const { open, setOpen, toggle, rootRef } = usePopover();
   const visible = groups.map((g) => g.filter((a) => !a.hidden)).filter((g) => g.length);

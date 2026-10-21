@@ -29,7 +29,6 @@ describe('Videos: phát có bảo vệ (e2e)', () => {
   const original = Buffer.from('original video bytes');
   const segment = randomBytes(376);
 
-  /** Dựng một video đã transcode xong: file gốc, thư mục HLS nhỏ trên MinIO, khoá đã mã hoá trong DB. */
   async function seedVideo(name: string, { ready = true } = {}) {
     const node = await ctx.prisma.node.create({
       data: {
@@ -187,7 +186,6 @@ describe('Videos: phát có bảo vệ (e2e)', () => {
     expect(pb.body.masterUrl).toBe(`/api/v1/videos/${nodeId}/hls/master.m3u8?s=${pb.body.token}`);
     expect(pb.body.posterUrl).toContain('X-Amz-Signature');
 
-    // Không cần đăng nhập: chỉ cần phiên xem (hls.js / Safari không gửi được header).
     const master = await http().get(pb.body.masterUrl).expect(200);
     expect(master.headers['content-type']).toContain('application/vnd.apple.mpegurl');
     expect(master.text).toContain(
@@ -222,7 +220,6 @@ describe('Videos: phát có bảo vệ (e2e)', () => {
     expect(Buffer.compare(k.body as Buffer, key)).toBe(0);
     expect(k.headers['cache-control']).toContain('no-store');
 
-    // Đường dẫn lạ không lọt ra ngoài thư mục HLS.
     await http()
       .get(`/api/v1/videos/${nodeId}/hls/360p/..%2Fmaster.m3u8?s=${pb.body.token}`)
       .expect(404);

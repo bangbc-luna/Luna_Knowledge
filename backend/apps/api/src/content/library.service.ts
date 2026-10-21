@@ -12,7 +12,6 @@ import { NodeDtoService } from './node-dto.service.js';
 const tagSelect = { id: true, name: true, color: true, createdAt: true } as const;
 const RECENT_LIMIT = 50;
 
-/** Tag, yêu thích, mở gần đây (SPEC UTIL-1..3). */
 @Injectable()
 export class LibraryService {
   constructor(
@@ -21,8 +20,6 @@ export class LibraryService {
     private readonly dto: NodeDtoService,
     private readonly audit: AuditService,
   ) {}
-
-  // ---------------------------------------------------------------- Tags
 
   async listTags(user: AuthenticatedUser, workspaceId: string) {
     await this.access.requireMember(user, workspaceId, 'VIEWER');
@@ -67,7 +64,6 @@ export class LibraryService {
     await this.auditTag(user, 'tag.delete', tag.workspaceId, tagId, { name: tag.name }, ctx);
   }
 
-  /** Thay toàn bộ tag của một mục; tag phải thuộc cùng workspace. */
   async setNodeTags(user: AuthenticatedUser, nodeId: string, tagIds: string[]) {
     const node = await this.access.requireNode(user, nodeId, 'EDITOR');
     const unique = [...new Set(tagIds)];
@@ -83,8 +79,6 @@ export class LibraryService {
     return this.dto.one(user.id, nodeId);
   }
 
-  // ---------------------------------------------------------------- Favorites & recent
-
   async addFavorite(user: AuthenticatedUser, nodeId: string) {
     await this.access.requireNode(user, nodeId, 'VIEWER');
     await this.prisma.client.favorite.upsert({
@@ -98,7 +92,6 @@ export class LibraryService {
     await this.prisma.client.favorite.deleteMany({ where: { userId: user.id, nodeId } });
   }
 
-  /** Chỉ trả mục còn hoạt động và user vẫn còn quyền xem (có thể đã bị gỡ share/rời workspace). */
   async favorites(user: AuthenticatedUser) {
     const rows = await this.prisma.client.$queryRaw<{ id: string }[]>`
       SELECT n.id FROM favorites f
@@ -133,8 +126,6 @@ export class LibraryService {
       return node ? [{ node, viewedAt: r.viewed_at }] : [];
     });
   }
-
-  // ---------------------------------------------------------------- Helpers
 
   private async requireTag(user: AuthenticatedUser, tagId: string, min: 'ADMIN') {
     const tag = await this.prisma.client.tag.findUnique({ where: { id: tagId } });

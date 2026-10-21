@@ -8,7 +8,6 @@ import { type UploadItem, useUploads } from "@/lib/uploads";
 import { IconButton } from "../ui/button";
 import { FileTypeIcon } from "./file-type-icon";
 
-/** Tên một dòng, cắt GIỮA, giữ ~8 ký tự cuối + đuôi (T14, file-upload.md). */
 export function MiddleTruncate({ name, className }: { name: string; className?: string }) {
   const dot = name.lastIndexOf(".");
   const ext = dot > 0 ? name.slice(dot) : "";
@@ -86,14 +85,9 @@ function UploadRow({ item }: { item: UploadItem }) {
   );
 }
 
-/**
- * Khay tải lên ở góc dưới phải, sống qua mọi trang của khu user (nằm trong layout).
- * Thu gọn được; chỉ đóng được khi không còn tệp nào đang chạy.
- */
 export function UploadTray() {
   const { items, clearFinished } = useUploads();
   const [collapsed, setCollapsed] = useState(false);
-  // Thêm tệp mới thì cuộn xuống cho thấy (tệp mới nằm cuối danh sách).
   const listRef = useRef<HTMLUListElement>(null);
   const count = items.length;
   const lastCount = useRef(count);

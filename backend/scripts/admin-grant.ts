@@ -1,5 +1,3 @@
-// Cấp quyền System Admin cho một email công ty: `pnpm admin:grant ten@lunatech.vn`.
-// Dùng khi khởi tạo hệ thống hoặc khi không còn admin nào đăng nhập được.
 import { createPrismaClient } from '@luna/db';
 import { databaseEnvSchema, loadEnv } from '@luna/shared';
 import { z } from 'zod';

@@ -11,7 +11,6 @@ import {
 import { Upload } from '@aws-sdk/lib-storage';
 import type { BlobRef, BlobStorage, PutOptions } from './blob-storage.js';
 
-/** Lưu trên một bucket S3/MinIO. File lớn (video tới 10 GB) được tự chia multipart. */
 export class S3BlobStorage implements BlobStorage {
   readonly provider = 'S3' as const;
 
@@ -44,7 +43,6 @@ export class S3BlobStorage implements BlobStorage {
     return { body: res.Body as Readable, size: res.ContentLength };
   }
 
-  /** Key kết thúc bằng "/" là một thư mục (bản HLS): xoá mọi object bên dưới. */
   async delete(ref: BlobRef): Promise<void> {
     if (!ref.key.endsWith('/')) {
       await this.client.send(new DeleteObjectCommand({ Bucket: ref.container, Key: ref.key }));

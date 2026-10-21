@@ -30,10 +30,8 @@ export const apiEnvSchema = baseEnvSchema
     API_PUBLIC_URL: z.url().default('http://localhost:4000'),
     WEB_PUBLIC_URL: z.url().default('http://localhost:5173'),
     CORS_ORIGINS: csv,
-    /** Giá trị cho Express `trust proxy` (Traefik/cloudflared chạy cùng máy). */
     TRUST_PROXY: z.string().default('loopback, uniquelocal'),
 
-    // ---- Auth (SPEC AUTH-1..4) ----
     GOOGLE_CLIENT_ID: z.string().min(1),
     GOOGLE_CLIENT_SECRET: z.string().min(1),
     ALLOWED_GOOGLE_DOMAINS: csv.pipe(z.array(z.string()).min(1)),
@@ -41,9 +39,7 @@ export const apiEnvSchema = baseEnvSchema
     ACCESS_TOKEN_TTL_SEC: z.coerce.number().int().positive().default(900),
     SESSION_IDLE_TIMEOUT_MIN: z.coerce.number().int().positive().default(60),
     SESSION_ABSOLUTE_TIMEOUT_HOURS: z.coerce.number().int().positive().default(12),
-    /** Nơi chuyển hướng sau khi đăng nhập Google (trang FE; lỗi kèm `?error=CODE`). */
     AUTH_REDIRECT_URL: z.url().optional(),
-    /** Cookie chỉ gửi qua HTTPS. Mặc định bật ở production. */
     COOKIE_SECURE: z
       .enum(['true', 'false'])
       .transform((v) => v === 'true')
@@ -57,7 +53,6 @@ export const apiEnvSchema = baseEnvSchema
 
 export type AppConfig = z.output<typeof apiEnvSchema>;
 
-/** Injection token: `@Inject(APP_CONFIG) config: AppConfig`. */
 export const APP_CONFIG = Symbol('APP_CONFIG');
 
 export function loadAppConfig(source?: NodeJS.ProcessEnv): AppConfig {

@@ -1,6 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 
-/** Khoá AES-128 của một video, mã hoá bằng master key (AES-256-GCM): iv(12) | tag(16) | ciphertext. */
 export function sealVideoKey(key: Buffer, masterKeyBase64: string): Buffer {
   const iv = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', Buffer.from(masterKeyBase64, 'base64'), iv);

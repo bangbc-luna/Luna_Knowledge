@@ -1,5 +1,3 @@
-// Luna Knowledge — schema dữ liệu. Xem docs/SPEC.md §6.
-// Các bảng của phase sau (nodes, files, videos, documents…) được thêm dần theo PLAN.md.
 
 generator client {
   provider            = "prisma-client"
@@ -43,7 +41,6 @@ enum BlobKind {
   ORIGINAL
   PREVIEW
   THUMBNAIL
-  /// Thư mục HLS của một lần transcode: key là tiền tố (kết thúc bằng "/"), GC xoá cả thư mục.
   HLS
   POSTER
   SPRITE
@@ -60,7 +57,6 @@ enum UploadStatus {
   ABORTED
 }
 
-/// Quyền cấp qua share: chỉ cộng thêm, không vượt EDITOR (SPEC §3.3).
 enum ShareRole {
   EDITOR
   VIEWER
@@ -95,7 +91,6 @@ model User {
   @@map("users")
 }
 
-/// Một lần đăng nhập Google. Hết hạn khi idle quá lâu hoặc vượt absolute timeout (SPEC AUTH-3).
 model Session {
   id                String    @id @default(uuid(7)) @db.Uuid
   userId            String    @map("user_id") @db.Uuid
@@ -114,7 +109,6 @@ model Session {
   @@map("sessions")
 }
 
-/// Refresh token xoay vòng; dùng lại token đã xoay => thu hồi cả session (phát hiện token bị đánh cắp).
 model RefreshToken {
   id        String    @id @default(uuid(7)) @db.Uuid
   sessionId String    @map("session_id") @db.Uuid
@@ -163,7 +157,6 @@ model WorkspaceMember {
   @@map("workspace_members")
 }
 
-/// Append-only. Không khai báo relation để log vẫn còn khi user/workspace bị xóa.
 model AuditLog {
   id          BigInt   @id @default(autoincrement())
   actorId     String?  @map("actor_id") @db.Uuid
@@ -182,15 +175,12 @@ model AuditLog {
   @@map("audit_logs")
 }
 
-/// Một phần tử trong cây nội dung của workspace (SPEC §6).
-/// `path` (ltree) do trigger trong DB tự tính khi tạo/di chuyển; app không ghi trực tiếp.
 model Node {
   id             String                @id @default(uuid(7)) @db.Uuid
   workspaceId    String                @map("workspace_id") @db.Uuid
   parentId       String?               @map("parent_id") @db.Uuid
   type           NodeType
   name           String
-  /// Tên đã chuẩn hóa (NFC, trim, chữ thường) để chặn trùng tên không phân biệt hoa thường.
   nameNormalized String                @map("name_normalized")
   path           Unsupported("ltree")?
   status         NodeStatus            @default(READY)
@@ -198,7 +188,6 @@ model Node {
   updatedById    String?               @map("updated_by") @db.Uuid
   createdAt      DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt      DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
-  /// Thùng rác: mọi node trong nhánh bị xóa cùng lúc có chung `deletedRootId` (= id node được xóa).
   deletedAt      DateTime?             @map("deleted_at") @db.Timestamptz(3)
   deletedById    String?               @map("deleted_by") @db.Uuid
   deletedRootId  String?               @map("deleted_root_id") @db.Uuid
@@ -297,16 +286,12 @@ model RecentView {
   @@map("recent_views")
 }
 
-/// Một đối tượng lưu trữ thật (S3/MinIO hoặc Google Drive). Xoá node (cả cây) là xoá luôn bản ghi blob;
-/// file vật lý được dọn bởi job sau khi xoá DB (SPEC §5.2).
 model Blob {
   id        String          @id @default(uuid(7)) @db.Uuid
   nodeId    String          @map("node_id") @db.Uuid
   kind      BlobKind
   provider  StorageProvider
-  /// Bucket (S3) hoặc id Shared Drive (GDRIVE).
   container String
-  /// Object key (S3) hoặc file id (GDRIVE).
   key       String
   sizeBytes BigInt          @map("size_bytes")
   mime      String
@@ -322,13 +307,11 @@ model Blob {
   @@map("blobs")
 }
 
-/// Thông tin file của node FILE/VIDEO: phiên bản hiện tại, nội dung chữ trích được (cho tìm kiếm, Phase 6).
 model FileInfo {
   nodeId           String    @id @map("node_id") @db.Uuid
   currentVersionId String?   @unique @map("current_version_id") @db.Uuid
   extractedText    String?   @map("extracted_text")
   extractedAt      DateTime? @map("extracted_at") @db.Timestamptz(3)
-  /// Lỗi xử lý gần nhất (hiện cho người dùng khi status = FAILED).
   processingError  String?   @map("processing_error")
 
   node           Node         @relation(fields: [nodeId], references: [id], onDelete: Cascade)
@@ -345,7 +328,6 @@ model FileVersion {
   originalBlobId  String   @map("original_blob_id") @db.Uuid
   previewBlobId   String?  @map("preview_blob_id") @db.Uuid
   thumbnailBlobId String?  @map("thumbnail_blob_id") @db.Uuid
-  /// pdf | image | text | none (video: Phase 4)
   previewKind     String   @default("none") @map("preview_kind")
   uploadedById    String   @map("uploaded_by") @db.Uuid
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -361,7 +343,6 @@ model FileVersion {
   @@map("file_versions")
 }
 
-/// Phiên upload multipart: client gửi thẳng từng phần lên bucket tmp bằng presigned URL.
 model UploadSession {
   id           String       @id @default(uuid(7)) @db.Uuid
   nodeId       String       @map("node_id") @db.Uuid
@@ -373,7 +354,6 @@ model UploadSession {
   partSize     Int          @map("part_size")
   partCount    Int          @map("part_count")
   mimeDeclared String       @map("mime_declared")
-  /// true: tải phiên bản mới cho node đã có; false: node mới tạo cùng phiên này.
   isNewVersion Boolean      @default(false) @map("is_new_version")
   status       UploadStatus @default(PENDING)
   createdById  String       @map("created_by") @db.Uuid
@@ -387,8 +367,6 @@ model UploadSession {
   @@map("upload_sessions")
 }
 
-/// Hàng đợi dọn object lưu trữ. Trigger `blobs_enqueue_gc` ghi vào đây mỗi khi một dòng `blobs` bị xoá
-/// (kể cả xoá dây chuyền từ node), worker xoá object thật rồi xoá dòng.
 model BlobGc {
   id        BigInt          @id @default(autoincrement())
   provider  StorageProvider
@@ -401,22 +379,17 @@ model BlobGc {
   @@map("blob_gc")
 }
 
-/// Bản HLS phát được của một video (SPEC §4.6, VIDEO-1). Một node VIDEO có tối đa một bản đang dùng,
-/// dựng từ phiên bản `versionId`; transcode lại thì thay cả bản (blob cũ vào hàng đợi dọn).
 model Video {
   nodeId       String   @id @map("node_id") @db.Uuid
   versionId    String   @map("version_id") @db.Uuid
   durationSec  Float    @map("duration_sec")
   width        Int
   height       Int
-  /// [{name:"720p", width, height, bandwidth, playlist:"720p/index.m3u8"}]
   renditions   Json
   hlsBlobId    String   @map("hls_blob_id") @db.Uuid
   posterBlobId String?  @map("poster_blob_id") @db.Uuid
   spriteBlobId String?  @map("sprite_blob_id") @db.Uuid
-  /// WebVTT ảnh xem trước khi tua; ảnh sprite ghi là "sprite.jpg", API thay bằng URL ký.
   spriteVtt    String?  @map("sprite_vtt")
-  /// Khoá AES-128 của video, mã hoá AES-256-GCM bằng VIDEO_MASTER_KEY: iv(12) | tag(16) | ciphertext(16).
   keyEncrypted Bytes    @map("key_encrypted")
   viewCount    Int      @default(0) @map("view_count")
   transcodedAt DateTime @default(now()) @map("transcoded_at") @db.Timestamptz(3)
@@ -426,7 +399,6 @@ model Video {
   @@map("videos")
 }
 
-/// Vị trí đang xem dở của từng người (VIDEO-5).
 model VideoWatch {
   userId      String   @map("user_id") @db.Uuid
   nodeId      String   @map("node_id") @db.Uuid

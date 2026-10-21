@@ -2,11 +2,6 @@ import { Controller, Get, Header } from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
 import { Public } from '../auth/decorators/public.decorator.js';
 
-/**
- * Trang thử phát video (PLAN Phase 4, chỉ ở NODE_ENV=development): đăng nhập persona bằng /dev/token,
- * xin phiên xem, phát bằng hls.js, phủ watermark tên + email + giờ, lưu vị trí xem dở.
- * Trình phát thật của FE làm sau; trang này chỉ để kiểm luồng API.
- */
 @ApiExcludeController()
 @Public()
 @Controller('dev')

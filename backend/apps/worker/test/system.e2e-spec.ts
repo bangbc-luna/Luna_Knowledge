@@ -14,7 +14,6 @@ describe('Worker system queue (e2e)', () => {
 
   beforeAll(async () => {
     redis = await new RedisContainer('redis:7-alpine').start();
-    // Worker chỉ cần Redis cho test này; các biến khác chỉ cần hợp lệ về định dạng.
     Object.assign(process.env, {
       NODE_ENV: 'test',
       LOG_LEVEL: 'warn',

@@ -1,5 +1,3 @@
-// Khởi tạo hạ tầng lưu trữ sau khi `pnpm infra:up`: tạo bucket S3 và đặt lifecycle cho bucket tmp.
-// Chạy lại nhiều lần vẫn an toàn.
 import { createS3Client, ensureBuckets, loadEnv, s3EnvSchema } from '@luna/shared';
 
 const env = loadEnv(s3EnvSchema);

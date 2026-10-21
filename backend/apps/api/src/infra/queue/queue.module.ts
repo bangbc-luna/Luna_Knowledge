@@ -3,7 +3,6 @@ import { BullModule } from '@nestjs/bullmq';
 import { Global, Module } from '@nestjs/common';
 import { APP_CONFIG, type AppConfig } from '../../config/app-config.js';
 
-/** Hàng đợi API đẩy việc sang worker (xử lý file, dọn dẹp). API chỉ thêm job, không xử lý. */
 @Global()
 @Module({
   imports: [

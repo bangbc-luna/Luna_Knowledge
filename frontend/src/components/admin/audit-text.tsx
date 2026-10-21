@@ -19,7 +19,6 @@ const ICONS: Array<[RegExp, LucideIcon]> = [
   [/^auth\./, LogIn],
 ];
 
-/** Tông màu theo M4: chỉ chuyện cần chú ý mới có màu (đăng nhập thất bại đỏ, xoá vĩnh viễn hổ phách). */
 export function actionTone(action: string): BadgeTone {
   if (action === "auth.login_failed" || action === "auth.session_revoked") return "err";
   if (action === "node.delete_permanent" || action === "trash.empty" || action === "workspace.delete") return "warn";
@@ -36,7 +35,6 @@ export function ActionBadge({ action }: { action: string }) {
   );
 }
 
-/** Tên đối tượng để hiện: tên mục, tên workspace hoặc email người dùng (không kèm loại: nhiều log không lưu loại). */
 export function targetText(item: AuditItem): string | null {
   if (!item.target || item.target.type === "session") return null;
   return item.target.label ?? `#${item.target.id.slice(0, 8)}`;
@@ -44,12 +42,10 @@ export function targetText(item: AuditItem): string | null {
 
 export function actorName(item: AuditItem): string {
   if (item.actor) return item.actor.name;
-  // Không có người thực hiện: đăng nhập thất bại (có email trong metadata) hoặc lệnh hệ thống (CLI, job).
   const email = typeof item.metadata?.email === "string" ? (item.metadata.email as string) : null;
   return email ?? "Hệ thống";
 }
 
-/** Câu đọc được: "QA Editor xem thư mục Hợp đồng 2026". */
 export function AuditSentence({ item }: { item: AuditItem }) {
   const target = targetText(item);
   return (
@@ -65,7 +61,6 @@ export function AuditSentence({ item }: { item: AuditItem }) {
   );
 }
 
-/** Rút gọn user-agent: "Chrome 141 · Windows". */
 export function shortAgent(ua: string | null): string {
   if (!ua) return "—";
   const browser = /Edg\/(\d+)/.exec(ua) ? `Edge ${/Edg\/(\d+)/.exec(ua)![1]}` : /Chrome\/(\d+)/.exec(ua) ? `Chrome ${/Chrome\/(\d+)/.exec(ua)![1]}` : /Firefox\/(\d+)/.exec(ua) ? `Firefox ${/Firefox\/(\d+)/.exec(ua)![1]}` : /Version\/(\d+).*Safari/.exec(ua) ? `Safari ${/Version\/(\d+)/.exec(ua)![1]}` : ua.split(" ")[0]!;

@@ -14,7 +14,6 @@ async function main() {
     create: { email: adminEmail, name: 'System Admin', isSystemAdmin: true },
   });
 
-  // User mẫu chỉ dùng cho dev; khi đăng nhập Google thật, user được tạo tự động (AUTH-2).
   const [editor, viewer] = await Promise.all(
     [
       { email: 'editor.demo@lunatech.vn', name: 'Editor Demo' },

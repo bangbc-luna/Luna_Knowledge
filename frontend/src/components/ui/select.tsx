@@ -10,7 +10,6 @@ export interface SelectOption<T extends string> {
   hint?: string;
 }
 
-/** Ô chọn (không dùng <select> gốc): không hover, lúc mở viền màu nhấn + ring (button.md, choice-controls.md). */
 export function Select<T extends string>({
   value,
   options,
@@ -51,7 +50,6 @@ export function Select<T extends string>({
       >
         {prefix ? <span className="text-muted">{prefix}</span> : null}
         {size === "inline" ? (
-          // Mũi tên thẳng cột giữa các dòng: nút rộng bằng nhãn dài nhất (members, app.md).
           <span className="grid">
             {options.map((o) => (
               <span key={o.value} className={cn("col-start-1 row-start-1", o.value !== value && "invisible")} aria-hidden={o.value !== value}>

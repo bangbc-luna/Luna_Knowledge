@@ -1,9 +1,3 @@
-// Tải thử phát video (PLAN Phase 4, DoD): N phiên xem cùng lúc, mỗi phiên lấy playlist, khoá,
-// rồi tải segment (qua API → 302 → MinIO) nhanh hơn thời gian thực để dồn tải.
-//
-//   docker run --rm --network host -v "$PWD/tests/load:/load" grafana/k6:1.8.1 run \
-//     -e VIDEO_ID=<id> -e EMAIL=qa.owner@lunatech.vn /load/playback.js
-// Chỉ chạy ở môi trường dev (đăng nhập bằng /dev/token).
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 
@@ -43,7 +37,6 @@ export default function ({ token }) {
   check(key, { 'key 16 byte': (r) => r.status === 200 && r.body.byteLength === 16 });
   const segs = media.body.split('\n').filter((l) => l.includes('.ts?s=')).slice(0, SEGMENTS);
   for (const seg of segs) {
-    // Redirect sang MinIO: k6 tự đi theo, đo cả thời gian tải segment thật.
     const r = http.get(`${API}${seg}`, { tags: { kind: 'segment' }, responseType: 'none' });
     check(r, { 'segment 200': (x) => x.status === 200 });
     sleep(1);

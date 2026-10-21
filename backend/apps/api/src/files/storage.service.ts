@@ -5,10 +5,8 @@ import { Inject, Injectable } from '@nestjs/common';
 import { AppError } from '../common/errors/app-error.js';
 import { BUCKETS, type Buckets, S3, S3_PRESIGN } from '../infra/s3/s3.module.js';
 
-/** Thời hạn URL ký cho preview/thumbnail (SPEC §7.8: 10 phút). */
 export const PREVIEW_URL_TTL_SEC = 600;
 
-/** Content-Disposition an toàn với tên tiếng Việt (RFC 6266 / 5987). */
 export function contentDisposition(type: 'inline' | 'attachment', fileName: string): string {
   const ascii = fileName
     .normalize('NFD')
@@ -19,7 +17,6 @@ export function contentDisposition(type: 'inline' | 'attachment', fileName: stri
   return `${type}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
 }
 
-/** Chọn đúng kho cho một blob và ký URL tới object trên MinIO. */
 @Injectable()
 export class StorageService {
   private readonly s3Storage: S3BlobStorage;

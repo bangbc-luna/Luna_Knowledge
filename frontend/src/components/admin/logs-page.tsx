@@ -34,7 +34,6 @@ function rangeFrom(range: Range): string | undefined {
   return new Date(Date.now() - (range === "7d" ? 7 : 30) * 86_400_000).toISOString();
 }
 
-/** Nhật ký hoạt động (phương án A): hàng lọc, bảng, bấm dòng mở panel chi tiết. Bộ lọc nằm trên URL để chép link gửi đi. */
 export function LogsPage() {
   const router = useRouter();
   const pathname = usePathname();

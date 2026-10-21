@@ -20,7 +20,6 @@ function useEscape(open: boolean, onClose: () => void) {
   }, [open, onClose]);
 }
 
-/** Modal có nội dung: max-w-md, bấm ngoài / Esc đóng, nút ở chân phải (overlay.md). */
 export function Dialog({
   open,
   onClose,
@@ -83,7 +82,6 @@ export function Dialog({
   );
 }
 
-/** Hộp xác nhận: icon cùng hàng tiêu đề, tên đối tượng in đậm trong câu hậu quả (overlay.md). */
 export function ConfirmDialog({
   open,
   onClose,
@@ -147,7 +145,6 @@ export function ConfirmDialog({
   );
 }
 
-/** Panel trượt từ phải, w-full sm:w-[28rem], lớp phủ mờ /15 để vẫn thấy danh sách phía sau. */
 export function Sheet({
   open,
   onClose,

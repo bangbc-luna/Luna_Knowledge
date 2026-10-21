@@ -3,7 +3,6 @@ import { Inter } from "next/font/google";
 import { Providers } from "./providers";
 import "./globals.css";
 
-// Một font cho cả app, phân vai bằng độ đậm (T2). Đổi font: thay Inter ở đây.
 const inter = Inter({ subsets: ["latin", "vietnamese"], variable: "--font-inter" });
 
 export const metadata: Metadata = {

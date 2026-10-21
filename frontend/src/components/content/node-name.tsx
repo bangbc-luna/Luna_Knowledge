@@ -10,14 +10,12 @@ import { useThumbnail } from "@/lib/use-thumbnail";
 import { FileTypeIcon } from "../files/file-type-icon";
 import { Badge } from "../ui/misc";
 
-/** Thư mục mở trong cây; tệp/video mở trình xem; tài liệu soạn thảo mở ở thư mục chứa nó (Phase 5). */
 export function nodeHref(node: Pick<NodeItem, "id" | "type" | "workspaceId" | "parentId">) {
   if (node.type === "FOLDER") return `/w/${node.workspaceId}/f/${node.id}`;
   if (node.type === "FILE" || node.type === "VIDEO") return `/w/${node.workspaceId}/file/${node.id}`;
   return node.parentId ? `/w/${node.workspaceId}/f/${node.parentId}` : `/w/${node.workspaceId}/f`;
 }
 
-/** Ô 32px đầu dòng: thumbnail với ảnh đã xử lý, còn lại icon theo loại tệp. */
 export function NodeIcon({ node }: { node: NodeItem }) {
   const isImage = node.type === "FILE" && node.status === "READY" && !!node.mime?.startsWith("image/");
   const thumb = useThumbnail(node.id, isImage);
@@ -38,7 +36,6 @@ export function NodeIcon({ node }: { node: NodeItem }) {
   );
 }
 
-/** Dòng phụ: "Thư mục · 3 mục", "PDF · 1,2 MB", "Video · 240 MB". */
 export function nodeMeta(node: NodeItem): string {
   if (node.type === "FOLDER") return `${TYPE_LABEL.FOLDER} · ${node.childCount ? `${node.childCount} mục` : "Trống"}`;
   if (node.type === "FILE") return node.size !== null ? `${fileKindLabel(node.name, node.mime)} · ${formatBytes(node.size)}` : fileKindLabel(node.name, node.mime);
@@ -46,7 +43,6 @@ export function nodeMeta(node: NodeItem): string {
   return TYPE_LABEL[node.type];
 }
 
-/** `stretched`: link tên phủ cả dòng (dòng cha `relative`, nút trong dòng `relative z-10`). */
 export function NodeName({ node, sub, stretched = false }: { node: NodeItem; sub?: React.ReactNode; stretched?: boolean }) {
   return (
     <div className="flex min-w-0 items-center gap-3">
@@ -82,7 +78,6 @@ export function TagChip({ tag }: { tag: Tag }) {
   );
 }
 
-/** Cột tag một dòng: tag đầu + "+n" (mỗi ô một dòng). */
 export function TagCell({ tags }: { tags: Tag[] }) {
   if (!tags.length) return <span className="text-sm text-muted">—</span>;
   return (

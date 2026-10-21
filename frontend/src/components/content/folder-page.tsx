@@ -59,7 +59,6 @@ function FavoriteButton({ node, onChange }: { node: NodeItem; onChange: (fav: bo
   );
 }
 
-/** Màn Thư mục (phương án A + E): đường dẫn + tên ở thanh trên, hàng công cụ, bảng các mục. */
 export function FolderPage() {
   const { wsId, folder } = useParams<{ wsId: string; folder?: string[] }>();
   const folderId = folder?.[0] ?? null;
@@ -91,7 +90,6 @@ export function FolderPage() {
 
   const folderNode = current.data?.[0] ?? null;
   const crumbs = current.data?.[1] ?? [];
-  // Quyền ở nơi đang đứng: trong thư mục lấy từ API (gồm share), ở gốc lấy vai trò workspace.
   const myRole = folderNode?.myRole ?? membership?.role ?? null;
   const canEdit = roleAtLeast(myRole, "EDITOR");
   const canShare = roleAtLeast(membership?.role, "ADMIN");
@@ -115,7 +113,6 @@ export function FolderPage() {
     if (folderId) void current.reload();
   };
 
-  // Tải lên: nút, kéo thả vào bảng. Tệp xong thì danh sách tự tải lại.
   const uploads = useUploads();
   const fileInput = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -125,7 +122,6 @@ export function FolderPage() {
   useEffect(() => {
     if (uploadTick) void reloadList();
   }, [uploadTick, reloadList]);
-  // Còn mục đang tải lên / xử lý thì hỏi lại định kỳ để badge tự đổi.
   const pending = (list.data?.items ?? []).some((n) => n.status === "PROCESSING" || n.status === "UPLOADING");
   useEffect(() => {
     if (!pending) return;
@@ -195,7 +191,6 @@ export function FolderPage() {
           <>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <SearchInput label="Lọc theo tên" placeholder="Lọc theo tên trong thư mục này" value={filter} onChange={(e) => setFilter(e.target.value)} className="flex-1 sm:max-w-80" />
-              {/* Màn hẹp: lưới 2 cột; có đủ ba nút thì "Tải lên" chiếm cả hàng để không nút nào gãy chữ (R3). */}
               <div className="grid grid-cols-2 gap-2 sm:ml-auto sm:flex sm:flex-wrap sm:items-center">
                 <Select prefix="Sắp xếp:" value={sort} options={SORTS} onChange={setSort} className="order-first col-span-2 w-full sm:order-none sm:w-fit" />
                 {folderNode && canShare ? (

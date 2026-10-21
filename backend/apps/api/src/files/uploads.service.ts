@@ -34,17 +34,11 @@ import { NodeEventsService } from './node-events.service.js';
 import type { CreateUploadBody, PartsQuery } from './uploads.schemas.js';
 
 const MB = 1024 * 1024;
-/** Kích thước mỗi part (S3 tối thiểu 5 MB, tối đa 10.000 part → 16 MB đủ cho file 156 GB). */
 export const PART_SIZE = 16 * MB;
 const PART_URL_TTL_SEC = 3600;
 const PARTS_PER_BATCH = 100;
-/** Upload bỏ dở quá hạn này bị job dọn dẹp hủy (PLAN Phase 3). */
 export const UPLOAD_TTL_HOURS = 24;
 
-/**
- * Upload multipart thẳng lên bucket tmp bằng URL ký sẵn (SPEC §7.7): file không đi qua API,
- * mất mạng thì hỏi lại các part đã nhận rồi gửi tiếp. Hoàn tất → worker kiểm tra và xử lý.
- */
 @Injectable()
 export class UploadsService {
   constructor(
@@ -174,17 +168,12 @@ export class UploadsService {
     return { parts: await this.signParts(session, q.from, to) };
   }
 
-  /**
-   * Hoàn tất: đối chiếu với các part S3 thực sự nhận được (không tin số liệu client),
-   * ghép file, rồi giao cho worker. Gọi lại khi đã hoàn tất thì trả kết quả cũ.
-   */
   async complete(user: AuthenticatedUser, uploadId: string, ctx: RequestContext) {
     const existing = await this.requireOwn(user, uploadId);
     if (existing.status === 'COMPLETED') {
       return this.toDto(existing, await this.kindOf(existing.nodeId));
     }
     const session = await this.requirePending(user, uploadId);
-    // Quyền có thể đã bị thu hồi trong lúc đang tải.
     const node = await this.access.requireNode(user, session.nodeId, 'EDITOR');
 
     const parts = await this.listParts(session);
@@ -251,7 +240,6 @@ export class UploadsService {
     return this.toDto(done, node.type as 'FILE' | 'VIDEO');
   }
 
-  /** Hủy: bỏ các part đã gửi; nếu là file mới thì xóa luôn mục đang chờ. */
   async abort(user: AuthenticatedUser, uploadId: string, ctx: RequestContext) {
     const session = await this.requirePending(user, uploadId);
     await this.abortSession(session);
@@ -289,8 +277,6 @@ export class UploadsService {
     }
   }
 
-  // ---------------------------------------------------------------- Helpers
-
   private checkFile(body: CreateUploadBody) {
     const rule = ruleForFileName(body.fileName);
     if (!rule) {
@@ -326,7 +312,6 @@ export class UploadsService {
     if (parent.type !== 'FOLDER') throw AppError.validation('parentId must be a folder');
   }
 
-  /** Chỉ người tạo upload mới thấy nó (người khác nhận 404). */
   private async requireOwn(user: AuthenticatedUser, uploadId: string) {
     const session = await this.prisma.client.uploadSession.findUnique({ where: { id: uploadId } });
     if (!session || session.createdById !== user.id) throw AppError.notFound('Upload not found');

@@ -110,7 +110,6 @@ describe('Worker file-process (e2e)', () => {
     await Promise.all(containers.map((c) => c.stop()));
   });
 
-  /** Dựng trạng thái như ngay sau khi API hoàn tất upload: node PROCESSING + object trong tmp. */
   async function completedUpload(
     fixture: string,
     opts: { as?: string; nodeId?: string; type?: 'FILE' | 'VIDEO' } = {},
@@ -193,7 +192,6 @@ describe('Worker file-process (e2e)', () => {
     expect((await pdf.Body!.transformToString()).startsWith('%PDF')).toBe(true);
     expect(await exists(BUCKETS.S3_BUCKET_TMP, tmpKey)).toBe(false);
 
-    // Chạy lại job (BullMQ retry): không tạo phiên bản thứ hai.
     expect(await processor.processUpload(uploadId)).toEqual({ skipped: 'already processed' });
     expect(await prisma.fileVersion.count({ where: { nodeId } })).toBe(1);
   }, 120_000);
@@ -232,7 +230,6 @@ describe('Worker file-process (e2e)', () => {
     expect(await exists(BUCKETS.S3_BUCKET_TMP, tmpKey)).toBe(false);
     expect(await prisma.blob.count({ where: { nodeId } })).toBe(0);
 
-    // Worker gọi onFailed khi job thất bại lần cuối.
     await processor.onFailed(
       {
         name: 'process-upload',
@@ -252,7 +249,6 @@ describe('Worker file-process (e2e)', () => {
 
   it('chữ giả dạng (byte nhị phân trong .txt) bị từ chối; video trong upload FILE bị từ chối', async () => {
     const bin = await completedUpload('sample.png', { as: 'notes.txt' });
-    // PNG có magic bytes → nhận ra là ảnh hợp lệ dù đuôi .txt (dùng loại thật).
     await processor.processUpload(bin.uploadId);
     expect((await versionOf(bin.uploadId)).original.mime).toBe('image/png');
 
@@ -303,7 +299,6 @@ describe('Worker file-process (e2e)', () => {
     expect(await exists(after.preview!.container, after.preview!.key)).toBe(false);
   }, 120_000);
 
-  /** Đợi node chuyển khỏi PROCESSING (transcode chạy ở worker BullMQ thật trong app test). */
   async function waitSettled(nodeId: string, timeoutMs = 120_000) {
     const until = Date.now() + timeoutMs;
     for (;;) {
@@ -354,7 +349,6 @@ describe('Worker file-process (e2e)', () => {
   }
 
   it('video: transcode HLS 360p/720p mã hoá AES-128, poster, thumbnail, sprite', async () => {
-    // Video thử 8 giây 1280×720 có tiếng, tạo bằng ffmpeg trên máy chạy test.
     const dir = mkdtempSync(join(tmpdir(), 'luna-vtest-'));
     const src = join(dir, 'clip.mp4');
     execFileSync('ffmpeg', [
@@ -411,7 +405,6 @@ describe('Worker file-process (e2e)', () => {
     expect(keyLine).not.toBeNull();
     const firstSeg = playlist.split('\n').find((l) => l.endsWith('.ts'))!;
 
-    // Segment trên S3 đã mã hoá; giải bằng khoá trong DB (mở bằng master key) ra luồng TS (byte đồng bộ 0x47).
     const enc = await get(`${hls.key}720p/${firstSeg}`);
     expect(enc[0] === 0x47 && enc[188] === 0x47).toBe(false);
     const key = openVideoKey(video.keyEncrypted, MASTER_KEY);
@@ -429,7 +422,6 @@ describe('Worker file-process (e2e)', () => {
       await prisma.blob.count({ where: { nodeId, kind: { in: ['POSTER', 'SPRITE', 'HLS'] } } }),
     ).toBe(3);
 
-    // Transcode lại: bản HLS cũ vào hàng đợi dọn, GC xoá cả thư mục.
     const vt = app.get(
       (await import('../src/processors/video-transcode.processor.js')).VideoTranscodeProcessor,
     );
@@ -465,7 +457,6 @@ describe('Worker file-process (e2e)', () => {
     await waitSettled(nodeId);
     const before = await prisma.video.findUniqueOrThrow({ where: { nodeId } });
 
-    // Một phiên bản khác thành bản hiện tại (upload mới / khôi phục bản khác).
     const original = await prisma.blob.findFirstOrThrow({ where: { nodeId, kind: 'ORIGINAL' } });
     const other = await prisma.fileVersion.create({
       data: {
@@ -488,7 +479,6 @@ describe('Worker file-process (e2e)', () => {
       before.hlsBlobId,
     );
 
-    // Lỗi cuối của job phiên bản cũ: không đụng trạng thái.
     await prisma.node.update({ where: { id: nodeId }, data: { status: 'PROCESSING' } });
     await vt.onFailed(
       {
@@ -503,7 +493,6 @@ describe('Worker file-process (e2e)', () => {
       'PROCESSING',
     );
 
-    // Lỗi cuối của job phiên bản hiện tại mà HLS đang có dựng từ bản khác: FAILED, không READY giả.
     await vt.onFailed(
       {
         name: 'transcode',

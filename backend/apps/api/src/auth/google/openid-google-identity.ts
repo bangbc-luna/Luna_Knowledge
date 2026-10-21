@@ -14,14 +14,12 @@ export function googleRedirectUri(config: AppConfig): string {
   return new URL('/api/v1/auth/google/callback', config.API_PUBLIC_URL).toString();
 }
 
-/** Google OIDC qua `openid-client`: PKCE (S256) + state + nonce, xác minh chữ ký ID token. */
 @Injectable()
 export class OpenIdGoogleIdentity implements GoogleIdentityProvider {
   private configuration?: Promise<oidc.Configuration>;
 
   constructor(@Inject(APP_CONFIG) private readonly config: AppConfig) {}
 
-  /** Discovery chạy lần đầu cần dùng; lỗi mạng thì lần sau thử lại. */
   private discover(): Promise<oidc.Configuration> {
     this.configuration ??= oidc
       .discovery(GOOGLE_ISSUER, this.config.GOOGLE_CLIENT_ID, this.config.GOOGLE_CLIENT_SECRET)
@@ -40,7 +38,6 @@ export class OpenIdGoogleIdentity implements GoogleIdentityProvider {
       nonce: req.nonce,
       code_challenge: req.codeChallenge,
       code_challenge_method: 'S256',
-      // Luôn hiện màn hình chọn tài khoản (SPEC AUTH-3); `hd` chỉ là gợi ý, server vẫn kiểm tra.
       prompt: 'select_account',
       hd: this.config.ALLOWED_GOOGLE_DOMAINS[0]!,
     });

@@ -1,8 +1,5 @@
 @import "tailwindcss";
 
-/* ===== KHỐI ĐỔI THƯƠNG HIỆU (từ tokens.css của skill evon:ui-ux, nền sáng) =====
-   Màu nhấn: đổi --primary (và --primary-hover, --primary-light đi kèm) ở ĐÂY, không nơi nào khác.
-   Font: đổi trong src/app/layout.tsx (biến --font-inter). */
 :root {
   color-scheme: light;
   --app-font: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
@@ -32,7 +29,6 @@
   --ring-focus: color-mix(in srgb, var(--primary) 10%, transparent);
   --border-focus: var(--primary);
 
-  /* Màu mang nghĩa (M7, M30). */
   --danger: #c70036;
   --danger-bg: rgb(255 32 86 / 0.1);
   --danger-bg-hover: rgb(255 32 86 / 0.15);
@@ -48,7 +44,6 @@
   --neutral-bg: #f4f4f5;
   --neutral: #52525c;
 }
-/* ===== HẾT KHỐI ĐỔI THƯƠNG HIỆU ===== */
 
 @theme inline {
   --font-sans: var(--app-font);
@@ -89,13 +84,11 @@
   --shadow-modal: var(--elevation-modal);
 }
 
-/* Nền rê của nút viền theo nền phía sau (tokens.css). */
 .bg-surface *,
 .bg-surface-overlay * {
   --button-hover: var(--button-hover-surface);
 }
 
-/* Thanh cuộn tự ẩn (I18). */
 * { --scrollbar-thumb: transparent; }
 *:hover { --scrollbar-thumb: color-mix(in srgb, var(--foreground) 16%, transparent); }
 ::-webkit-scrollbar { width: 4px; height: 4px; }
@@ -114,7 +107,6 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Lớp nổi và panel trượt: một đường cong cho mọi khối trượt (app.md, overlay.md). */
 @keyframes pop-in { from { opacity: 0; translate: 0 -4px; } }
 @keyframes fade-in { from { opacity: 0; } }
 @keyframes slide-in-right { from { translate: 100% 0; } }
@@ -129,8 +121,6 @@ body {
   .animate-pop, .animate-fade, .animate-sheet-right, .animate-sheet-left, .animate-dialog { animation: none; }
 }
 
-/* I13: không vẽ vòng focus. Nút, link, dòng bấm được đều `outline-hidden`; link thường và
-   phần tử có tabindex trước đây còn outline mặc định của trình duyệt nên lệch với phần còn lại. */
 a:focus-visible,
 button:focus-visible,
 summary:focus-visible,

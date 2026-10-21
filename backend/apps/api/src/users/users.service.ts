@@ -41,7 +41,6 @@ export class UsersService {
     };
   }
 
-  /** Dùng cho ô chọn người khi share/mention/thêm thành viên. */
   async search(q: string, limit: number) {
     return this.prisma.client.user.findMany({
       where: { status: 'ACTIVE', ...this.textFilter(q) },
@@ -69,7 +68,6 @@ export class UsersService {
     body: AdminUpdateUserBody,
     ctx: RequestContext,
   ) {
-    // Không tự khóa / tự gỡ quyền admin của mình, tránh hệ thống không còn ai quản trị.
     if (userId === actor.id) throw AppError.forbidden('You cannot change your own account here');
 
     const existing = await this.prisma.client.user.findUnique({ where: { id: userId } });
@@ -97,10 +95,6 @@ export class UsersService {
     return user;
   }
 
-  /**
-   * Cho phép thêm người chưa từng đăng nhập (vào workspace, share): tạo trước user theo email công ty.
-   * Lần đăng nhập Google đầu tiên sẽ cập nhật tên/ảnh thật. User bị khóa → 400.
-   */
   async findOrProvision(email: string) {
     if (!this.auth.isAllowedEmail(email)) {
       throw AppError.validation(`Only company accounts are allowed (${email})`);

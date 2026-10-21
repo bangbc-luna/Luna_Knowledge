@@ -1,10 +1,3 @@
-// Upload file từ dòng lệnh, đi đúng luồng của trình duyệt (SPEC §7.7): xin phiên upload →
-// PUT từng part lên URL ký sẵn → hoàn tất → chờ worker xử lý xong.
-//
-//   pnpm upload <file> [--ws <id|slug>] [--parent <folderId>] [--replace <nodeId>]
-//                      [--email qa.owner@lunatech.vn] [--api http://localhost:4000]
-//
-// Đăng nhập bằng /dev/token nên chỉ chạy được khi API ở NODE_ENV=development.
 import { open, stat } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -112,7 +105,6 @@ try {
 }
 
 await call('POST', `/uploads/${upload.uploadId}/complete`, token, {});
-// Video: transcode có thể lâu hơn nhiều, CLI chỉ chờ tối đa 5 phút.
 for (let i = 0; i < (kind === 'VIDEO' ? 300 : 120); i++) {
   const file = await call<{
     node: { status: string };

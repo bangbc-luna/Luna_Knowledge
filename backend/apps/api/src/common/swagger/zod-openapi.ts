@@ -4,7 +4,6 @@ import { z } from 'zod';
 
 type JsonSchema = Record<string, unknown>;
 
-/** Chuyển zod schema sang JSON Schema OpenAPI 3.0 để Swagger hiển thị đúng như validation. */
 export function toOpenApi(schema: z.ZodType, io: 'input' | 'output' = 'output'): JsonSchema {
   const { $schema: _ignored, ...json } = z.toJSONSchema(schema, {
     target: 'openapi-3.0',
@@ -23,7 +22,6 @@ export const ApiZodOk = (schema: z.ZodType, description?: string) =>
 export const ApiZodCreated = (schema: z.ZodType, description?: string) =>
   ApiCreatedResponse({ schema: toOpenApi(schema) as never, description });
 
-/** Khai báo từng query param của một z.object cho Swagger. */
 export function ApiZodQuery(schema: z.ZodObject) {
   const json = toOpenApi(schema, 'input') as {
     properties?: Record<string, JsonSchema>;

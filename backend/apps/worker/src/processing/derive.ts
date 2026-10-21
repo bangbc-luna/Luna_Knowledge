@@ -6,10 +6,8 @@ import sharp from 'sharp';
 
 const PREVIEW_PX = 1600;
 const THUMB_PX = 320;
-/** Giới hạn chữ trích để lưu DB/đánh chỉ mục (Phase 6). */
 export const MAX_TEXT_CHARS = 1_000_000;
 const CONVERT_TIMEOUT_MS = 180_000;
-/** File chữ lớn hơn mức này không có bản xem trước (trình duyệt cũng không hiển thị nổi). */
 const MAX_TEXT_PREVIEW_BYTES = 5 * 1024 * 1024;
 
 export interface DerivedFile {
@@ -22,7 +20,6 @@ export interface Derived {
   previewKind: 'pdf' | 'image' | 'text' | 'none';
   preview?: DerivedFile;
   thumbnail?: DerivedFile;
-  /** Lỗi không chặn (không tạo được preview…), ghi lại để hiển thị. */
   warnings: string[];
 }
 
@@ -31,7 +28,6 @@ export interface Converters {
   tikaUrl: string;
 }
 
-/** Tạo bản xem trước theo loại file (SPEC FILE-1..3). Lỗi tạo preview không làm hỏng việc upload. */
 export async function buildPreviews(
   localPath: string,
   fileName: string,
@@ -69,7 +65,6 @@ export async function buildPreviews(
       case 'image': {
         const preview = join(workDir, 'preview.webp');
         const thumb = join(workDir, 'thumb.webp');
-        // rotate(): xoay theo EXIF (ảnh chụp điện thoại). Bỏ metadata (GPS…) ở bản dẫn xuất.
         await sharp(localPath)
           .rotate()
           .resize(PREVIEW_PX, PREVIEW_PX, { fit: 'inside', withoutEnlargement: true })
@@ -88,7 +83,6 @@ export async function buildPreviews(
         };
       }
       case 'video':
-        // Phase 4: transcode HLS, poster, sprite.
         return { previewKind: 'none', warnings };
     }
   } catch (err) {
@@ -97,14 +91,12 @@ export async function buildPreviews(
   return { previewKind: 'none', warnings };
 }
 
-/** text/csv, text/markdown hiển thị như chữ thường; JSON giữ MIME riêng. */
 function textMime(mime: string): string {
   return mime === 'application/json' ? 'application/json' : 'text/plain';
 }
 
 async function officeToPdf(src: string, fileName: string, out: string, gotenbergUrl: string) {
   const form = new FormData();
-  // Gotenberg đoán định dạng theo đuôi file trong tên.
   form.append('files', await openAsBlob(src), safeAsciiName(fileName));
   const res = await fetch(new URL('/forms/libreoffice/convert', gotenbergUrl), {
     method: 'POST',
@@ -117,7 +109,6 @@ async function officeToPdf(src: string, fileName: string, out: string, gotenberg
   await writeFile(out, Buffer.from(await res.arrayBuffer()));
 }
 
-/** Trích chữ để tìm kiếm: định dạng chữ đọc thẳng, còn lại qua Tika. Ảnh/video bỏ qua. */
 export async function extractText(
   localPath: string,
   rule: FileTypeRule,

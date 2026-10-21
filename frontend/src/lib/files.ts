@@ -1,4 +1,3 @@
-/** Đuôi file được phép tải lên (khớp backend `FILE_TYPES`). Dùng cho `accept` và để chặn sớm. */
 export const ALLOWED_EXTENSIONS = [
   "pdf", "docx", "xlsx", "pptx", "doc", "xls", "ppt", "odt", "ods", "odp", "rtf",
   "png", "jpg", "jpeg", "webp", "gif", "avif", "heic",
@@ -15,7 +14,6 @@ export function extensionOf(name: string): string {
   return dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
 }
 
-/** "6,8 MB", "512 KB", "1,1 GB" (dấu phẩy thập phân như mọi số trong app). */
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   const units = ["KB", "MB", "GB", "TB"];

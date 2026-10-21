@@ -182,7 +182,6 @@ describe('Workspaces & members (e2e)', () => {
         .delete(`/api/v1/workspaces/${wsId}/members/${owner.userId}`)
         .set(editor.auth)
         .expect(403);
-      // ADMIN không gọi được API chuyển quyền sở hữu.
       await http()
         .post(`/api/v1/workspaces/${wsId}/transfer-ownership`)
         .set(editor.auth)

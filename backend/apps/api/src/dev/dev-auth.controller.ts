@@ -20,10 +20,6 @@ const devTokenBody = z.object({
   name: z.string().trim().min(1).max(100).optional(),
 });
 
-/**
- * Cấp token không qua Google, để test API bằng file .http / Swagger với nhiều vai trò.
- * Chỉ tồn tại khi NODE_ENV=development (DevModule không được nạp ở môi trường khác).
- */
 @ApiTags('dev')
 @Public()
 @Controller('dev')
@@ -32,7 +28,6 @@ export class DevAuthController {
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly auth: AuthService,
   ) {
-    // Phòng thủ thêm một lớp: không bao giờ chạy ở production dù cấu hình module sai.
     if (config.NODE_ENV === 'production')
       throw new Error('DevAuthController must not load in production');
   }

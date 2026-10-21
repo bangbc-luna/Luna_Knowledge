@@ -5,7 +5,6 @@ import { AppError } from '../common/errors/app-error.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { roleAtLeast } from '../workspaces/workspace-roles.js';
 
-/** Quyền trên nội dung: cùng thang với vai trò workspace (share chỉ cấp EDITOR/VIEWER). */
 export type ContentRole = WorkspaceRole;
 
 export interface NodeAccess {
@@ -18,9 +17,7 @@ export interface NodeAccess {
   deletedAt: Date | null;
   deletedRootId: string | null;
   deletedById: string | null;
-  /** Vai trò thành viên workspace; null nếu chỉ truy cập qua share. */
   memberRole: WorkspaceRole | null;
-  /** Quyền thực tế = max(vai trò workspace, share trên node hoặc tổ tiên). */
   role: ContentRole | null;
 }
 
@@ -46,15 +43,10 @@ function maxRole(a: ContentRole | null, b: ContentRole | null): ContentRole | nu
   return RANK[a] >= RANK[b] ? a : b;
 }
 
-/**
- * Permission engine (SPEC §3.3, §6). System Admin KHÔNG tự có quyền xem nội dung:
- * muốn xem phải là thành viên workspace (quyết định 2026-10-14).
- */
 @Injectable()
 export class ContentAccessService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Tính quyền cho nhiều node trong một truy vấn (dùng GiST index trên `path`). */
   async resolveMany(userId: string, nodeIds: string[]): Promise<Map<string, NodeAccess>> {
     if (nodeIds.length === 0) return new Map();
     const rows = await this.prisma.client.$queryRaw<AccessRow[]>`
@@ -70,7 +62,6 @@ export class ContentAccessService {
         JOIN workspaces w ON w.id = n.workspace_id AND w.deleted_at IS NULL
         LEFT JOIN workspace_members m ON m.workspace_id = n.workspace_id AND m.user_id = ${userId}::uuid
        WHERE n.id = ANY(${nodeIds}::uuid[])`;
-    // ShareRole enum khai báo EDITOR trước VIEWER nên ORDER BY ASC lấy quyền cao nhất.
     return new Map(
       rows.map((r) => [
         r.id,
@@ -91,10 +82,6 @@ export class ContentAccessService {
     );
   }
 
-  /**
-   * Lấy node và kiểm tra quyền. Không có quyền xem → 404 (không lộ sự tồn tại);
-   * xem được nhưng thiếu quyền → 403. Node trong thùng rác → 404 trừ khi `allowDeleted`.
-   */
   async requireNode(
     user: AuthenticatedUser,
     nodeId: string,
@@ -111,7 +98,6 @@ export class ContentAccessService {
     return access as NodeAccess & { role: ContentRole };
   }
 
-  /** Thao tác ở cấp workspace (gốc cây, thùng rác, tag): chỉ thành viên. */
   async requireMember(
     user: AuthenticatedUser,
     workspaceId: string,
@@ -128,7 +114,6 @@ export class ContentAccessService {
     return member.role;
   }
 
-  /** Điều kiện SQL "user xem được node `n`" cho các danh sách gom từ nhiều workspace. */
   visibleTo(userId: string): Prisma.Sql {
     return Prisma.sql`(
       EXISTS (SELECT 1 FROM workspace_members m

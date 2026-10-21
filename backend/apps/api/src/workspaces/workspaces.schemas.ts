@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import { userSummarySchema, workspaceRoleSchema } from '../users/users.schemas.js';
 
-/** Vai trò gán được trực tiếp; OWNER chỉ đổi qua chuyển quyền sở hữu. */
 export const assignableRoleSchema = z.enum(['ADMIN', 'EDITOR', 'VIEWER']);
 
 const slug = z

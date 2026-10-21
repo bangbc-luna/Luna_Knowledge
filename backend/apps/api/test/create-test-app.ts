@@ -16,7 +16,6 @@ export interface TestContext {
   close(): Promise<void>;
 }
 
-/** Khởi tạo app giống hệt main.ts (prefix, filter, cookie, swagger) trên hạ tầng Testcontainers. */
 export async function createTestApp(): Promise<TestContext> {
   const google = new FakeGoogleIdentity();
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
@@ -29,7 +28,6 @@ export async function createTestApp(): Promise<TestContext> {
   return { app, google, prisma: app.get(PrismaService).client, close: () => app.close() };
 }
 
-/** Xóa sạch dữ liệu giữa các file test. */
 export async function resetDatabase(prisma: TestContext['prisma']) {
   await prisma.$executeRawUnsafe(
     'TRUNCATE blob_gc, audit_logs, recent_views, favorites, node_tags, tags, node_shares, nodes, refresh_tokens, sessions, workspace_members, workspaces, users CASCADE',
@@ -43,7 +41,6 @@ export interface LoggedIn {
   auth: { Authorization: string };
 }
 
-/** Chạy trọn luồng đăng nhập Google (giả) → callback → refresh, trả agent đang giữ cookie. */
 export async function loginAs(
   ctx: TestContext,
   email: string,
@@ -70,7 +67,6 @@ export async function loginAs(
   };
 }
 
-/** Tạo sẵn System Admin rồi đăng nhập. */
 export async function loginAsAdmin(ctx: TestContext, email = 'admin@lunatech.vn') {
   await ctx.prisma.user.upsert({
     where: { email },
@@ -80,13 +76,11 @@ export async function loginAsAdmin(ctx: TestContext, email = 'admin@lunatech.vn'
   return loginAs(ctx, email);
 }
 
-/** Header `set-cookie` luôn ở dạng mảng (kiểu của supertest khai báo là string). */
 export function setCookies(res: request.Response): string[] {
   const raw = res.headers['set-cookie'] as unknown;
   return Array.isArray(raw) ? raw : raw ? [String(raw)] : [];
 }
 
-/** Giá trị `name=value` của cookie trong response, dùng gửi lại qua header Cookie. */
 export function cookiePair(res: request.Response, name: string): string | undefined {
   return setCookies(res)
     .find((c) => c.startsWith(`${name}=`))

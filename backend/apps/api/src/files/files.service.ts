@@ -36,7 +36,6 @@ interface DownloadGrant {
   versionId: string;
 }
 
-/** Xem trước, tải về, phiên bản của file (SPEC §7.8, FILE-1..4). */
 @Injectable()
 export class FilesService {
   constructor(
@@ -98,7 +97,6 @@ export class FilesService {
     };
   }
 
-  /** URL ký tới thumbnail (controller trả redirect 302). */
   async thumbnailUrl(user: AuthenticatedUser, nodeId: string): Promise<string> {
     await this.requireFile(user, nodeId, 'VIEWER');
     const version = await this.findVersion(nodeId);
@@ -110,7 +108,6 @@ export class FilesService {
     return url;
   }
 
-  /** Mở stream file gốc (qua API, không lộ vị trí lưu trữ) và ghi audit `file.download`. */
   async openDownload(
     user: { id: string },
     nodeId: string,
@@ -139,10 +136,6 @@ export class FilesService {
     };
   }
 
-  /**
-   * Link tải dùng một lần (60 giây) để trình duyệt tải trực tiếp, không phải nạp cả file vào bộ nhớ
-   * bằng fetch. Kiểm tra quyền ngay lúc tạo và kiểm tra lại lúc tải.
-   */
   async createDownloadLink(user: AuthenticatedUser, nodeId: string, versionId?: string) {
     const node = await this.requireFile(user, nodeId, 'VIEWER');
     this.assertDownloadable(node);
@@ -193,7 +186,6 @@ export class FilesService {
       }),
       this.prisma.client.node.update({
         where: { id: nodeId },
-        // Video: bản HLS dựng từ phiên bản khác, phải transcode lại phiên bản vừa chọn.
         data: { status: node.type === 'VIDEO' ? 'PROCESSING' : 'READY', updatedById: user.id },
       }),
     ]);
@@ -210,7 +202,6 @@ export class FilesService {
     return this.detail(user, nodeId, ctx);
   }
 
-  /** Tạo lại preview/thumbnail/chữ trích từ file gốc (khi lỗi hoặc mất dữ liệu MinIO). */
   async regenerate(user: AuthenticatedUser, nodeId: string, ctx: RequestContext) {
     const node = await this.requireFile(user, nodeId, 'EDITOR');
     const version = await this.findVersion(nodeId);
@@ -219,7 +210,6 @@ export class FilesService {
       where: { id: nodeId },
       select: { status: true },
     });
-    // Đang tải lên / đang xử lý: bấm lại sẽ chạy trùng job (video là cả một lần transcode).
     if (current?.status === 'UPLOADING' || current?.status === 'PROCESSING') {
       throw AppError.conflict('This file is still being uploaded or processed');
     }
@@ -267,7 +257,6 @@ export class FilesService {
     };
   }
 
-  /** Dung lượng một workspace (không có quota ở MVP, chỉ để theo dõi). */
   async storageStats(user: AuthenticatedUser, workspaceId: string) {
     await this.access.requireMember(user, workspaceId, 'VIEWER');
     const [row] = await this.prisma.client.$queryRaw<
@@ -287,8 +276,6 @@ export class FilesService {
       trashBytes: Number(row!.trash),
     };
   }
-
-  // ---------------------------------------------------------------- Helpers
 
   private async requireFile(user: AuthenticatedUser, nodeId: string, min: 'VIEWER' | 'EDITOR') {
     const node = await this.access.requireNode(user, nodeId, min);
@@ -334,7 +321,6 @@ export class FilesService {
   }
 }
 
-/** Tên khi tải: theo tên mục hiện tại (có thể đã đổi tên), giữ đuôi của file đã tải lên. */
 function downloadFileName(nodeName: string, uploadedName: string): string {
   const ext = uploadedName.includes('.') ? uploadedName.slice(uploadedName.lastIndexOf('.')) : '';
   return ext && !nodeName.toLowerCase().endsWith(ext.toLowerCase()) ? nodeName + ext : nodeName;

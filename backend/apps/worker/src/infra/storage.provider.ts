@@ -10,12 +10,10 @@ import {
 import { Inject, Injectable, type OnModuleDestroy } from '@nestjs/common';
 import { WORKER_CONFIG, type WorkerConfig } from '../config/worker-config.js';
 
-/** Bucket MinIO: file gốc (`originals`) và bản dẫn xuất (preview, thumbnail…). */
 @Injectable()
 export class StorageService implements OnModuleDestroy {
   readonly s3: S3Client;
   readonly buckets: Record<BucketKey, string>;
-  /** Nơi ghi file gốc mới (bucket `originals`). */
   readonly originals: BlobStorage;
   private readonly s3Storage: S3BlobStorage;
 
@@ -26,7 +24,6 @@ export class StorageService implements OnModuleDestroy {
     this.originals = this.s3Storage;
   }
 
-  /** Kho S3 ghi vào một bucket dẫn xuất cụ thể. */
   bucket(key: BucketKey): S3BlobStorage {
     return new S3BlobStorage(this.s3, this.buckets[key]);
   }

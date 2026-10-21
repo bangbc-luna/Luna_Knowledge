@@ -4,7 +4,6 @@ import type { LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/cn";
 
-/** Link sidebar: cao 40px, rê item-hover, đang chọn secondary + đậm (app.md). */
 export function NavLink({ href, icon: Icon, label, active }: { href: string; icon: LucideIcon; label: string; active: boolean }) {
   return (
     <Link

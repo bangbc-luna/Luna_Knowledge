@@ -9,7 +9,6 @@ export function rememberWorkspace(id: string) {
   try {
     localStorage.setItem(LAST_WS, id);
   } catch {
-    /* trình duyệt chặn lưu: bỏ qua, chỉ là tiện ích */
   }
 }
 
@@ -21,7 +20,6 @@ export function lastWorkspace(): string | null {
   }
 }
 
-/** Workspace đang xem (theo URL) và vai trò của tôi trong đó; null nếu tôi không phải thành viên. */
 export function useCurrentWorkspace() {
   const { me } = useAuth();
   const params = useParams<{ wsId?: string }>();

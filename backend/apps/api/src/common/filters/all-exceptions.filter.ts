@@ -15,7 +15,6 @@ export interface ErrorBody {
   error: { code: string; message: string; details?: unknown; requestId?: string };
 }
 
-/** Mọi lỗi đều trả về dạng `{ error: { code, message, details?, requestId } }` (SPEC §7). */
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger(AllExceptionsFilter.name);
@@ -54,7 +53,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
         typeof response === 'string'
           ? response
           : String((response as { message?: unknown }).message ?? exception.message);
-      // Health check (Terminus) gửi kèm trạng thái từng dịch vụ: giữ lại để biết cái nào down.
       const details =
         typeof response === 'object' && response !== null && 'details' in response
           ? (response as { details: unknown }).details

@@ -84,7 +84,6 @@ export function Card({ children, className }: { children: React.ReactNode; class
   return <section className={cn("rounded-2xl border border-border bg-surface", className)}>{children}</section>;
 }
 
-/** Đường dẫn: chỉ các cấp cha, là link (breadcrumb.md). */
 export function Breadcrumb({ items, className }: { items: Array<{ label: string; href: string }>; className?: string }) {
   if (!items.length) return null;
   return (
@@ -101,7 +100,6 @@ export function Breadcrumb({ items, className }: { items: Array<{ label: string;
   );
 }
 
-/** Tab trạng thái trên bảng: variant boxed (small-controls.md). */
 export function Tabs<T extends string>({ value, onChange, items, label }: { value: T; onChange: (v: T) => void; items: Array<{ value: T; label: string; count?: number }>; label: string }) {
   return (
     <div role="tablist" aria-label={label} className="scrollbar-clean flex gap-1 overflow-x-auto px-1 py-0.5">
@@ -125,7 +123,6 @@ export function Tabs<T extends string>({ value, onChange, items, label }: { valu
   );
 }
 
-/** Thanh header trang trong khu user/admin: nút ☰ (dưới lg), tiêu đề, khối bên phải. */
 export function TopBarTitle({ children }: { children: React.ReactNode }) {
   return <div className="min-w-0 flex-1">{children}</div>;
 }

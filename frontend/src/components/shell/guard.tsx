@@ -6,13 +6,11 @@ import { useEffect } from "react";
 import { useAuth } from "@/lib/auth";
 import { Button } from "../ui/button";
 
-/** Chặn trang cần đăng nhập (và cần System Admin nếu `admin`). Chưa đăng nhập → /login. */
 export function Guard({ admin = false, children }: { admin?: boolean; children: React.ReactNode }) {
   const { status, me, lostReason, loginDev } = useAuth();
   const router = useRouter();
   useEffect(() => {
     if (status !== "anon") return;
-    // Chỉ ở dev: `?as=email` đăng nhập thẳng persona, để script chụp/đo trang (probe) vào được sau Guard.
     const devAs = process.env.NODE_ENV === "development" ? new URLSearchParams(window.location.search).get("as") : null;
     if (devAs) {
       void loginDev(devAs).catch(() => router.replace("/login"));

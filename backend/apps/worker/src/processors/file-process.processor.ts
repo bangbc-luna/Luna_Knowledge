@@ -35,11 +35,6 @@ interface WrittenBlob extends BlobRef {
   sha256?: string;
 }
 
-/**
- * Xử lý file sau khi upload xong (PLAN Phase 3): tải từ bucket tmp, xác định loại thật, tính SHA-256,
- * lưu bản gốc, tạo preview/thumbnail, trích chữ, rồi ghi phiên bản mới. Job chạy lại an toàn:
- * id phiên bản = id upload nên lần chạy sau thấy đã xong thì chỉ dọn tmp.
- */
 @Processor(QUEUES.FILE_PROCESS, { concurrency: 2 })
 export class FileProcessProcessor extends WorkerHost implements OnApplicationBootstrap {
   private readonly logger = new Logger(FileProcessProcessor.name);
@@ -69,7 +64,6 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
     }
   }
 
-  /** Hết số lần thử (hoặc lỗi vĩnh viễn): báo FAILED cho người dùng. */
   @OnWorkerEvent('failed')
   async onFailed(job: Job | undefined, err: Error) {
     if (!job) return;
@@ -86,8 +80,6 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
           )?.nodeId;
     if (nodeId) await this.markFailed(nodeId, publicMessage(err));
   }
-
-  // ---------------------------------------------------------------- Upload mới
 
   async processUpload(uploadId: string) {
     const session = await this.prisma.client.uploadSession.findUnique({
@@ -134,7 +126,7 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
 
       const created = await this.prisma.client.$transaction(async (tx) => {
         const exists = await tx.node.findUnique({ where: { id: node.id }, select: { id: true } });
-        if (!exists) return false; // Đã bị xóa vĩnh viễn trong lúc xử lý.
+        if (!exists) return false;
         const blobs = await Promise.all(
           written.map((b) =>
             tx.blob.create({
@@ -182,7 +174,6 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
         });
         await tx.node.update({
           where: { id: node.id },
-          // Video còn chờ transcode HLS (Phase 4).
           data: {
             status: kind === 'VIDEO' ? 'PROCESSING' : 'READY',
             updatedById: session.createdById,
@@ -222,8 +213,6 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
       await rm(workDir, { recursive: true, force: true });
     }
   }
-
-  // ---------------------------------------------------------------- Tạo lại bản dẫn xuất
 
   async regenerate({ nodeId, versionId }: RegenerateJob) {
     const version = await this.prisma.client.fileVersion.findFirst({
@@ -273,7 +262,6 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
             previewKind: derived.previewKind,
           },
         });
-        // Xóa blob cũ: trigger đưa object vào hàng đợi dọn (key mới khác key cũ nên không đụng nhau).
         if (oldIds.length) await tx.blob.deleteMany({ where: { id: { in: oldIds } } });
         const info = await tx.fileInfo.findUnique({ where: { nodeId } });
         const isCurrent = info?.currentVersionId === versionId;
@@ -299,9 +287,6 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
     }
   }
 
-  // ---------------------------------------------------------------- Helpers
-
-  /** Preview + thumbnail lên MinIO, cùng chữ trích. Key có hậu tố ngẫu nhiên để tạo lại không ghi đè. */
   private async derive(
     local: string,
     fileName: string,
@@ -353,18 +338,15 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
         create: { nodeId, processingError: message },
         update: { processingError: message },
       });
-      // Phiên bản mới lỗi thì file vẫn dùng phiên bản cũ.
       const status = info.currentVersionId ? 'READY' : 'FAILED';
       await this.prisma.client.node.update({ where: { id: nodeId }, data: { status } });
       await this.events.publish({ nodeId, status, error: message });
     } catch (err) {
-      // Node đã bị xóa vĩnh viễn.
       this.logger.warn({ err, nodeId }, 'Could not mark file as failed');
     }
   }
 }
 
-/** Ghi stream ra file, đồng thời tính SHA-256 và kích thước. */
 async function saveWithHash(body: Readable, path: string) {
   const hash = createHash('sha256');
   let size = 0n;
@@ -382,7 +364,6 @@ async function saveWithHash(body: Readable, path: string) {
   return { sha256: hash.digest('hex'), size };
 }
 
-/** Lỗi trả cho người dùng: lỗi file không hợp lệ giữ nguyên, lỗi hạ tầng thì nói chung chung. */
 function publicMessage(err: Error): string {
   if (err instanceof UnrecoverableError) return err.message;
   return 'Processing failed, please try again later';

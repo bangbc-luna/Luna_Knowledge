@@ -24,7 +24,6 @@ export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTML
   },
 );
 
-/** Ô tìm có icon kính lúp (ô nhập thường để trơn, không icon trái). */
 export function SearchInput({ label, className, ...rest }: React.InputHTMLAttributes<HTMLInputElement> & { label: string }) {
   return (
     <label className={cn("relative block min-w-0", className)}>
@@ -35,7 +34,6 @@ export function SearchInput({ label, className, ...rest }: React.InputHTMLAttrib
   );
 }
 
-/** Nhãn + ô + câu lỗi/gợi ý dưới ô. */
 export function Field({
   label,
   hint,

@@ -3,7 +3,6 @@ import { PrismaService } from '../infra/prisma/prisma.service.js';
 
 const DAY = 24 * 3600_000;
 
-/** Số liệu cho màn Tổng quan của trang admin. */
 @Injectable()
 export class AdminStatsService {
   constructor(private readonly prisma: PrismaService) {}

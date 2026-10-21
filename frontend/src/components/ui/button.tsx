@@ -4,7 +4,6 @@ import { LoaderCircle, type LucideIcon } from "lucide-react";
 import { forwardRef } from "react";
 import { cn } from "@/lib/cn";
 
-/** Bốn dạng, hết (I1): viền là mặc định; primary chỉ cho hành động chính duy nhất của một khu. */
 export type ButtonVariant = "outline" | "primary" | "secondary" | "ghost" | "danger";
 
 function variantClasses(variant: ButtonVariant): string {
@@ -34,7 +33,6 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       aria-busy={loading || undefined}
       aria-disabled={loading || undefined}
       onClick={(event) => {
-        // Đang xử lý: chặn bấm bằng aria-disabled, không đặt disabled để giữ focus (button.md).
         if (loading) event.preventDefault();
         else onClick?.(event);
       }}
@@ -56,7 +54,6 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   );
 });
 
-/** Nút chỉ icon trong dòng bảng/danh sách: 32px, nền rê /8 vì chồng lên nền dòng đang rê (I10). */
 export const IconButton = forwardRef<
   HTMLButtonElement,
   React.ButtonHTMLAttributes<HTMLButtonElement> & { icon: LucideIcon; label: string }

@@ -9,7 +9,6 @@ export interface PingResult {
   workerPid: number;
 }
 
-/** Hàng đợi `system`: job chẩn đoán, dùng để kiểm tra đường đi API → Redis → worker. */
 @Processor(QUEUES.SYSTEM)
 export class SystemProcessor extends WorkerHost {
   private readonly logger = new Logger(SystemProcessor.name);

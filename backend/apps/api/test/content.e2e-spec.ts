@@ -82,12 +82,11 @@ describe('Content tree, sharing, trash (e2e)', () => {
       await createFolder(editor, 'Thiết kế', root.body.id).expect(201);
       await createFolder(viewer, 'Không được').expect(403);
       await createFolder(guest, 'Không được').expect(404);
-      // System Admin không phải thành viên: không thấy nội dung.
       await list(sysadmin).expect(404);
     });
 
     it('trùng tên (không phân biệt hoa thường, NFC) → 409 kèm gợi ý', async () => {
-      const decomposed = 'Du\u031b\u0323 a\u0301n'; // "Dự án" dạng tổ hợp (u + móc + nặng)
+      const decomposed = 'Du\u031b\u0323 a\u0301n';
       expect(decomposed.normalize('NFC')).toBe('Dự án');
       const res = await createFolder(editor, `  ${decomposed.toUpperCase()} `).expect(409);
       expect(res.body.error.details.suggestion).toBe('DỰ ÁN (1)');
@@ -138,7 +137,6 @@ describe('Content tree, sharing, trash (e2e)', () => {
         .expect(200);
       expect(res.body.name).toBe('Tên A mới');
       await http().patch(`/api/v1/nodes/${a}`).set(editor.auth).send({ name: 'tên b' }).expect(409);
-      // Đổi hoa thường của chính nó thì được.
       await http()
         .patch(`/api/v1/nodes/${a}`)
         .set(editor.auth)
@@ -290,7 +288,6 @@ describe('Content tree, sharing, trash (e2e)', () => {
         .expect(200);
       await createFolder(guest, 'Của khách', sub).expect(201);
       await createFolder(guest, 'Của khách').expect(404);
-      // Người được share không quản lý share được.
       await http().get(`/api/v1/nodes/${shared}/shares`).set(guest.auth).expect(403);
     });
 

@@ -1,4 +1,3 @@
-/** Mã lỗi mạng cho thấy một dịch vụ phụ thuộc (Postgres, Redis, S3…) không truy cập được. */
 const NETWORK_CODES = new Set([
   'ECONNREFUSED',
   'ECONNRESET',
@@ -8,16 +7,8 @@ const NETWORK_CODES = new Set([
   'EAI_AGAIN',
 ]);
 
-const INFRA_ERROR_NAMES = new Set([
-  'PrismaClientInitializationError',
-  // ioredis: hết số lần thử lại khi Redis không kết nối được.
-  'MaxRetriesPerRequestError',
-]);
+const INFRA_ERROR_NAMES = new Set(['PrismaClientInitializationError', 'MaxRetriesPerRequestError']);
 
-/**
- * Lỗi do hạ tầng chưa sẵn sàng (không phải lỗi code): trả 503 thay vì 500.
- * Duyệt cả chuỗi `cause` và `AggregateError.errors` vì thư viện hay bọc lỗi gốc.
- */
 export function isInfrastructureError(err: unknown, depth = 0): boolean {
   if (!err || typeof err !== 'object' || depth > 5) return false;
   const e = err as { name?: string; code?: unknown; cause?: unknown; errors?: unknown[] };
@@ -29,7 +20,6 @@ export function isInfrastructureError(err: unknown, depth = 0): boolean {
   return isInfrastructureError(e.cause, depth + 1);
 }
 
-/** Mô tả ngắn cho log/health: ưu tiên mã lỗi mạng, rồi tên lỗi, rồi dòng đầu của message. */
 export function describeError(err: unknown, depth = 0): string {
   if (!err || typeof err !== 'object' || depth > 5) return String(err);
   const e = err as {

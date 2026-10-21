@@ -21,10 +21,6 @@ async function probe(check: () => Promise<unknown>): Promise<string | null> {
   }
 }
 
-/**
- * Kiểm tra Postgres và Redis ngay khi khởi động. Không dừng app (để watch mode vẫn chạy),
- * nhưng in cảnh báo rõ ràng thay vì để người dùng gặp lỗi 503 khó hiểu ở request đầu tiên.
- */
 export async function warnIfDependenciesDown(app: INestApplication, logger: Logger) {
   const prisma = app.get(PrismaService).client;
   const redis = app.get<Redis>(REDIS);

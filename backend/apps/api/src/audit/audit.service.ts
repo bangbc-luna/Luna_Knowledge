@@ -5,7 +5,6 @@ import type { RequestContext } from '../common/http/request-context.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { REDIS } from '../infra/redis/redis.module.js';
 
-/** Một người mở lại cùng một mục trong khoảng này chỉ ghi một lượt xem (log không bị ngập). */
 const VIEW_DEDUPE_SEC = 300;
 
 export interface AuditEntry {
@@ -18,10 +17,6 @@ export interface AuditEntry {
   ctx?: RequestContext;
 }
 
-/**
- * Ghi audit log (SPEC AUDIT-1..2). Ghi thẳng vào DB: lượng log nhỏ (<200 user).
- * Lỗi ghi log không được làm hỏng thao tác chính, nên chỉ ghi lại lỗi.
- */
 @Injectable()
 export class AuditService {
   private readonly logger = new Logger(AuditService.name);
@@ -31,7 +26,6 @@ export class AuditService {
     @Inject(REDIS) private readonly redis: Redis,
   ) {}
 
-  /** Ghi lượt xem mục (thư mục, tài liệu, tệp, video): ai truy cập cái gì (trang admin, Nhật ký). */
   async logView(
     actorId: string,
     node: { id: string; type: string; name: string; workspaceId: string },
@@ -46,9 +40,7 @@ export class AuditService {
         'NX',
       );
       if (!fresh) return;
-    } catch {
-      // Redis lỗi thì vẫn ghi (thà trùng còn hơn mất dấu truy cập).
-    }
+    } catch {}
     await this.log({
       actorId,
       action: 'node.view',

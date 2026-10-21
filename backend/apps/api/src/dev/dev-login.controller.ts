@@ -2,10 +2,6 @@ import { Controller, Get, Header } from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
 import { Public } from '../auth/decorators/public.decorator.js';
 
-/**
- * Trang thử đăng nhập Google khi chưa có FE (chỉ đăng ký ở NODE_ENV=development).
- * Đặt AUTH_REDIRECT_URL=http://localhost:4000/dev/login để Google quay về đây.
- */
 @ApiExcludeController()
 @Public()
 @Controller('dev')

@@ -6,7 +6,6 @@ export * from './maintenance.js';
 
 export interface CreatePrismaClientOptions {
   connectionString: string;
-  /** Kích thước pool kết nối của `pg`. */
   max?: number;
 }
 

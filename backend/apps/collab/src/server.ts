@@ -12,11 +12,6 @@ export function createLogger(config: CollabConfig) {
   });
 }
 
-/**
- * Server Hocuspocus cho soạn thảo real-time (SPEC §5.5).
- * Phase 0: chỉ có health check; mọi kết nối WebSocket bị từ chối cho đến khi Phase 5
- * cài đặt xác thực collab token + permission engine (an toàn mặc định).
- */
 export function createCollabServer(config: CollabConfig, logger = createLogger(config)) {
   return new Server({
     name: 'luna-collab',
@@ -31,7 +26,6 @@ export function createCollabServer(config: CollabConfig, logger = createLogger(c
       ) {
         response.writeHead(200, { 'Content-Type': 'application/json' });
         response.end(JSON.stringify({ status: 'ok' }));
-        // Hocuspocus quy ước `throw null` để dừng chuỗi xử lý request mặc định.
         throw null;
       }
     },

@@ -65,7 +65,6 @@ export class AuthController {
     });
     const redirect = new URL(this.config.AUTH_REDIRECT_URL);
 
-    // Dựng URL callback từ cấu hình thay vì Host header (không tin header do client gửi).
     const callbackUrl = new URL(googleRedirectUri(this.config));
     for (const [key, value] of Object.entries(req.query)) {
       if (typeof value === 'string') callbackUrl.searchParams.set(key, value);
@@ -129,7 +128,6 @@ export class AuthController {
     @Req() req: Request & AuthenticatedRequest,
     @Res({ passthrough: true }) res: Response,
   ) {
-    // Route @Public nên tự đọc bearer (không bắt buộc): access token hết hạn vẫn đăng xuất được bằng cookie.
     let sessionId: string | undefined;
     const [scheme, token] = (req.headers.authorization ?? '').split(' ');
     if (scheme === 'Bearer' && token) {

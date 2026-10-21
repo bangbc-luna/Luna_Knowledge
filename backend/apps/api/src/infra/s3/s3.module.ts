@@ -4,7 +4,6 @@ import { Global, Inject, Module, type OnModuleDestroy } from '@nestjs/common';
 import { APP_CONFIG, type AppConfig } from '../../config/app-config.js';
 
 export const S3 = Symbol('S3');
-/** Client ký URL cho trình duyệt (host = S3_PUBLIC_ENDPOINT). Không dùng để gọi S3 từ server. */
 export const S3_PRESIGN = Symbol('S3_PRESIGN');
 export const BUCKETS = Symbol('BUCKETS');
 export type Buckets = Record<BucketKey, string>;

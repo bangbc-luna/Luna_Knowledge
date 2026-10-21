@@ -8,7 +8,6 @@ import { Card, EmptyState } from "@/components/ui/misc";
 import { useAuth } from "@/lib/auth";
 import { lastWorkspace } from "@/lib/workspace";
 
-/** Trang đầu: vào workspace dùng gần nhất; chưa thuộc workspace nào thì chỉ còn "Được chia sẻ". */
 export default function HomePage() {
   const { me } = useAuth();
   const router = useRouter();

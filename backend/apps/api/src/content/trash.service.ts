@@ -15,10 +15,6 @@ import { NodesService } from './nodes.service.js';
 
 const userSummary = { id: true, email: true, name: true, avatarUrl: true } as const;
 
-/**
- * Thùng rác (SPEC §7.6). Mỗi lần xóa tạo một "mục gốc" (deleted_root_id = id);
- * khôi phục/xóa vĩnh viễn luôn thao tác trên mục gốc cùng cả nhánh của nó.
- */
 @Injectable()
 export class TrashService {
   private readonly logger = new Logger(TrashService.name);
@@ -60,11 +56,6 @@ export class TrashService {
     });
   }
 
-  /**
-   * Khôi phục về vị trí cũ; nếu folder cha không còn (đã xóa) thì về gốc workspace.
-   * Trùng tên ở nơi khôi phục thì tự đổi tên ("Tên (1)").
-   * ADMIN trở lên khôi phục mọi mục; EDITOR chỉ khôi phục mục do mình xóa.
-   */
   async restore(user: AuthenticatedUser, nodeId: string, ctx: RequestContext) {
     const node = await this.requireTrashRoot(user, nodeId, 'EDITOR');
     if (!roleAtLeast(node.memberRole, 'ADMIN') && node.deletedById !== user.id) {
@@ -111,7 +102,6 @@ export class TrashService {
     };
   }
 
-  /** Xóa vĩnh viễn một mục gốc và cả nhánh (FK parent_id ON DELETE CASCADE). Chỉ OWNER. */
   async deletePermanently(user: AuthenticatedUser, nodeId: string, ctx: RequestContext) {
     const node = await this.requireTrashRoot(user, nodeId, 'OWNER');
     await this.prisma.client.node.delete({ where: { id: nodeId } });
@@ -144,10 +134,6 @@ export class TrashService {
     return { deleted: count };
   }
 
-  /**
-   * Xóa DB xong thì nhờ worker dọn object ngay (trigger đã ghi danh sách vào `blob_gc`).
-   * Không đẩy được job cũng không sao: lịch GC 10 phút sẽ dọn.
-   */
   private async collectGarbageSoon() {
     try {
       await this.maintenance.add(
@@ -164,7 +150,6 @@ export class TrashService {
     }
   }
 
-  /** Mục phải đang nằm trong thùng rác và là mục gốc; thao tác thùng rác chỉ dành cho thành viên. */
   private async requireTrashRoot(user: AuthenticatedUser, nodeId: string, min: 'EDITOR' | 'OWNER') {
     const node = await this.access.requireNode(user, nodeId, 'VIEWER', { allowDeleted: true });
     if (!node.deletedAt) throw AppError.validation('Item is not in the trash');

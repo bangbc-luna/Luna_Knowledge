@@ -30,10 +30,6 @@ export const s3EnvSchema = z.object({
   S3_BUCKET_THUMBNAILS: z.string().min(3),
   S3_BUCKET_ASSETS: z.string().min(3),
   S3_BUCKET_ORIGINALS: z.string().min(3),
-  /**
-   * Địa chỉ trình duyệt dùng để tới S3 (URL ký sẵn cho upload/preview). Chữ ký gắn với host nên
-   * phải ký bằng đúng địa chỉ này. Mặc định = S3_ENDPOINT (dev chạy cùng máy).
-   */
   S3_PUBLIC_ENDPOINT: z.url().optional(),
 });
 
@@ -53,24 +49,18 @@ export const uploadEnvSchema = z.object({
 });
 
 export const videoEnvSchema = z.object({
-  /**
-   * 32 byte (base64) dùng mã hoá khoá AES của từng video trong DB (AES-256-GCM).
-   * Mất master key thì phải transcode lại mọi video từ file gốc (khoá mới).
-   */
   VIDEO_MASTER_KEY: z
     .string()
     .refine(
       (v) => Buffer.from(v, 'base64').length === 32,
       'VIDEO_MASTER_KEY must be 32 bytes, base64',
     ),
-  /** libx264 chạy mọi nơi; h264_nvenc cần GPU NVIDIA (trong Docker: NVIDIA Container Toolkit). */
   VIDEO_ENCODER: z.enum(['libx264', 'h264_nvenc']).default('libx264'),
   VIDEO_TRANSCODE_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(1),
   FFMPEG_PATH: z.string().default('ffmpeg'),
   FFPROBE_PATH: z.string().default('ffprobe'),
 });
 
-/** Tìm file .env gần nhất đi ngược lên từ thư mục hiện tại (monorepo dùng chung .env ở gốc). */
 function findDotenv(start = process.cwd()): string | undefined {
   let dir = start;
   for (;;) {
@@ -82,10 +72,6 @@ function findDotenv(start = process.cwd()): string | undefined {
   }
 }
 
-/**
- * Nạp .env (nếu có, không ghi đè biến đã có trong môi trường) rồi validate.
- * Sai cấu hình thì dừng ngay khi khởi động với thông báo liệt kê từng biến lỗi.
- */
 export function loadEnv<T extends z.ZodType>(schema: T, source?: NodeJS.ProcessEnv): z.output<T> {
   if (!source) {
     const path = findDotenv();

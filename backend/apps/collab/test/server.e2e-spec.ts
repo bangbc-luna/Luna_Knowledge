@@ -27,7 +27,6 @@ describe('Collab server (e2e)', () => {
   });
 
   it('từ chối kết nối khi chưa có xác thực (an toàn mặc định)', async () => {
-    // Node >= 22 có WebSocket toàn cục nên provider chạy được không cần polyfill.
     const reason = await new Promise<string>((resolve) => {
       const provider = new HocuspocusProvider({
         url: `ws://${base}`,

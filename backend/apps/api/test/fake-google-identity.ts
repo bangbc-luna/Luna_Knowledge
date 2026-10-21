@@ -6,12 +6,7 @@ import type {
   GoogleIdentityProvider,
 } from '../src/auth/google/google-identity.js';
 
-/**
- * Thay Google thật trong e2e. Vẫn kiểm tra PKCE: code_verifier gửi lúc đổi code
- * phải khớp code_challenge lúc tạo URL, giống cách Google xác minh.
- */
 export class FakeGoogleIdentity implements GoogleIdentityProvider {
-  /** Claims mà lần đổi code tiếp theo sẽ trả về. */
   nextClaims: GoogleClaims | null = null;
   private challenges = new Map<string, AuthorizationRequest>();
 

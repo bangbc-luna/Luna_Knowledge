@@ -3,9 +3,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 
-/**
- * Lớp nổi bám nút mở: bấm ngoài hoặc Esc thì đóng; gần đáy màn thì lật lên (overlay.md, "Gần mép thì lật").
- */
 export function usePopover() {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -60,7 +57,6 @@ export function PopoverPanel({
   );
 }
 
-/** Mục trong menu/danh sách chọn: rộng hết hàng, cao 40px, bo 12px (overlay.md). */
 export function MenuItem({
   children,
   onClick,

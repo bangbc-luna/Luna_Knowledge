@@ -4,17 +4,11 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { ApiError, api } from "./api";
 import { ALLOWED_EXTENSIONS, MAX_FILE_MB, MAX_VIDEO_MB, VIDEO_EXTENSIONS, extensionOf, formatBytes } from "./files";
 
-/**
- * Upload multipart theo API (SPEC §7.7): xin phiên → PUT từng part thẳng lên MinIO bằng URL ký sẵn
- * → hoàn tất. Part lỗi tự thử lại 3 lần; vẫn lỗi thì dừng ở "Mất kết nối mạng", bấm Thử lại là
- * hỏi API các part đã nhận rồi gửi tiếp phần còn thiếu (không gửi lại từ đầu).
- */
 export type UploadStatus = "queued" | "uploading" | "done" | "error";
 
 export interface UploadTarget {
   wsId: string;
   parentId: string | null;
-  /** Tải phiên bản mới cho một tệp đã có. */
   replaceNodeId?: string;
 }
 
@@ -23,12 +17,9 @@ export interface UploadItem extends UploadTarget {
   file: File;
   name: string;
   status: UploadStatus;
-  /** 0..1 */
   progress: number;
   error?: string;
-  /** Tên còn trống khi trùng tên (409). */
   suggestion?: string;
-  /** Lỗi tạm (mạng): Thử lại được. Lỗi do tệp (sai loại, quá cỡ) thì không. */
   retryable?: boolean;
   uploadId?: string;
   nodeId?: string;
@@ -40,7 +31,6 @@ interface Ctx {
   retry: (id: string, rename?: string) => void;
   cancel: (id: string) => void;
   clearFinished: () => void;
-  /** Tăng mỗi khi một tệp tải xong vào `wsId:parentId` (thư mục đang mở tự tải lại). */
   doneTick: (wsId: string, parentId: string | null) => number;
 }
 
@@ -86,7 +76,6 @@ function putPart(url: string, blob: Blob, onProgress: (loaded: number) => void, 
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Kiểm tra trước khi gửi: cùng luật với API để báo ngay, không đợi lượt gọi. */
 function precheck(file: File): string | null {
   const ext = extensionOf(file.name);
   if (!ALLOWED_EXTENSIONS.includes(ext)) return ext ? `Không nhận tệp .${ext}` : "Không nhận tệp không có đuôi";
@@ -141,7 +130,6 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
         let session: Session | null = null;
         let uploaded = new Map<number, number>();
 
-        // Tải tiếp: hỏi API các part đã nhận. Phiên hết hạn / không còn thì bắt đầu lại.
         if (item.uploadId) {
           try {
             const st = await api<Session & { status: string; uploadedParts: Array<{ partNumber: number; size: number }> }>(`/uploads/${item.uploadId}`);
@@ -213,7 +201,6 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
               } catch (err) {
                 inflight.delete(n);
                 if (err instanceof Cancelled || attempt >= PART_RETRIES - 1) throw err;
-                // URL có thể đã hết hạn: lấy URL mới ở lần thử sau.
                 urls.delete(n);
                 await sleep(1000 * 2 ** attempt);
               }
@@ -237,7 +224,6 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
     [patch],
   );
 
-  // Hàng đợi: tối đa 2 tệp chạy cùng lúc, theo thứ tự thêm vào.
   useEffect(() => {
     const active = items.filter((i) => i.status === "uploading").length;
     const next = items.filter((i) => i.status === "queued" && !started.current.has(i.id)).slice(0, Math.max(0, MAX_PARALLEL_FILES - active));
@@ -248,7 +234,6 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
     }
   }, [items, patch, run]);
 
-  // Đang tải mà đóng tab thì hỏi lại (các part đã gửi vẫn tải tiếp được trong 24 giờ).
   const busy = items.some((i) => i.status === "uploading" || i.status === "queued");
   useEffect(() => {
     if (!busy) return;

@@ -19,7 +19,6 @@ const shareSelect = {
   grantedBy: { select: userSummary },
 } as const;
 
-/** Share theo folder/mục (SPEC §3.3): chỉ ADMIN/OWNER của workspace được quản lý. */
 @Injectable()
 export class SharesService {
   constructor(
@@ -132,7 +131,6 @@ export class SharesService {
     );
   }
 
-  /** Người xem được mục nhưng không phải ADMIN workspace → 403; không xem được → 404. */
   private async requireManager(user: AuthenticatedUser, nodeId: string) {
     const node = await this.access.requireNode(user, nodeId, 'VIEWER');
     if (!roleAtLeast(node.memberRole, 'ADMIN')) {

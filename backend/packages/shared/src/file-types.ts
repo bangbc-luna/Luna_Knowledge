@@ -1,20 +1,12 @@
-/**
- * Danh mục loại file được phép tải lên (SPEC FILE-1..3). Đuôi file chỉ dùng để chặn sớm ở API;
- * worker xác định loại thật bằng nội dung (magic bytes) và từ chối khi không khớp danh mục.
- * Không nhận HTML/SVG (chạy được script khi mở trực tiếp) và file thực thi.
- */
 export type FileCategory = 'pdf' | 'office' | 'image' | 'text' | 'video';
 
 export interface FileTypeRule {
   category: FileCategory;
-  /** MIME chuẩn lưu vào DB và trả về khi tải. */
   mime: string;
-  /** MIME mà `file-type` nhận ra từ nội dung; rỗng = định dạng chữ (không có magic bytes). */
   detected: string[];
 }
 
 const OFFICE_ZIP = (mime: string): FileTypeRule => ({ category: 'office', mime, detected: [mime] });
-// .doc/.xls/.ppt đời cũ là Compound File (CFB): file-type chỉ nhận ra "x-cfb".
 const OFFICE_CFB = (mime: string): FileTypeRule => ({
   category: 'office',
   mime,

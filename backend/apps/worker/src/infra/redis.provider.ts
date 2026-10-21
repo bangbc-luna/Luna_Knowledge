@@ -3,7 +3,6 @@ import { type NodeEvent, nodeEventsChannel } from '@luna/shared';
 import { Redis } from 'ioredis';
 import { WORKER_CONFIG, type WorkerConfig } from '../config/worker-config.js';
 
-/** Publish trạng thái xử lý cho SSE ở API. */
 @Injectable()
 export class NodeEventsPublisher implements OnModuleDestroy {
   private readonly redis: Redis;

@@ -15,7 +15,6 @@ import type { CreateFolderBody, ListNodesQuery, NodeDto } from './nodes.schemas.
 
 const userSummary = { id: true, email: true, name: true, avatarUrl: true } as const;
 
-/** Cursor của danh sách con: vị trí (offset) đã mã hóa. Folder thường chỉ vài trăm mục. */
 const encodeCursor = (offset: number) => Buffer.from(String(offset)).toString('base64url');
 function decodeCursor(cursor: string | undefined): number {
   if (!cursor) return 0;
@@ -33,8 +32,6 @@ export class NodesService {
     private readonly audit: AuditService,
   ) {}
 
-  // ---------------------------------------------------------------- Đọc
-
   async list(
     user: AuthenticatedUser,
     workspaceId: string,
@@ -45,7 +42,6 @@ export class NodesService {
       if (parent.workspaceId !== workspaceId) throw AppError.notFound('Item not found');
       if (parent.type !== 'FOLDER') throw AppError.validation('parentId must be a folder');
     } else {
-      // Gốc workspace chỉ dành cho thành viên; người được share đi vào từ "Được chia sẻ với tôi".
       await this.access.requireMember(user, workspaceId, 'VIEWER');
     }
 
@@ -62,10 +58,8 @@ export class NodesService {
         parentId: q.parentId ?? null,
         deletedAt: null,
         type: q.type,
-        // File đang tải lên dở chỉ người tải thấy.
         OR: [{ status: { not: 'UPLOADING' } }, { createdById: user.id }],
       },
-      // Folder luôn đứng trước (enum NodeType khai báo FOLDER đầu tiên).
       orderBy: [{ type: 'asc' }, sortBy, { id: 'asc' }],
       select: { id: true },
       skip: offset,
@@ -79,7 +73,6 @@ export class NodesService {
     };
   }
 
-  /** Mở chi tiết node; ghi "mở gần đây" với tài liệu/file/video (không ghi với folder). */
   async get(user: AuthenticatedUser, nodeId: string, ctx?: RequestContext): Promise<NodeDto> {
     const node = await this.access.requireNode(user, nodeId, 'VIEWER');
     await this.audit.logView(user.id, node, ctx);
@@ -93,10 +86,6 @@ export class NodesService {
     return this.dto.one(user.id, nodeId);
   }
 
-  /**
-   * Đường dẫn từ gốc tới node. Người chỉ có quyền qua share chỉ thấy từ folder được share trở xuống
-   * (không lộ tên các folder cha mà họ không có quyền).
-   */
   async breadcrumb(user: AuthenticatedUser, nodeId: string) {
     const node = await this.access.requireNode(user, nodeId, 'VIEWER');
     const rows = await this.prisma.client.$queryRaw<
@@ -116,7 +105,6 @@ export class NodesService {
     return rows.slice(start).map(({ id, name, type }) => ({ id, name, type }));
   }
 
-  /** Các node được share trực tiếp cho tôi (node và workspace còn hoạt động). */
   async sharedWithMe(user: AuthenticatedUser) {
     const shares = await this.prisma.client.nodeShare.findMany({
       where: { userId: user.id, node: { deletedAt: null, workspace: { deletedAt: null } } },
@@ -146,8 +134,6 @@ export class NodesService {
         : [];
     });
   }
-
-  // ---------------------------------------------------------------- Ghi
 
   async createFolder(
     user: AuthenticatedUser,
@@ -211,7 +197,6 @@ export class NodesService {
     return this.dto.one(user.id, nodeId);
   }
 
-  /** Di chuyển trong cùng workspace. Cần quyền EDITOR ở cả node lẫn folder đích. */
   async move(
     user: AuthenticatedUser,
     nodeId: string,
@@ -225,7 +210,6 @@ export class NodesService {
 
     try {
       await this.prisma.client.$transaction(async (tx) => {
-        // Khóa node để hai thao tác di chuyển đồng thời không tạo vòng lặp.
         await tx.$queryRaw`SELECT id FROM nodes WHERE id = ${nodeId}::uuid FOR UPDATE`;
         if (targetParentId) {
           const [{ inside }] = await tx.$queryRaw<{ inside: boolean }[]>`
@@ -255,10 +239,6 @@ export class NodesService {
     return this.dto.one(user.id, nodeId);
   }
 
-  /**
-   * Đưa node và cả nhánh vào thùng rác (SPEC NODE-5). ADMIN trở lên xóa mọi thứ;
-   * EDITOR chỉ xóa mục do mình tạo.
-   */
   async trash(user: AuthenticatedUser, nodeId: string, ctx: RequestContext): Promise<void> {
     const node = await this.access.requireNode(user, nodeId, 'EDITOR');
     this.assertCanDelete(user, node);
@@ -284,9 +264,6 @@ export class NodesService {
     }
   }
 
-  // ---------------------------------------------------------------- Helpers
-
-  /** Kiểm tra có thể tạo/đưa mục vào `parentId` (null = gốc workspace, chỉ thành viên EDITOR+). */
   private async requireContainer(
     user: AuthenticatedUser,
     workspaceId: string,
@@ -303,7 +280,6 @@ export class NodesService {
     if (parent.type !== 'FOLDER') throw AppError.validation('Target must be a folder');
   }
 
-  /** Trùng tên → 409 kèm gợi ý tên còn trống trong folder đích. */
   async mapNameConflict(
     err: unknown,
     workspaceId: string,

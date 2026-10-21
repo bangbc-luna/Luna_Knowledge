@@ -7,14 +7,12 @@ import { cn } from "@/lib/cn";
 import { Button, IconButton } from "../ui/button";
 
 const ZOOMS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
-/** Lề hai bên trang trong khung (p-4 mỗi bên). */
 const GUTTER = 32;
 const MAX_FIT_WIDTH = 960;
 
 type PdfJs = typeof import("pdfjs-dist");
 let pdfjsPromise: Promise<PdfJs> | null = null;
 
-/** Nạp pdf.js một lần, chỉ ở trình duyệt (thư viện dùng API DOM lúc import). */
 function loadPdfJs(): Promise<PdfJs> {
   pdfjsPromise ??= import("pdfjs-dist").then((pdfjs) => {
     pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
@@ -32,7 +30,6 @@ function PdfPage({
   doc: PDFDocumentProxy;
   pageNo: number;
   width: number;
-  /** cao / rộng, lấy từ trang 1 để giữ chỗ trước khi vẽ. */
   ratio: number;
 }) {
   const box = useRef<HTMLDivElement>(null);
@@ -40,7 +37,6 @@ function PdfPage({
   const [near, setNear] = useState(false);
   const [pageRatio, setPageRatio] = useState(ratio);
 
-  // Chỉ vẽ trang ở gần khung nhìn (tệp hàng trăm trang không vẽ hết một lúc).
   useEffect(() => {
     const el = box.current;
     if (!el) return;
@@ -85,10 +81,6 @@ function PdfPage({
   );
 }
 
-/**
- * Trình xem PDF bằng pdf.js: mọi trình duyệt (kể cả Safari trên iPad, nơi PDF trong iframe chỉ
- * hiện trang đầu) đều cuộn được hết các trang. Thanh trên: số trang đang xem, thu nhỏ / phóng to.
- */
 export function PdfViewer({ url, title, className }: { url: string; title: string; className?: string }) {
   const scroller = useRef<HTMLDivElement>(null);
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
@@ -121,7 +113,6 @@ export function PdfViewer({ url, title, className }: { url: string; title: strin
     };
   }, [url, attempt]);
 
-  // Bề rộng "vừa khung" theo khung thật (đổi khi xoay iPad, mở/đóng sidebar).
   useEffect(() => {
     const el = scroller.current;
     if (!el) return;
@@ -130,8 +121,6 @@ export function PdfViewer({ url, title, className }: { url: string; title: strin
     return () => obs.disconnect();
   }, [doc]);
 
-  // Trang hiện tại = trang đang nằm ở đường giữa khung (trang cao hơn khung vẫn tính đúng).
-  // Gộp theo khung hình và tìm nhị phân theo offsetTop: tệp vài trăm trang cuộn vẫn mượt trên iPad.
   const frame = useRef(0);
   const onScroll = () => {
     if (frame.current) return;

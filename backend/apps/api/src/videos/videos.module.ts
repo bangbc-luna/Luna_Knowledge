@@ -9,7 +9,6 @@ import {
 } from './videos.controller.js';
 import { VideosService } from './videos.service.js';
 
-/** Phát video có bảo vệ, tiến độ xem, transcode lại; file gốc video cho System Admin (Phase 4). */
 @Module({
   imports: [ContentModule, FilesModule],
   controllers: [VideosController, AdminVideosController, AdminVideoDownloadController],

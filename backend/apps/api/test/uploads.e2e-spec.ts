@@ -35,7 +35,6 @@ describe('Uploads and files (e2e)', () => {
     expect(res.status).toBe(200);
   };
 
-  /** Làm thay worker: ghi object và phiên bản như sau khi xử lý xong một upload. */
   async function simulateProcessed(uploadId: string, mime = 'application/pdf') {
     const session = await ctx.prisma.uploadSession.findUniqueOrThrow({ where: { id: uploadId } });
     const content = Buffer.from(`content of ${session.fileName}`);
@@ -80,7 +79,6 @@ describe('Uploads and files (e2e)', () => {
     return { content, nodeId: session.nodeId };
   }
 
-  /** Upload trọn vẹn một file nhỏ rồi giả lập worker xử lý xong. */
   async function uploadSmall(as: LoggedIn, fileName: string, extra: Record<string, unknown> = {}) {
     const data = Buffer.from(`hello ${fileName}`);
     const start = await startUpload(as, { fileName, size: data.length, ...extra }).expect(201);
@@ -176,7 +174,6 @@ describe('Uploads and files (e2e)', () => {
       expect(start.body.parts).toHaveLength(3);
       const { uploadId } = start.body;
 
-      // Gửi part 1 rồi "mất mạng".
       await putPart(start.body.parts[0].url, data.subarray(0, PART_SIZE));
       const missing = await http()
         .post(`/api/v1/uploads/${uploadId}/complete`)
@@ -185,7 +182,6 @@ describe('Uploads and files (e2e)', () => {
         .expect(400);
       expect(missing.body.error.details.missingParts).toEqual([2, 3]);
 
-      // Mở lại: hỏi các part đã nhận, xin URL mới cho phần còn lại.
       const status = await http().get(`/api/v1/uploads/${uploadId}`).set(editor.auth).expect(200);
       expect(status.body.uploadedParts.map((p: { partNumber: number }) => p.partNumber)).toEqual([
         1,
@@ -210,7 +206,6 @@ describe('Uploads and files (e2e)', () => {
       const job = await fileQueue.getJob(`upload-${uploadId}`);
       expect(job?.data).toEqual({ uploadId });
 
-      // Gọi lại hoàn tất: trả kết quả cũ, không tạo job thứ hai.
       await http()
         .post(`/api/v1/uploads/${uploadId}/complete`)
         .set(editor.auth)
@@ -325,7 +320,6 @@ describe('Uploads and files (e2e)', () => {
         .expect(200);
       expect(versions.body.map((v: { versionNo: number }) => v.versionNo)).toEqual([2, 1]);
       expect(versions.body[0].isCurrent).toBe(true);
-      // Tên mục không đổi theo tên file của phiên bản mới.
       const node = await ctx.prisma.node.findUniqueOrThrow({ where: { id: nodeId } });
       expect(node.name).toBe('Hợp đồng mẫu.pdf');
 

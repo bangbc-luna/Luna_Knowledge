@@ -9,7 +9,6 @@ type Status = "loading" | "anon" | "authed";
 interface AuthValue {
   status: Status;
   me: Me | null;
-  /** Mã lỗi phiên gần nhất (SESSION_EXPIRED…) để trang đăng nhập báo lý do. */
   lostReason: string | null;
   reloadMe: () => Promise<void>;
   loginDev: (email: string, name?: string) => Promise<void>;
@@ -45,7 +44,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLostReason(code);
       setStatus("anon");
     });
-    // Mở app: thử đổi refresh cookie (session cookie, mất khi đóng trình duyệt) lấy token.
     refreshSession()
       .then((token) => (token ? startSession(token) : setStatus("anon")))
       .catch(() => setStatus("anon"));

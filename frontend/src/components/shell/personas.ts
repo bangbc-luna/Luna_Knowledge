@@ -1,4 +1,3 @@
-/** Tài khoản test cho "Đổi vai nhanh" (chỉ ở môi trường dev, backend phải chạy NODE_ENV=development). */
 export const PERSONAS = [
   { email: "admin@lunatech.vn", name: "System Admin", note: "System Admin" },
   { email: "qa.owner@lunatech.vn", name: "QA Owner", note: "Chủ sở hữu" },

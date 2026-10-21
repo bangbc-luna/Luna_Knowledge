@@ -24,7 +24,6 @@ interface SharesResponse {
   inherited: Array<Share & { fromNode: { id: string; name: string } }>;
 }
 
-/** Chia sẻ một mục: thêm theo email, đổi quyền, thu hồi; xem share kế thừa từ thư mục cha. */
 export function ShareSheet({ node, onClose, memberEmails }: { node: NodeItem | null; onClose: () => void; memberEmails: Set<string> }) {
   const toast = useToast();
   const [email, setEmail] = useState("");

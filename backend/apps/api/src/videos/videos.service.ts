@@ -19,34 +19,23 @@ import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { REDIS } from '../infra/redis/redis.module.js';
 import { S3_PRESIGN } from '../infra/s3/s3.module.js';
 
-/** Phiên xem: hết hạn sau 15 phút không tải gì; tối đa 8 giờ kể cả khi đang phát. */
 const SESSION_IDLE_SEC = 15 * 60;
 const SESSION_MAX_SEC = 8 * 3600;
-/** URL MinIO của một segment chỉ sống 2 phút: copy sang trình duyệt khác cũng nhanh chóng vô dụng. */
 const SEGMENT_URL_TTL_SEC = 120;
-/** Số lần lấy khoá tối đa mỗi phiên (hls.js lấy một lần mỗi bậc chất lượng; tua nhiều cũng không vượt). */
 const MAX_KEY_FETCHES = 30;
-/** Một người mở lại cùng video trong khoảng này chỉ tính một lượt xem. */
 const VIEW_DEDUPE_SEC = 30 * 60;
 
-/** Tên bậc do worker đặt theo cạnh ngắn: 360p, 720p, 1080p, hoặc cỡ nguồn với video rất nhỏ (96p). */
 const RENDITION_RE = /^\d{1,4}p$/;
 const SEGMENT_RE = /^seg_\d{4,6}\.ts$/;
 
 interface Session {
   userId: string;
   nodeId: string;
-  /** Tiền tố thư mục HLS trên bucket (đổi khi transcode lại: phiên cũ ngừng chạy). */
   prefix: string;
   bucket: string;
   createdAt: number;
 }
 
-/**
- * Phát video có bảo vệ (SPEC §5.4, VIDEO-3..6): phiên xem trong Redis, playlist viết lại động,
- * segment chuyển hướng sang URL ký ngắn hạn, khoá AES chỉ cấp cho phiên còn hiệu lực và người còn quyền.
- * Không có đường nào trả file gốc video cho người dùng thường.
- */
 @Injectable()
 export class VideosService {
   constructor(
@@ -61,8 +50,6 @@ export class VideosService {
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly transcodes: TranscodeQueueService,
   ) {}
-
-  // ---------------------------------------------------------------- Thông tin, tiến độ xem
 
   async detail(user: AuthenticatedUser, nodeId: string, ctx: RequestContext) {
     const node = await this.requireVideo(user, nodeId, 'VIEWER');
@@ -110,8 +97,6 @@ export class VideosService {
     });
   }
 
-  // ---------------------------------------------------------------- Phiên xem
-
   async startPlayback(user: AuthenticatedUser, nodeId: string, ctx: RequestContext) {
     const node = await this.requireVideo(user, nodeId, 'VIEWER');
     const video = await this.prisma.client.video.findUnique({ where: { nodeId } });
@@ -140,7 +125,6 @@ export class VideosService {
     };
     await this.redis.set(`pb:${token}`, JSON.stringify(session), 'EX', SESSION_IDLE_SEC);
 
-    // Lượt xem: một người mở lại trong 30 phút chỉ tính một lần (ghi cả nhật ký "bắt đầu phiên xem").
     const fresh = await this.redis
       .set(`video:view:${user.id}:${nodeId}`, '1', 'EX', VIEW_DEDUPE_SEC, 'NX')
       .catch(() => 'OK');
@@ -178,7 +162,6 @@ export class VideosService {
     };
   }
 
-  /** Master playlist: trỏ từng bậc về API (kèm phiên). */
   async masterPlaylist(nodeId: string, token: string): Promise<string> {
     const s = await this.requireSession(nodeId, token, { checkAccess: true });
     const body = await this.readPlaylist(s, 'master.m3u8');
@@ -191,7 +174,6 @@ export class VideosService {
       .join('\n');
   }
 
-  /** Media playlist: khoá → endpoint cấp khoá, segment → endpoint chuyển hướng (kèm phiên). */
   async mediaPlaylist(nodeId: string, rendition: string, token: string): Promise<string> {
     if (!RENDITION_RE.test(rendition)) throw AppError.notFound('Playlist not found');
     const s = await this.requireSession(nodeId, token, { checkAccess: true });
@@ -232,7 +214,6 @@ export class VideosService {
     );
   }
 
-  /** Khoá AES-128 (16 byte): kiểm phiên, kiểm lại quyền, giới hạn số lần mỗi phiên. */
   async key(nodeId: string, token: string): Promise<Buffer> {
     const session = await this.requireSession(nodeId, token, { checkAccess: true });
     const count = await this.redis.incr(`pb:${token}:keys`);
@@ -249,8 +230,6 @@ export class VideosService {
       select: { keyEncrypted: true, hlsBlobId: true },
     });
     if (!video) throw AppError.notFound('Video not found');
-    // Phiên mở trên bản HLS cũ (video vừa transcode lại): khoá mới không giải được segment cũ.
-    // Trả 404 để player mở phiên mới, thay vì giải mã ra dữ liệu rác.
     const hls = await this.prisma.client.blob.findUnique({
       where: { id: video.hlsBlobId },
       select: { key: true },
@@ -260,8 +239,6 @@ export class VideosService {
     }
     return openVideoKey(video.keyEncrypted, this.config.VIDEO_MASTER_KEY);
   }
-
-  // ---------------------------------------------------------------- Poster, sprite, transcode lại
 
   async posterUrl(user: AuthenticatedUser, nodeId: string): Promise<string> {
     await this.requireVideo(user, nodeId, 'VIEWER');
@@ -278,7 +255,6 @@ export class VideosService {
     ).url;
   }
 
-  /** WebVTT ảnh xem trước khi tua, ảnh sprite thay bằng URL ký (10 phút). */
   async spriteVtt(user: AuthenticatedUser, nodeId: string): Promise<string> {
     await this.requireVideo(user, nodeId, 'VIEWER');
     const video = await this.prisma.client.video.findUnique({
@@ -320,14 +296,11 @@ export class VideosService {
     });
   }
 
-  /** Đẩy job transcode và báo trạng thái PROCESSING (transcode lại). */
   async enqueueTranscode(nodeId: string, versionId: string) {
     await this.transcodes.enqueue(nodeId, versionId);
     await this.prisma.client.node.update({ where: { id: nodeId }, data: { status: 'PROCESSING' } });
     await this.events.publish({ nodeId, status: 'PROCESSING', progress: 0 });
   }
-
-  // ---------------------------------------------------------------- Helpers
 
   private async requireVideo(user: AuthenticatedUser, nodeId: string, min: 'VIEWER' | 'EDITOR') {
     const node = await this.access.requireNode(user, nodeId, min);
@@ -335,10 +308,6 @@ export class VideosService {
     return node;
   }
 
-  /**
-   * Phiên phải còn, đúng video, và (khi `checkAccess`) người xem vẫn còn quyền: thu hồi share giữa
-   * chừng thì lần lấy playlist/khoá kế tiếp bị chặn. Mỗi lần dùng gia hạn thêm 15 phút, tối đa 8 giờ.
-   */
   private async requireSession(
     nodeId: string,
     token: string,
@@ -356,7 +325,6 @@ export class VideosService {
       });
       if (user?.status !== 'ACTIVE')
         throw AppError.notFound('Playback session is invalid or has expired');
-      // Chỉ cần id để tính quyền (permission engine không dùng các trường khác).
       await this.requireVideo({ id: user.id } as unknown as AuthenticatedUser, nodeId, 'VIEWER');
     }
     await this.redis.expire(`pb:${token}`, SESSION_IDLE_SEC);

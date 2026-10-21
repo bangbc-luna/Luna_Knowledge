@@ -2,7 +2,6 @@ import { Global, Inject, Logger, Module, type OnModuleDestroy } from '@nestjs/co
 import { Redis } from 'ioredis';
 import { APP_CONFIG, type AppConfig } from '../../config/app-config.js';
 
-/** Kết nối Redis dùng cho cache/pub-sub (BullMQ tự quản lý kết nối riêng). */
 export const REDIS = Symbol('REDIS');
 
 @Global()
@@ -14,8 +13,6 @@ export const REDIS = Symbol('REDIS');
       useFactory: (config: AppConfig) => {
         const logger = new Logger('Redis');
         const redis = new Redis(config.REDIS_URL, { maxRetriesPerRequest: 3, lazyConnect: false });
-        // Không có listener thì ioredis in "Unhandled error event" ở mỗi lần thử lại.
-        // Chỉ log lần mất kết nối đầu tiên và lúc kết nối lại.
         let down = false;
         redis.on('error', (err: Error & { code?: string }) => {
           if (down) return;

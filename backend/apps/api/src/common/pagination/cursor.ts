@@ -13,10 +13,6 @@ export interface Page<T> {
 export const pageSchema = <T extends z.ZodType>(item: T) =>
   z.object({ items: z.array(item), nextCursor: z.string().nullable() });
 
-/**
- * Phân trang theo id (UUIDv7 tăng dần theo thời gian tạo).
- * Truy vấn lấy `limit + 1` bản ghi; có bản ghi thừa nghĩa là còn trang sau.
- */
 export function toPage<T extends { id: string }>(rows: T[], limit: number): Page<T> {
   const hasMore = rows.length > limit;
   const items = hasMore ? rows.slice(0, limit) : rows;

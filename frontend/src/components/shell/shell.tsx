@@ -8,14 +8,9 @@ import { AccountMenu } from "./account-menu";
 
 const ShellContext = createContext<{ openMenu: () => void } | null>(null);
 
-/**
- * Khung app có sidebar (layouts/app.md): sidebar trắng w-60 từ lg; dưới lg là panel trượt từ trái,
- * lớp phủ /15, đóng bằng bấm ngoài / Esc / chọn link (không nút ✕).
- */
 export function AppFrame({ sidebar, children }: { sidebar: React.ReactNode; children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const pathname = usePathname();
-  // Đổi trang thì đóng panel menu (chỉ đóng khi đường dẫn thật sự đổi).
   const [lastPath, setLastPath] = useState(pathname);
   if (pathname !== lastPath) {
     setLastPath(pathname);
@@ -52,7 +47,6 @@ export function AppFrame({ sidebar, children }: { sidebar: React.ReactNode; chil
   );
 }
 
-/** Thanh trên cùng của trang: ☰ (dưới lg), tiêu đề/đường dẫn, nút phụ, menu tài khoản. */
 export function TopBar({ children, actions }: { children: React.ReactNode; actions?: React.ReactNode }) {
   const shell = useContext(ShellContext);
   return (
@@ -72,7 +66,6 @@ export function TopBar({ children, actions }: { children: React.ReactNode; actio
   );
 }
 
-/** Vùng nội dung dưới thanh trên cùng. */
 export function PageBody({ children }: { children: React.ReactNode }) {
   return <div className="flex flex-1 flex-col gap-5 px-4 py-5 sm:px-6">{children}</div>;
 }

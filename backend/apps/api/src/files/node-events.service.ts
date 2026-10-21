@@ -4,10 +4,6 @@ import type { Redis } from 'ioredis';
 import { Observable } from 'rxjs';
 import { REDIS } from '../infra/redis/redis.module.js';
 
-/**
- * Trạng thái xử lý node qua Redis pub/sub: worker (hoặc API) publish, SSE `/nodes/:id/events`
- * nhận. Một kết nối subscriber dùng chung cho mọi client, tạo khi có người nghe đầu tiên.
- */
 @Injectable()
 export class NodeEventsService implements OnModuleDestroy {
   private readonly logger = new Logger(NodeEventsService.name);
@@ -20,7 +16,6 @@ export class NodeEventsService implements OnModuleDestroy {
     try {
       await this.redis.publish(nodeEventsChannel(event.nodeId), JSON.stringify(event));
     } catch (err) {
-      // Mất sự kiện chỉ làm client chậm cập nhật (vẫn đọc được trạng thái qua GET).
       this.logger.warn({ err }, 'Failed to publish node event');
     }
   }
@@ -51,9 +46,7 @@ export class NodeEventsService implements OnModuleDestroy {
       try {
         const event = JSON.parse(message) as NodeEvent;
         for (const listener of set) listener(event);
-      } catch {
-        // Bỏ qua tin nhắn hỏng.
-      }
+      } catch {}
     });
   }
 

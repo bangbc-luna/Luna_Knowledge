@@ -34,7 +34,6 @@ export class TokenService {
       .sign(this.key);
   }
 
-  /** Trả null nếu token sai chữ ký, hết hạn hoặc sai loại. */
   async verifyAccess(token: string): Promise<AccessTokenPayload | null> {
     try {
       const { payload } = await jwtVerify(token, this.key, {
@@ -49,7 +48,6 @@ export class TokenService {
     }
   }
 
-  /** Refresh token là chuỗi ngẫu nhiên (không phải JWT); DB chỉ lưu SHA-256 của nó. */
   newRefreshToken(): { token: string; hash: string } {
     const token = randomBytes(32).toString('base64url');
     return { token, hash: TokenService.hash(token) };

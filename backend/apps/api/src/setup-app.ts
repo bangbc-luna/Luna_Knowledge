@@ -7,7 +7,6 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter.js';
 
 export const API_PREFIX = 'api/v1';
 
-/** Cấu hình dùng chung cho main.ts và e2e test, để test chạy đúng như production. */
 export function setupApp(app: INestApplication, config: AppConfig) {
   app.setGlobalPrefix(API_PREFIX, {
     exclude: [
@@ -17,7 +16,6 @@ export function setupApp(app: INestApplication, config: AppConfig) {
       { path: 'dev/player', method: RequestMethod.GET },
     ],
   });
-  // IP thật của client khi chạy sau Traefik/cloudflared (dùng cho session và audit log).
   (app.getHttpAdapter().getInstance() as Express).set('trust proxy', config.TRUST_PROXY);
   app.use(cookieParser());
   app.useGlobalFilters(new AllExceptionsFilter());
