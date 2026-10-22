@@ -8,6 +8,7 @@ import {
   WORKER_CONFIG,
   type WorkerConfig,
 } from './config/worker-config.js';
+import { MetricsServer } from './infra/metrics.server.js';
 import { PrismaService } from './infra/prisma.provider.js';
 import { NodeEventsPublisher } from './infra/redis.provider.js';
 import { StorageService } from './infra/storage.provider.js';
@@ -66,6 +67,7 @@ class WorkerConfigModule {}
     FileProcessProcessor,
     VideoTranscodeProcessor,
     SearchIndexProcessor,
+    MetricsServer,
   ],
 })
 export class WorkerModule {}

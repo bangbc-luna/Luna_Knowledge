@@ -1,0 +1,207 @@
+name: luna
+
+x-app-env: &app-env
+  env_file: ../.env.prod
+  restart: unless-stopped
+  networks: [internal]
+
+services:
+  traefik:
+    image: traefik:3.6.2
+    restart: unless-stopped
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=luna_edge
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.websecure.http.tls.certresolver=le
+      - --certificatesresolvers.le.acme.email=${ACME_EMAIL}
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.le.acme.dnschallenge=true
+      - --certificatesresolvers.le.acme.dnschallenge.provider=cloudflare
+      - --accesslog=true
+    environment:
+      CF_DNS_API_TOKEN: ${CF_DNS_API_TOKEN}
+    ports:
+      - '${HTTP_PORT:-80}:80'
+      - '${HTTPS_PORT:-443}:443'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt:/letsencrypt
+    networks: [edge]
+
+  frontend:
+    build:
+      context: ../../frontend
+      args:
+        API_ORIGIN: http://api:4000
+    image: luna-frontend:${LUNA_VERSION:-latest}
+    restart: unless-stopped
+    depends_on: [api]
+    networks: [edge, internal]
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.web.rule=Host(`${APP_HOST}`)
+      - traefik.http.routers.web.priority=1
+      - traefik.http.services.web.loadbalancer.server.port=3000
+
+  api:
+    <<: *app-env
+    build: { context: .., target: api }
+    image: luna-api:${LUNA_VERSION:-latest}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      meilisearch: { condition: service_healthy }
+    networks: [edge, internal]
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.api.rule=Host(`${APP_HOST}`) && PathPrefix(`/api`)
+      - traefik.http.routers.api.priority=10
+      - traefik.http.services.api.loadbalancer.server.port=4000
+
+  collab:
+    <<: *app-env
+    build: { context: .., target: collab }
+    image: luna-collab:${LUNA_VERSION:-latest}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    networks: [edge, internal]
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.collab.rule=Host(`${APP_HOST}`) && PathPrefix(`/collab`)
+      - traefik.http.routers.collab.priority=10
+      - traefik.http.routers.collab.middlewares=collab-strip
+      - traefik.http.middlewares.collab-strip.stripprefix.prefixes=/collab
+      - traefik.http.services.collab.loadbalancer.server.port=4001
+
+  worker:
+    <<: *app-env
+    build: { context: .., target: worker }
+    image: luna-worker:${LUNA_VERSION:-latest}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+    volumes:
+      - worker-tmp:/var/tmp/luna
+    environment:
+      WORKER_TMP_DIR: /var/tmp/luna
+
+  migrate:
+    <<: *app-env
+    build: { context: .., target: migrate }
+    image: luna-migrate:${LUNA_VERSION:-latest}
+    restart: 'no'
+    depends_on:
+      postgres: { condition: service_healthy }
+      minio: { condition: service_healthy }
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    command: ['postgres', '-c', 'max_connections=150', '-c', 'shared_buffers=1GB']
+    ports:
+      - '127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks: [internal]
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes', '--maxmemory-policy', 'noeviction']
+    volumes:
+      - redis-data:/data
+    networks: [internal]
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  minio:
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
+    restart: unless-stopped
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - '127.0.0.1:${MINIO_HOST_PORT:-9000}:9000'
+      - '127.0.0.1:${MINIO_CONSOLE_HOST_PORT:-9001}:9001'
+    volumes:
+      - ${MINIO_DATA_DIR:-minio-data}:/data
+    networks: [edge, internal]
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.media.rule=Host(`${MEDIA_HOST}`)
+      - traefik.http.services.media.loadbalancer.server.port=9000
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://localhost:9000/minio/health/live']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.16
+    restart: unless-stopped
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
+      MEILI_ENV: production
+      MEILI_NO_ANALYTICS: 'true'
+    volumes:
+      - meili-data:/meili_data
+    networks: [internal]
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://localhost:7700/health']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  tika:
+    image: apache/tika:latest-full
+    restart: unless-stopped
+    networks: [internal]
+
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    restart: unless-stopped
+    networks: [internal]
+
+  cloudflared:
+    image: cloudflare/cloudflared:2026.8.0
+    profiles: [remote]
+    restart: unless-stopped
+    command: ['tunnel', '--no-autoupdate', 'run']
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    networks: [edge]
+
+networks:
+  edge:
+    name: luna_edge
+  internal:
+    name: luna_internal
+
+volumes:
+  letsencrypt:
+  postgres-data:
+  redis-data:
+  minio-data:
+  meili-data:
+  worker-tmp:

@@ -19,6 +19,9 @@ load_env() {
     value="${value%\"}"; value="${value#\"}"
     export "$key=$value"
   done < "$ENV_FILE"
+  DATABASE_URL="${DATABASE_URL//@postgres:/@localhost:}"
+  S3_ENDPOINT="${S3_ENDPOINT//\/\/minio:/\/\/localhost:}"
+  export DATABASE_URL S3_ENDPOINT
 }
 
 require() {

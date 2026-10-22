@@ -5,6 +5,7 @@ import {
   processingEnvSchema,
   redisEnvSchema,
   s3EnvSchema,
+  observabilityEnvSchema,
   searchEnvSchema,
   uploadEnvSchema,
   videoEnvSchema,
@@ -19,9 +20,11 @@ export const workerEnvSchema = baseEnvSchema
   .extend(uploadEnvSchema.shape)
   .extend(videoEnvSchema.shape)
   .extend(searchEnvSchema.shape)
+  .extend(observabilityEnvSchema.shape)
   .extend({
     FILE_PROCESS_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
     WORKER_TMP_DIR: z.string().optional(),
+    WORKER_METRICS_PORT: z.coerce.number().int().min(0).default(9464),
   });
 
 export type WorkerConfig = z.output<typeof workerEnvSchema>;

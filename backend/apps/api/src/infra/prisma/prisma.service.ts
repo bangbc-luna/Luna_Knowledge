@@ -7,7 +7,10 @@ export class PrismaService implements OnModuleDestroy {
   readonly client: PrismaClient;
 
   constructor(@Inject(APP_CONFIG) config: AppConfig) {
-    this.client = createPrismaClient({ connectionString: config.DATABASE_URL });
+    this.client = createPrismaClient({
+      connectionString: config.DATABASE_URL,
+      max: config.DB_POOL_MAX ?? 30,
+    });
   }
 
   async onModuleDestroy() {

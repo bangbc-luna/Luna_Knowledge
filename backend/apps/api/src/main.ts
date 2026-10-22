@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { initSentry } from '@luna/shared';
 import { NestFactory } from '@nestjs/core';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module.js';
@@ -10,6 +11,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.useLogger(app.get(Logger));
   const config = app.get<AppConfig>(APP_CONFIG);
+  initSentry('api', config);
   setupApp(app, config);
   await app.listen(config.API_PORT);
   const logger = app.get(Logger);

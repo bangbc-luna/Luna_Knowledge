@@ -201,13 +201,18 @@ Nguyên tắc làm việc:
 
 **Việc cần làm**
 
-- [ ] Rate limit (`@nestjs/throttler` + Redis), Helmet, kiểm tra CORS, giới hạn body.
-- [ ] Audit log: API xem/lọc/xuất CSV; partition bảng theo tháng.
-- [ ] Observability: metrics Prometheus, Sentry, dashboard cơ bản (Grafana, tùy chọn).
-- [ ] Backup: `pg_dump`/WAL-G cho Postgres, versioning cho bucket; tài liệu khôi phục.
-- [ ] Load test (k6): CRUD, search, video, collab theo NFR-1..3.
-- [ ] Security review: OWASP checklist, test IDOR toàn bộ endpoint bằng ma trận quyền tự động.
-- [ ] `docker-compose.prod.yml` cho server văn phòng: Traefik + Let's Encrypt DNS-01, MinIO có hostname riêng, `cloudflared` cho truy cập từ xa (Cloudflare Access tùy chọn); đo băng thông upload văn phòng khi xem video từ xa; hướng dẫn split DNS, UPS/RAID, backup hằng đêm có mã hóa ra ngoài server: Postgres + bucket `originals` + `assets` (restic/rclone tới ổ ngoài và kho S3 cloud), kèm hướng dẫn thử khôi phục (`docs/DEPLOY.md`).
+- [x] Rate limit (`@nestjs/throttler` + Redis) đếm theo người dùng đã đăng nhập (600/phút) hoặc theo IP khi chưa đăng nhập (120/phút) vì cả văn phòng chung một IP; Helmet; CORS chặn `*`; giới hạn body 512 KB (413/400 đúng định dạng lỗi); Swagger tắt ở production.
+- [x] Audit log: API xem/lọc/xuất CSV (trang admin).
+- [ ] Partition bảng `audit_logs` theo tháng (để sau, bảng còn nhỏ).
+- [x] Observability: `/metrics` Prometheus ở API (thời gian request theo route, số lần bị rate limit), collab (tài liệu đang mở, kết nối), worker cổng 9464 (job theo hàng đợi và trạng thái); chỉ mạng nội bộ hoặc `METRICS_TOKEN`; Sentry bật khi có `SENTRY_DSN`. Dashboard Grafana: tuỳ chọn, chưa làm.
+- [x] Backup: `pnpm backup` / `pnpm restore` (Postgres + bucket originals/assets, mã hoá rclone crypt).
+- [x] Load test trên máy dev (i7-11800H, stack `pnpm dev`):
+  - k6 `pnpm load:api`, 200 người dùng: CRUD p95 **49 ms**, tìm kiếm p95 **62 ms**, 0 lỗi. Lần đầu p95 1,4 giây vì pool DB của API chỉ 10 kết nối; nâng mặc định lên 30 (`DB_POOL_MAX`).
+  - `pnpm load:collab`, 20 người cùng gõ 60 giây: 2 398 lần sửa tới đủ 19 người còn lại, hội tụ, độ trễ p95 **2 ms** (tối đa 16 ms).
+  - Video 50 người xem cùng lúc: đã đo ở Phase 4.
+- [x] Test IDOR bằng ma trận quyền tự động: 30 endpoint × 4 vai trò (quản trị, thành viên, share chỉ xem, người ngoài) + luồng xoá/khôi phục (`permissions-matrix.e2e-spec.ts`).
+- [ ] Rà OWASP checklist còn lại (sau khi có bản deploy).
+- [x] `backend/docker/docker-compose.prod.yml`: Traefik 3.6 (HTTPS Let's Encrypt DNS-01 qua Cloudflare, route frontend, `/api`, `/collab` WebSocket, `media.*` cho MinIO), bước `migrate` chạy migration và tạo bucket trước khi app lên, Postgres/MinIO chỉ mở `127.0.0.1` cho backup, `cloudflared` profile `remote`. Image: `backend/Dockerfile` (api, worker có ffmpeg, collab, migrate) và `frontend/Dockerfile` (Next standalone). Đã chạy thử nguyên stack trên máy dev: mọi dịch vụ healthy, frontend 200, API 401, MinIO 200, WebSocket collab 101, worker dựng chỉ mục. Hướng dẫn từng bước cho người trực: `docs/DEPLOY.md` (chuẩn bị server, split DNS, Google OAuth, secret, khởi chạy, tunnel, băng thông video từ xa, backup + thử khôi phục, nâng cấp, xử lý sự cố).
 - [ ] **Bộ trình bày API**: Swagger hoàn chỉnh (mô tả + ví dụ), Postman/Bruno collection theo từng luồng nghiệp vụ, `docs/API_OVERVIEW.md` tóm tắt luồng chính kèm sequence diagram.
 
 **DoD:** toàn bộ e2e xanh; load test đạt NFR; đã review xong bộ trình bày API với bạn → **chốt contract API (v1)** làm cơ sở cho FE.

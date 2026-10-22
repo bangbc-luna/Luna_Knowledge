@@ -12,6 +12,7 @@ export const baseEnvSchema = z.object({
 
 export const databaseEnvSchema = z.object({
   DATABASE_URL: z.url(),
+  DB_POOL_MAX: z.coerce.number().int().min(1).max(200).optional(),
 });
 
 export const redisEnvSchema = z.object({

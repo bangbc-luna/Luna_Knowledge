@@ -63,6 +63,7 @@ describe('Worker file-process (e2e)', () => {
 
     Object.assign(process.env, {
       NODE_ENV: 'test',
+      WORKER_METRICS_PORT: '0',
       LOG_LEVEL: 'warn',
       DATABASE_URL: pg.getConnectionUri(),
       REDIS_URL: redis.getConnectionUrl(),

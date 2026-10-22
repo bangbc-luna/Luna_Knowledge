@@ -1,0 +1,160 @@
+# Triển khai Luna Knowledge trên server văn phòng
+
+Tài liệu cho người trực vận hành. Mỗi bước có lệnh copy được và cách kiểm tra đã làm đúng chưa. Mọi lệnh chạy trong thư mục `backend/` của repo trên server (ví dụ `/opt/luna/backend`).
+
+## 1. Sơ đồ
+
+```
+Trình duyệt ──https──> Traefik :443 ──> frontend (Next.js)            knowledge.lunatech.vn
+                              ├────────> api :4000      /api/...       knowledge.lunatech.vn/api
+                              ├────────> collab :4001   /collab (wss)  knowledge.lunatech.vn/collab
+                              └────────> minio :9000                   media.knowledge.lunatech.vn
+                                         (tải file, xem video bằng URL ký sẵn)
+
+Mạng nội bộ Docker (không mở ra ngoài): postgres, redis, meilisearch, tika, gotenberg, worker
+Truy cập từ xa (tuỳ chọn): cloudflared ──tunnel──> Traefik
+```
+
+- `migrate` chạy một lần mỗi khi khởi động: áp migration DB và tạo bucket còn thiếu, xong thì api/worker/collab mới chạy.
+- Postgres và MinIO chỉ mở trên `127.0.0.1` của server để script backup đọc được; máy khác trong LAN không vào thẳng được.
+
+## 2. Chuẩn bị server
+
+| Hạng mục | Khuyến nghị | Ghi chú |
+|---|---|---|
+| CPU / RAM | 8 vCPU, 32 GB | Máy dev i7-11800H, 31 GB là mức tối thiểu đã đo: video 1 giờ 1080p transcode 18,5 phút |
+| Ổ hệ thống | SSD 500 GB | Postgres, Meilisearch, Docker |
+| Ổ dữ liệu | HDD/SSD lớn có RAID 1 hoặc RAID 10 | Gắn vào `/srv/luna/minio` (biến `MINIO_DATA_DIR`) |
+| Ổ backup | Ổ ngoài hoặc NAS khác máy | Gắn vào `/mnt/luna-backup` (biến `BACKUP_DEST`) |
+| UPS | Đủ 10–15 phút để tắt máy an toàn | Mất điện đột ngột có thể hỏng DB |
+| Hệ điều hành | Ubuntu Server 24.04 LTS | |
+
+Cài Docker:
+
+```bash
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker $USER   # đăng xuất rồi đăng nhập lại
+docker compose version          # phải ra v2.x
+```
+
+GPU NVIDIA (tuỳ chọn, transcode nhanh hơn): cài NVIDIA Container Toolkit, đặt `VIDEO_ENCODER=h264_nvenc`.
+
+## 3. Tên miền, HTTPS, đăng nhập Google
+
+1. **DNS công khai (Cloudflare)**: tên miền `lunatech.vn` quản lý trên Cloudflare. Tạo API token quyền *Zone → DNS → Edit* cho `lunatech.vn`, điền vào `CF_DNS_API_TOKEN`. Traefik dùng token này để xin chứng chỉ Let's Encrypt bằng DNS-01, không cần mở cổng ra Internet.
+2. **Split DNS trong văn phòng**: trên router hoặc DNS nội bộ, trỏ `knowledge.lunatech.vn` và `media.knowledge.lunatech.vn` về IP LAN của server (ví dụ `192.168.1.20`).
+   Kiểm tra từ một máy trong LAN: `nslookup knowledge.lunatech.vn` phải ra IP LAN.
+3. **Google Cloud Console** → OAuth client: thêm Authorized redirect URI `https://knowledge.lunatech.vn/api/v1/auth/google/callback`. Điền `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
+
+## 4. Cấu hình
+
+```bash
+cp .env.prod.example .env.prod
+chmod 600 .env.prod
+```
+
+Điền các ô trống. Sinh secret:
+
+```bash
+openssl rand -base64 48   # POSTGRES_PASSWORD, MINIO_ROOT_PASSWORD, MEILI_MASTER_KEY, JWT_ACCESS_SECRET,
+                          # COLLAB_TOKEN_SECRET, COLLAB_INTERNAL_SECRET, METRICS_TOKEN, BACKUP_PASSWORD
+openssl rand -base64 32   # VIDEO_MASTER_KEY (đúng 32 byte)
+```
+
+- Thay `<POSTGRES_PASSWORD>` trong `DATABASE_URL` và `<MINIO_ROOT_PASSWORD>` ở `S3_SECRET_KEY` bằng mật khẩu thật.
+- **Cất `VIDEO_MASTER_KEY` và `BACKUP_PASSWORD` ra một nơi an toàn khác server** (két, trình quản lý mật khẩu của công ty). Mất `VIDEO_MASTER_KEY` thì mọi video đã transcode không phát được nữa; mất `BACKUP_PASSWORD` thì bản backup vô dụng.
+- `.env.prod` không bao giờ đưa lên git (đã có trong `.gitignore`).
+
+## 5. Khởi chạy lần đầu
+
+```bash
+alias luna='docker compose -f docker/docker-compose.prod.yml --env-file .env.prod'
+luna build            # 5–15 phút lần đầu
+luna up -d
+luna ps               # migrate: Exited (0); các dịch vụ khác: running / healthy
+```
+
+Kiểm tra:
+
+```bash
+luna ps api collab                                # cột STATUS có chữ (healthy)
+curl -s https://knowledge.lunatech.vn/api/v1/me    # {"error":{"code":"UNAUTHENTICATED",...}} nghĩa là HTTPS và API đã thông
+```
+
+Mở `https://knowledge.lunatech.vn`, đăng nhập bằng tài khoản Google công ty. Sau đó cấp quyền System Admin cho người quản trị:
+
+```bash
+luna run --rm migrate pnpm --filter @luna/scripts admin:grant ten.admin@lunatech.vn
+```
+
+Workspace công ty **LunaTech** được tạo bằng seed một lần:
+
+```bash
+luna run --rm migrate pnpm --filter @luna/db seed
+```
+
+Seed tạo thêm hai workspace demo (Marketing, Engineering); xoá trong trang `/admin → Workspace` nếu không cần.
+
+## 6. Truy cập từ ngoài văn phòng (tuỳ chọn)
+
+1. Cloudflare Zero Trust → Networks → Tunnels → tạo tunnel, chép token vào `CLOUDFLARE_TUNNEL_TOKEN`.
+2. Trong tunnel, thêm hai Public Hostname: `knowledge.lunatech.vn` và `media.knowledge.lunatech.vn`, cả hai trỏ tới `https://traefik:443`, bật *No TLS Verify* và đặt *Origin Server Name* đúng hostname tương ứng.
+3. `luna --profile remote up -d cloudflared`
+4. (Khuyến nghị) Cloudflare Access giới hạn chỉ email `@lunatech.vn`.
+
+**Băng thông khi xem video từ xa**: mọi luồng video từ xa đi qua đường **upload** của văn phòng. Mức bitrate: 360p ~0,9 Mbps, 720p ~3 Mbps, 1080p ~5,2 Mbps; trình phát tự hạ chất lượng khi mạng chậm. Đo upload thực tế bằng `speedtest` (hoặc speedtest.net từ một máy trong LAN): ví dụ upload 50 Mbps thì khoảng 8 người xem 1080p cùng lúc từ xa, hoặc 15 người 720p. Người xem trong LAN không tốn băng thông Internet.
+
+## 7. Backup hằng đêm và thử khôi phục
+
+Backup gồm dump Postgres và bucket `originals`, `assets` (preview, thumbnail, HLS tạo lại được từ file gốc), mã hoá bằng `BACKUP_PASSWORD`, giữ `BACKUP_KEEP_DAYS` ngày.
+
+Chạy thử một lần, rồi đặt lịch:
+
+```bash
+ENV_FILE=.env.prod bash scripts/backup/backup.sh
+crontab -e
+# 30 2 * * * cd /opt/luna/backend && ENV_FILE=.env.prod bash scripts/backup/backup.sh >> /var/log/luna-backup.log 2>&1
+```
+
+Nên có thêm một bản ra ngoài văn phòng (S3 cloud, NAS chi nhánh): đặt `BACKUP_DEST` là remote rclone tương ứng, xem đầu file `scripts/backup/common.sh`.
+
+**Thử khôi phục mỗi quý** (vào một Postgres trống, không đụng hệ thống đang chạy):
+
+```bash
+ENV_FILE=.env.prod bash scripts/backup/restore.sh list
+docker run -d --name luna-restore-test -e POSTGRES_PASSWORD=test -p 127.0.0.1:55432:5432 postgres:16-alpine
+ENV_FILE=.env.prod bash scripts/backup/restore.sh db latest postgresql://postgres:test@localhost:55432/postgres
+docker exec luna-restore-test psql -U postgres -c 'select count(*) from nodes'
+docker rm -f luna-restore-test
+```
+
+## 8. Nâng cấp phiên bản
+
+```bash
+git pull
+luna build
+luna up -d            # migrate chạy trước, rồi các dịch vụ khởi động lại
+luna ps
+```
+
+Nên chạy backup ngay trước khi nâng cấp. Nếu bản mới lỗi: `git checkout <commit cũ>`, `luna build && luna up -d`; nếu migration đã đổi DB thì khôi phục từ bản backup vừa chạy.
+
+## 9. Theo dõi và xử lý sự cố
+
+| Việc | Lệnh |
+|---|---|
+| Trạng thái dịch vụ | `luna ps` |
+| Log một dịch vụ | `luna logs -f --tail 200 api` (thay `api` bằng `worker`, `collab`, `traefik`…) |
+| Sức khoẻ API, collab | `luna ps` (có `healthy`), chi tiết: `luna exec api node -e "fetch('http://127.0.0.1:4000/health').then(r=>r.text()).then(console.log)"` |
+| Metrics Prometheus | Chỉ đọc được trong mạng Docker `luna_internal`: `http://api:4000/metrics`, `http://collab:4001/metrics`, `http://worker:9464/metrics`, kèm header `Authorization: Bearer <METRICS_TOKEN>` |
+| Dung lượng ổ | `df -h /srv/luna /var/lib/docker` |
+| Dựng lại chỉ mục tìm kiếm | Đăng nhập bằng System Admin rồi gọi `POST /api/v1/admin/search/reindex`; tự chạy lúc 03:30 hằng đêm |
+
+Sự cố thường gặp:
+
+- **Trình duyệt báo lỗi chứng chỉ**: `luna logs traefik | grep -i acme`. Thường do `CF_DNS_API_TOKEN` sai quyền hoặc DNS chưa đúng.
+- **Đăng nhập Google báo redirect_uri_mismatch**: redirect URI trong Google Console phải khớp tuyệt đối mục 3.
+- **Tải file / xem video không được nhưng trang vẫn mở**: kiểm tra `media.knowledge.lunatech.vn` phân giải được và `S3_PUBLIC_ENDPOINT` đúng.
+- **Video đứng ở "Đang xử lý"**: `luna logs worker`; worker transcode lần lượt từng video (`VIDEO_TRANSCODE_CONCURRENCY`).
+- **Báo lỗi 429 "Too many requests"**: một người dùng vượt `RATE_LIMIT_USER_PER_MIN` (mặc định 600 request/phút); tăng nếu cần rồi `luna up -d api`.
+- **Mất điện xong máy lên lại**: các dịch vụ có `restart: unless-stopped` nên tự chạy; kiểm tra `luna ps` và log Postgres.

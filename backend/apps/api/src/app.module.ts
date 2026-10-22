@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { MetricsModule } from './infra/metrics/metrics.module.js';
 import { SearchModule } from './search/search.module.js';
 import { LoggerModule } from 'nestjs-pino';
 import { AdminModule } from './admin/admin.module.js';
@@ -34,6 +35,7 @@ const isDevelopment = loadAppConfig().NODE_ENV === 'development';
     RedisModule,
     S3Module,
     QueueModule,
+    MetricsModule,
     AuditModule,
     AuthModule,
     HealthModule,

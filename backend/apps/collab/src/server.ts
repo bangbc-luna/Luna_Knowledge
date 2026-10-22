@@ -16,9 +16,12 @@ import {
 import {
   COLLAB_ACCESS_CHANNEL,
   type CollabAccessEvent,
+  createMetricsRegistry,
+  metricsAllowed,
   QUEUES,
   redisConnection,
 } from '@luna/shared';
+import { Gauge } from 'prom-client';
 import { type Connection, type Document, Server } from '@hocuspocus/server';
 import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
@@ -88,6 +91,26 @@ export function createCollabServer(
     const text = jsonToText(json);
     return { state: Y.encodeStateAsUpdate(doc), json, text, words: wordCount(text) };
   };
+
+  const metrics = createMetricsRegistry('collab');
+  new Gauge({
+    name: 'collab_documents_open',
+    help: 'Documents currently loaded in memory',
+    registers: [metrics],
+    collect() {
+      this.set(server.hocuspocus.documents.size);
+    },
+  });
+  new Gauge({
+    name: 'collab_connections',
+    help: 'Open editor connections',
+    registers: [metrics],
+    collect() {
+      let n = 0;
+      for (const doc of server.hocuspocus.documents.values()) n += doc.getConnectionsCount();
+      this.set(n);
+    },
+  });
 
   const autoVersion = async (nodeId: string, createdById: string | null) => {
     const row = await prisma.document.findUnique({
@@ -160,6 +183,22 @@ export function createCollabServer(
       ) {
         response.writeHead(200, { 'Content-Type': 'application/json' });
         response.end(JSON.stringify({ status: 'ok' }));
+        throw null;
+      }
+      if (request.method === 'GET' && url.pathname === '/metrics') {
+        if (
+          metricsAllowed(
+            request.socket.remoteAddress,
+            request.headers.authorization,
+            config.METRICS_TOKEN,
+          )
+        ) {
+          response.writeHead(200, { 'Content-Type': metrics.contentType });
+          response.end(await metrics.metrics());
+        } else {
+          response.writeHead(404);
+          response.end();
+        }
         throw null;
       }
       const match = /^\/internal\/documents\/([0-9a-f-]{36})\/(replace|snapshot)$/.exec(

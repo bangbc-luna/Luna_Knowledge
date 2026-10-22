@@ -16,6 +16,7 @@ describe('Worker system queue (e2e)', () => {
     redis = await new RedisContainer('redis:7-alpine').start();
     Object.assign(process.env, {
       NODE_ENV: 'test',
+      WORKER_METRICS_PORT: '0',
       LOG_LEVEL: 'warn',
       REDIS_URL: redis.getConnectionUrl(),
       DATABASE_URL: 'postgresql://unused:unused@localhost:1/unused',

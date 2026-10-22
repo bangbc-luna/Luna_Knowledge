@@ -18,6 +18,7 @@ import {
   SEARCH_JOBS,
   type TranscodeJob,
   transcodeJobOptions,
+  reportError,
 } from '@luna/shared';
 import { InjectQueue, OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger, type OnApplicationBootstrap } from '@nestjs/common';
@@ -82,6 +83,8 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
     if (!job) return;
     const final = err instanceof UnrecoverableError || job.attemptsMade >= (job.opts.attempts ?? 1);
     if (!final) return;
+    if (!(err instanceof UnrecoverableError))
+      reportError(err, { queue: job.queueName, job: job.name, data: job.data });
     const nodeId =
       job.name === JOBS.REGENERATE
         ? (job.data as RegenerateJob).nodeId

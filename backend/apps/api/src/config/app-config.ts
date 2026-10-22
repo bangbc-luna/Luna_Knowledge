@@ -4,6 +4,7 @@ import {
   loadEnv,
   redisEnvSchema,
   s3EnvSchema,
+  observabilityEnvSchema,
   searchEnvSchema,
   uploadEnvSchema,
   videoEnvSchema,
@@ -29,6 +30,7 @@ export const apiEnvSchema = baseEnvSchema
   .extend(videoEnvSchema.pick({ VIDEO_MASTER_KEY: true }).shape)
   .extend(collabSecretsSchema.shape)
   .extend(searchEnvSchema.shape)
+  .extend(observabilityEnvSchema.shape)
   .extend({
     API_PORT: z.coerce.number().int().positive().default(4000),
     API_PUBLIC_URL: z.url().default('http://localhost:4000'),
@@ -50,11 +52,23 @@ export const apiEnvSchema = baseEnvSchema
       .enum(['true', 'false'])
       .transform((v) => v === 'true')
       .optional(),
+    RATE_LIMIT_USER_PER_MIN: z.coerce.number().int().positive().default(600),
+    RATE_LIMIT_ANON_PER_MIN: z.coerce.number().int().positive().default(120),
+    BODY_LIMIT: z.string().default('512kb'),
+    SWAGGER_ENABLED: z
+      .enum(['true', 'false'])
+      .transform((v) => v === 'true')
+      .optional(),
+  })
+  .refine((env) => !env.CORS_ORIGINS.includes('*'), {
+    message: 'CORS_ORIGINS must list explicit origins (cookies are sent cross-origin)',
+    path: ['CORS_ORIGINS'],
   })
   .transform((env) => ({
     ...env,
     AUTH_REDIRECT_URL: env.AUTH_REDIRECT_URL ?? env.WEB_PUBLIC_URL,
     COOKIE_SECURE: env.COOKIE_SECURE ?? env.NODE_ENV === 'production',
+    SWAGGER_ENABLED: env.SWAGGER_ENABLED ?? env.NODE_ENV !== 'production',
   }));
 
 export type AppConfig = z.output<typeof apiEnvSchema>;

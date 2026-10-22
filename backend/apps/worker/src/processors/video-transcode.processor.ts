@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import type { BlobKind } from '@luna/db';
-import { JOBS, QUEUES, sealVideoKey, type TranscodeJob } from '@luna/shared';
+import { JOBS, QUEUES, reportError, sealVideoKey, type TranscodeJob } from '@luna/shared';
 import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import { type Job, UnrecoverableError } from 'bullmq';
@@ -93,6 +93,8 @@ export class VideoTranscodeProcessor extends WorkerHost implements OnApplication
     if (!job) return;
     const final = err instanceof UnrecoverableError || job.attemptsMade >= (job.opts.attempts ?? 1);
     if (!final) return;
+    if (!(err instanceof UnrecoverableError))
+      reportError(err, { queue: job.queueName, job: job.name, data: job.data });
     const { nodeId, versionId } = job.data as TranscodeJob;
     const message =
       err instanceof UnrecoverableError

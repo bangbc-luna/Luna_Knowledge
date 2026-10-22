@@ -64,6 +64,8 @@ export async function setup() {
     AUTH_REDIRECT_URL: 'http://localhost:5173/auth/done',
     SESSION_IDLE_TIMEOUT_MIN: '60',
     SESSION_ABSOLUTE_TIMEOUT_HOURS: '12',
+    RATE_LIMIT_USER_PER_MIN: '100000',
+    RATE_LIMIT_ANON_PER_MIN: '100000',
   });
 
   const dbPackage = fileURLToPath(new URL('../../../packages/db', import.meta.url));

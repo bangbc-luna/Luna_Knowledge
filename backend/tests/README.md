@@ -66,3 +66,15 @@ Mọi người dùng trên đều là VIEWER của workspace công ty `lunatech`
 `fixtures/` chứa file mẫu nhỏ (docx, xlsx, pdf, png, txt và `fake-exe.pdf` là file .exe đổi đuôi) dùng cho `10-uploads.http` và e2e của worker.
 
 Tải thử phát video (50 phiên): `docker run --rm --network host -v "$PWD/tests/load:/load" grafana/k6:1.8.1 run -e VIDEO_ID=<id> /load/playback.js` (xem đầu file `load/playback.js`).
+
+## Load test
+
+Chạy trên stack `pnpm dev` (số đo trên server production sẽ tốt hơn):
+
+| Lệnh | Đo gì | Ngưỡng (SPEC NFR-1, NFR-3) |
+|---|---|---|
+| `pnpm load:api` | 200 người dùng: duyệt thư mục, xem mục, tạo/đổi tên/xoá, tìm kiếm | CRUD p95 < 200 ms, tìm kiếm p95 < 300 ms, lỗi < 1% |
+| `pnpm load:collab` | 20 người cùng gõ một tài liệu 60 giây, đo độ trễ đồng bộ | p95 < 200 ms, tài liệu hội tụ |
+| `tests/load/playback.js` | 50 người xem video cùng lúc (xem đầu file) | lỗi < 1% |
+
+Biến môi trường: `USERS`, `HOLD` (k6 API); `CLIENTS`, `SECONDS`, `INTERVAL_MS` (collab). Cả hai tự tạo workspace tạm và tự xoá khi xong; người dùng giả `load.*@lunatech.vn` vẫn còn trong DB.

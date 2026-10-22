@@ -1,3 +1,4 @@
+import { reportError } from '@luna/shared';
 import {
   type ArgumentsHost,
   Catch,
@@ -33,6 +34,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       );
     } else if (status >= 500) {
       this.logger.error({ err: exception, requestId: req.id }, 'Unhandled error');
+      reportError(exception, { requestId: req.id, path: req.path });
     }
     res.status(status).json(body);
   }
@@ -43,6 +45,21 @@ export class AllExceptionsFilter implements ExceptionFilter {
         status: exception.status,
         body: {
           error: { code: exception.code, message: exception.message, details: exception.details },
+        },
+      };
+    }
+    const parserStatus = bodyParserStatus(exception);
+    if (parserStatus) {
+      return {
+        status: parserStatus,
+        body: {
+          error: {
+            code: STATUS_TO_CODE[parserStatus] ?? 'HTTP_ERROR',
+            message:
+              parserStatus === HttpStatus.PAYLOAD_TOO_LARGE
+                ? 'Request body is too large'
+                : 'Malformed request body',
+          },
         },
       };
     }
@@ -85,4 +102,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
       body: { error: { code: ErrorCode.INTERNAL_ERROR, message: 'Internal server error' } },
     };
   }
+}
+
+function bodyParserStatus(e: unknown): number | null {
+  if (typeof e !== 'object' || e === null || !('type' in e)) return null;
+  const { type, status } = e as { type?: unknown; status?: unknown };
+  if (typeof type !== 'string' || !type.startsWith('entity.')) return null;
+  return typeof status === 'number' && status >= 400 && status < 500 ? status : null;
 }

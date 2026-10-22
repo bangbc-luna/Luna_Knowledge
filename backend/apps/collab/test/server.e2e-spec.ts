@@ -330,4 +330,14 @@ describe('Collab server (e2e)', () => {
     });
     expect(log.metadata).toMatchObject({ versionNo: 2, wordsAdded: 6, wordsRemoved: 0 });
   });
+
+  it('/metrics báo số tài liệu đang mở và số kết nối', async () => {
+    const nodeId = await newDocument('Đo đếm');
+    await connect(users.editor, nodeId);
+    const res = await fetch(`http://${base}/metrics`);
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toMatch(/collab_documents_open\{service="collab"\} [1-9]/);
+    expect(text).toMatch(/collab_connections\{service="collab"\} [1-9]/);
+  });
 });

@@ -14,6 +14,7 @@ COPY apps/worker/package.json apps/worker/
 COPY apps/collab/package.json apps/collab/
 COPY packages/db/package.json packages/db/
 COPY packages/shared/package.json packages/shared/
+COPY packages/editor/package.json packages/editor/
 COPY packages/tsconfig/package.json packages/tsconfig/
 COPY scripts/package.json scripts/
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
@@ -23,6 +24,10 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     pnpm deploy --filter @luna/api --prod /out/api && \
     pnpm deploy --filter @luna/worker --prod /out/worker && \
     pnpm deploy --filter @luna/collab --prod /out/collab
+
+FROM build AS migrate
+WORKDIR /repo
+CMD ["sh", "-c", "pnpm --filter @luna/db exec prisma migrate deploy && pnpm --filter @luna/scripts infra:init"]
 
 FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production

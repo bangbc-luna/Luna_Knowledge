@@ -25,7 +25,9 @@
     "upload": "pnpm --filter @luna/scripts upload",
     "backup": "bash scripts/backup/backup.sh",
     "restore": "bash scripts/backup/restore.sh",
-    "format:check": "prettier --check \"apps/*/{src,test}/**/*.ts\" \"packages/*/src/**/*.ts\" \"packages/db/prisma/*.ts\" \"scripts/*.ts\""
+    "format:check": "prettier --check \"apps/*/{src,test}/**/*.ts\" \"packages/*/src/**/*.ts\" \"packages/db/prisma/*.ts\" \"scripts/*.ts\"",
+    "load:api": "docker run --rm --network host -v \"$PWD/tests/load:/load\" grafana/k6:1.8.1 run /load/api.js",
+    "load:collab": "pnpm --filter @luna/collab load"
   },
   "devDependencies": {
     "httpyac": "^6.16.7",
