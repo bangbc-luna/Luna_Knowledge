@@ -43,7 +43,7 @@ describe('Videos: phát có bảo vệ (e2e)', () => {
     });
     await http()
       .post(`/api/v1/nodes/${node.id}/shares`)
-      .set(editor.auth)
+      .set(owner.auth)
       .send({ email: 'viewer@lunatech.vn', role: 'VIEWER' })
       .expect(201);
     const put = (Bucket: string, Key: string, Body: Buffer | string) =>
@@ -150,12 +150,8 @@ describe('Videos: phát có bảo vệ (e2e)', () => {
     outsider = await loginAs(ctx, 'outsider@lunatech.vn');
     const ws = await http()
       .post('/api/v1/workspaces')
-      .set(sysadmin.auth)
-      .send({
-        name: 'Video',
-        slug: 'video',
-        memberEmails: ['owner@lunatech.vn', 'editor@lunatech.vn'],
-      })
+      .set(owner.auth)
+      .send({ name: 'Video', slug: 'video', memberEmails: ['editor@lunatech.vn'] })
       .expect(201);
     wsId = ws.body.id;
   });
@@ -273,10 +269,11 @@ describe('Videos: phát có bảo vệ (e2e)', () => {
     const { nodeId } = await seedVideo('Thu hồi share.mp4');
     const pb = await play(viewer, nodeId).expect(200);
     await http().get(`/api/v1/videos/${nodeId}/key?s=${pb.body.token}`).expect(200);
-    const shares = await http().get(`/api/v1/nodes/${nodeId}/shares`).set(editor.auth).expect(200);
+    await http().get(`/api/v1/nodes/${nodeId}/shares`).set(editor.auth).expect(403);
+    const shares = await http().get(`/api/v1/nodes/${nodeId}/shares`).set(owner.auth).expect(200);
     await http()
       .delete(`/api/v1/nodes/${nodeId}/shares/${shares.body.direct[0].id}`)
-      .set(editor.auth)
+      .set(owner.auth)
       .expect(204);
     await http().get(`/api/v1/videos/${nodeId}/key?s=${pb.body.token}`).expect(404);
   });

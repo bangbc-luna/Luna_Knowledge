@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { SearchQueueService } from '../infra/queue/search-queue.service.js';
 import type { Readable } from 'node:stream';
 import type { Prisma } from '@luna/db';
 import { JOBS, QUEUES, type RegenerateJob } from '@luna/shared';
@@ -44,6 +45,7 @@ export class FilesService {
     private readonly dto: NodeDtoService,
     private readonly storage: StorageService,
     private readonly audit: AuditService,
+    private readonly search: SearchQueueService,
     private readonly events: NodeEventsService,
     private readonly transcodes: TranscodeQueueService,
     @Inject(REDIS) private readonly redis: Redis,
@@ -199,6 +201,7 @@ export class FilesService {
       metadata: { name: node.name, versionNo: version.versionNo },
       ctx,
     });
+    await this.search.node(nodeId);
     return this.detail(user, nodeId, ctx);
   }
 
@@ -238,6 +241,7 @@ export class FilesService {
       metadata: { name: node.name, versionNo: version.versionNo },
       ctx,
     });
+    await this.search.node(nodeId);
   }
 
   async events$(user: AuthenticatedUser, nodeId: string) {

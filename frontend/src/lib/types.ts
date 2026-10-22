@@ -1,4 +1,5 @@
-export type WorkspaceRole = "MEMBER";
+export type WorkspaceRole = "ADMIN" | "MEMBER" | "VIEWER";
+export type WorkspaceKind = "COMPANY" | "TEAM";
 export type ContentRole = "VIEWER" | "EDITOR" | "OWNER";
 export type NodeSection = "DOCS" | "VIDEOS";
 export type ShareRole = "EDITOR" | "VIEWER";
@@ -13,7 +14,7 @@ export interface UserSummary {
 
 export interface Me extends UserSummary {
   isSystemAdmin: boolean;
-  workspaces: Array<{ id: string; name: string; slug: string; icon: string | null; role: WorkspaceRole }>;
+  workspaces: Array<{ id: string; name: string; slug: string; icon: string | null; kind: WorkspaceKind; role: WorkspaceRole }>;
 }
 
 export interface Workspace {
@@ -22,6 +23,7 @@ export interface Workspace {
   slug: string;
   description: string | null;
   icon: string | null;
+  kind: WorkspaceKind;
   createdAt: string;
   memberCount: number;
   myRole: WorkspaceRole | null;

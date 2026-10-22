@@ -76,3 +76,4 @@ Authorization: Bearer {{admin.accessToken}}
 ?? js response.parsedBody.find(w => w.id === contentWs.id).memberCount == 2
 ?? js response.parsedBody.find(w => w.id === contentWs.id).myRole === null == true
 ?? js 'creator' in response.parsedBody.find(w => w.id === contentWs.id) == false
+?? js response.parsedBody.find(w => w.id === contentWs.id).kind == TEAM

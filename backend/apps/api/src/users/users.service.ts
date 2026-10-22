@@ -30,8 +30,10 @@ export class UsersService {
   async me(user: AuthenticatedUser) {
     const memberships = await this.prisma.client.workspaceMember.findMany({
       where: { userId: user.id, workspace: { deletedAt: null } },
-      include: { workspace: { select: { id: true, name: true, slug: true, icon: true } } },
-      orderBy: { workspace: { name: 'asc' } },
+      include: {
+        workspace: { select: { id: true, name: true, slug: true, icon: true, kind: true } },
+      },
+      orderBy: [{ workspace: { kind: 'asc' } }, { workspace: { name: 'asc' } }],
     });
     return {
       id: user.id,
@@ -121,8 +123,8 @@ export class UsersService {
         create: { email, name: email.split('@')[0]! },
         update: {},
       }));
-    if (!existing) await this.auth.joinDefaultWorkspace(user.id);
     if (user.status === 'DISABLED') throw AppError.validation('User account is disabled');
+    await this.auth.joinDefaultWorkspace(user.id);
     return user;
   }
 

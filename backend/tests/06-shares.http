@@ -1,8 +1,9 @@
 # @import ./_auth.http
 @apiUrl = http://localhost:4000/api/v1
 
-# member tạo các folder nên là OWNER (được quản lý share); creator chỉ là thành viên thường ở đây.
-# Share "Chỉ xem" (VIEWER): xem + comment. Share "Được chỉnh sửa" (EDITOR) → OWNER: thêm xóa và quản lý share.
+# member (MEMBER → EDITOR) tạo các folder; creator là ADMIN workspace (OWNER) nên quản lý share.
+# Người tạo mục không còn tự là OWNER.
+# Share "Chỉ xem" (VIEWER): xem + comment. Share "Được chỉnh sửa" (EDITOR) → OWNER: thêm quản lý share, xem hoạt động.
 
 ### Folder cha (người ngoài sẽ không thấy)
 # @name dept
@@ -38,31 +39,31 @@ Content-Type: application/json
 
 ?? status == 201
 
-### Thành viên không phải người tạo không share được → 403
-# @ref creator
+### Thành viên MEMBER (EDITOR) không share được → 403
+# @ref member
 # @ref sharedFolder
 POST {{apiUrl}}/nodes/{{sharedFolder.id}}/shares
-Authorization: Bearer {{creator.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 Content-Type: application/json
 
 { "email": "qa.outsider@lunatech.vn", "role": "VIEWER" }
 
 ?? status == 403
 
-### Thành viên không phải người tạo không xem danh sách share → 403
-# @ref creator
+### Thành viên MEMBER (EDITOR) không xem danh sách share → 403
+# @ref member
 # @ref sharedFolder
 GET {{apiUrl}}/nodes/{{sharedFolder.id}}/shares
-Authorization: Bearer {{creator.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 
 ?? status == 403
 
-### Người tạo (OWNER) share "Chỉ xem" cho người ngoài workspace
+### ADMIN workspace (OWNER) share "Chỉ xem" cho người ngoài workspace
 # @name share
 # @ref outsider
 # @ref sharedFolder
 POST {{apiUrl}}/nodes/{{sharedFolder.id}}/shares
-Authorization: Bearer {{member.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 Content-Type: application/json
 
 { "email": "qa.outsider@lunatech.vn", "role": "VIEWER" }
@@ -74,7 +75,7 @@ Content-Type: application/json
 ### Share trùng → 409
 # @ref share
 POST {{apiUrl}}/nodes/{{sharedFolder.id}}/shares
-Authorization: Bearer {{member.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 Content-Type: application/json
 
 { "email": "qa.outsider@lunatech.vn", "role": "EDITOR" }
@@ -173,7 +174,7 @@ Content-Type: application/json
 ### Nâng share lên EDITOR ("Được chỉnh sửa")
 # @ref share
 PATCH {{apiUrl}}/nodes/{{sharedFolder.id}}/shares/{{share.id}}
-Authorization: Bearer {{member.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 Content-Type: application/json
 
 { "role": "EDITOR" }
@@ -205,7 +206,7 @@ Content-Type: application/json
 # @ref share
 # @ref subFolder
 GET {{apiUrl}}/nodes/{{subFolder.id}}/shares
-Authorization: Bearer {{member.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 
 ?? status == 200
 ?? js response.parsedBody.direct.length == 0
@@ -230,7 +231,7 @@ Authorization: Bearer {{outsider.accessToken}}
 ### Thu hồi share
 # @ref share
 DELETE {{apiUrl}}/nodes/{{sharedFolder.id}}/shares/{{share.id}}
-Authorization: Bearer {{member.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 
 ?? status == 204
 
@@ -269,7 +270,7 @@ Content-Type: application/json
 # @ref editChild
 # @ref sharedEditor
 POST {{apiUrl}}/nodes/{{editFolder.id}}/shares
-Authorization: Bearer {{member.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 Content-Type: application/json
 
 { "email": "qa.shared.editor@lunatech.vn", "role": "EDITOR" }

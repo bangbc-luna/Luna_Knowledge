@@ -1,14 +1,14 @@
 # @import ./_auth.http
 @apiUrl = http://localhost:4000/api/v1
 
-# Tag: thành viên xem, tạo, gắn tag; chỉ System Admin sửa / xóa tag.
+# Tag: thành viên (MEMBER trở lên) xem, tạo, gắn tag; ADMIN workspace hoặc System Admin sửa / xóa tag.
 
-### Folder để gắn tag
+### Folder để gắn tag (creator tạo)
 # @name tagged
-# @ref member
+# @ref creator
 # @ref ws
 POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
-Authorization: Bearer {{member.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 Content-Type: application/json
 
 { "name": "Báo cáo tháng" }
@@ -69,12 +69,12 @@ Authorization: Bearer {{creator.accessToken}}
 ?? status == 200
 ?? js response.parsedBody.some(t => t.name === 'Quan trọng') == true
 
-### Thành viên gắn tag cho mục người khác tạo
-# @ref creator
+### MEMBER (EDITOR) gắn tag cho mục người khác tạo
+# @ref member
 # @ref tag
 # @ref tagged
 PUT {{apiUrl}}/nodes/{{tagged.id}}/tags
-Authorization: Bearer {{creator.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 Content-Type: application/json
 
 { "tagIds": ["{{tag.id}}"] }
@@ -103,6 +103,18 @@ Content-Type: application/json
 
 ?? status == 403
 
+### ADMIN workspace sửa tag
+# @ref creator
+# @ref tag
+PATCH {{apiUrl}}/tags/{{tag.id}}
+Authorization: Bearer {{creator.accessToken}}
+Content-Type: application/json
+
+{ "name": "Gấp" }
+
+?? status == 200
+?? body name == Gấp
+
 ### System Admin sửa tag
 # @ref admin
 # @ref tag
@@ -110,10 +122,10 @@ PATCH {{apiUrl}}/tags/{{tag.id}}
 Authorization: Bearer {{admin.accessToken}}
 Content-Type: application/json
 
-{ "name": "Gấp" }
+{ "name": "Rất gấp" }
 
 ?? status == 200
-?? body name == Gấp
+?? body name == Rất gấp
 
 ### Đánh dấu yêu thích (người được share "Chỉ xem")
 # @ref sharedViewer
@@ -173,17 +185,37 @@ Authorization: Bearer {{sharedViewer.accessToken}}
 
 ?? status == 200
 
-### Thành viên không xóa tag → 403
+### MEMBER không xóa tag → 403
+# @ref tag
+DELETE {{apiUrl}}/tags/{{tag.id}}
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 403
+
+### ADMIN workspace xóa tag → gỡ khỏi folder
+# @ref creator
 # @ref tag
 DELETE {{apiUrl}}/tags/{{tag.id}}
 Authorization: Bearer {{creator.accessToken}}
 
-?? status == 403
+?? status == 204
 
-### System Admin xóa tag → gỡ khỏi folder
+### Tag tạm để System Admin xóa
+# @name tempTag
+# @ref member
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/tags
+Authorization: Bearer {{member.accessToken}}
+Content-Type: application/json
+
+{ "name": "Tạm {{$timestamp}}", "color": "#123456" }
+
+?? status == 201
+
+### System Admin xóa tag
 # @ref admin
-# @ref tag
-DELETE {{apiUrl}}/tags/{{tag.id}}
+# @ref tempTag
+DELETE {{apiUrl}}/tags/{{tempTag.id}}
 Authorization: Bearer {{admin.accessToken}}
 
 ?? status == 204

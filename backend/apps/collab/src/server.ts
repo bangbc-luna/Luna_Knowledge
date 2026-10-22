@@ -267,11 +267,7 @@ export function createCollabServer(
         select: { createdAt: true },
       });
       await searchQueue
-        .add(
-          'index-node',
-          { nodeId },
-          { jobId: `node-${nodeId}`, removeOnComplete: true, removeOnFail: 100 },
-        )
+        .add('index-node', { nodeId }, { removeOnComplete: true, removeOnFail: 100 })
         .catch(() => undefined);
       const since = row.lastVersionAt ?? node.createdAt;
       const due = now.getTime() - since.getTime() >= config.COLLAB_AUTO_VERSION_MIN * 60_000;

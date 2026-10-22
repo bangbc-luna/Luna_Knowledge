@@ -13,7 +13,7 @@ Content-Type: application/json
 ?? status == 200
 ?? body user.isSystemAdmin == true
 
-### creator (thành viên workspace test, người tạo các mục "của creator")
+### creator (người tạo workspace test, là ADMIN của workspace đó)
 # @name creator
 POST {{apiUrl}}/dev/token
 Content-Type: application/json
@@ -22,7 +22,7 @@ Content-Type: application/json
 
 ?? status == 200
 
-### member (thành viên workspace test)
+### member (thành viên MEMBER của workspace test)
 # @name member
 POST {{apiUrl}}/dev/token
 Content-Type: application/json
@@ -76,13 +76,15 @@ Content-Type: application/json
 
 ?? status == 200
 
-### Workspace dùng chung cho các file 05–12 (System Admin tạo, không tự thành viên).
+### Workspace nhóm dùng chung cho các file 05–13 (creator tạo nên là ADMIN của workspace).
 # Quy ước vai trò trong workspace test:
-#   creator, member = thành viên (MEMBER) → quyền EDITOR trên mọi mục; ai tạo mục thì là OWNER của mục đó và mục con
-#   sharedViewer        = KHÔNG phải thành viên, chỉ được share "Chỉ xem" (VIEWER) folder `viewFolder`
+#   creator       = ADMIN của workspace → OWNER trên mọi mục (quản lý share, xem hoạt động, xóa vĩnh viễn)
+#   member        = MEMBER → EDITOR trên mọi mục (tạo, sửa, di chuyển, xóa vào thùng rác, gắn tag)
+#   sharedViewer  = KHÔNG phải thành viên, chỉ được share "Chỉ xem" (VIEWER) folder `viewFolder`
 #   sharedEditor  = KHÔNG phải thành viên, được share "Được chỉnh sửa" (EDITOR) trong 06 → OWNER trên nhánh đó
 #   outsider      = không phải thành viên, không được share gì (06 share riêng cho outsider)
 #   admin         = System Admin, không phải thành viên
+# Mọi người dùng đều là VIEWER của workspace công ty `lunatech`.
 # @name contentWs
 # @ref admin
 # @ref creator
@@ -90,20 +92,21 @@ Content-Type: application/json
 # @ref sharedViewer
 # @ref outsider
 POST {{apiUrl}}/workspaces
-Authorization: Bearer {{admin.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 Content-Type: application/json
 
 {
   "name": "QA Content",
   "slug": "qa-content-{{$timestamp}}",
-  "memberEmails": ["qa.creator@lunatech.vn", "qa.member@lunatech.vn"]
+  "memberEmails": ["qa.member@lunatech.vn"]
 }
 
 ?? status == 201
+?? body kind == TEAM
 ?? body memberCount == 2
-?? body myRole isFalse
+?? body myRole == ADMIN
 
-### Folder "Chỉ xem" do creator tạo (creator là OWNER của folder này)
+### Folder "Chỉ xem" do creator tạo (creator là ADMIN workspace nên là OWNER)
 # @name viewFolder
 # @ref contentWs
 POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { SearchQueueService } from '../infra/queue/search-queue.service.js';
 import { PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
 import {
   type DocJSON,
@@ -59,6 +60,7 @@ export class DocumentsService {
     private readonly dto: NodeDtoService,
     private readonly storage: StorageService,
     private readonly audit: AuditService,
+    private readonly search: SearchQueueService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     @Inject(S3) private readonly s3: S3Client,
     @Inject(BUCKETS) private readonly buckets: Buckets,
@@ -82,6 +84,7 @@ export class DocumentsService {
       metadata: { type: 'DOCUMENT', name: body.name, parentId },
       ctx,
     });
+    await this.search.node(nodeId);
     return this.detail(user, nodeId);
   }
 
@@ -244,6 +247,7 @@ export class DocumentsService {
       metadata: { name, fromNodeId: fileNodeId, fromName: file.name },
       ctx,
     });
+    await this.search.node(nodeId);
     return this.detail(user, nodeId);
   }
 

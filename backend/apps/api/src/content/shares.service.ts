@@ -1,4 +1,5 @@
 import { Prisma } from '@luna/db';
+import { SearchQueueService } from '../infra/queue/search-queue.service.js';
 import { Injectable } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
@@ -27,6 +28,7 @@ export class SharesService {
     private readonly access: ContentAccessService,
     private readonly users: UsersService,
     private readonly audit: AuditService,
+    private readonly search: SearchQueueService,
     private readonly collab: CollabEventsService,
     private readonly notifications: NotificationsService,
   ) {}
@@ -157,7 +159,7 @@ export class SharesService {
     return share;
   }
 
-  private auditShare(
+  private async auditShare(
     user: AuthenticatedUser,
     action: string,
     workspaceId: string,
@@ -165,7 +167,7 @@ export class SharesService {
     metadata: Prisma.InputJsonObject,
     ctx: RequestContext,
   ) {
-    return this.audit.log({
+    await this.audit.log({
       actorId: user.id,
       action,
       targetType: 'node',
@@ -174,5 +176,6 @@ export class SharesService {
       metadata,
       ctx,
     });
+    await this.search.tree(nodeId);
   }
 }

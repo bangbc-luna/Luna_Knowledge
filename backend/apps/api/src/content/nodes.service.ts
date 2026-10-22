@@ -1,4 +1,5 @@
 import type { NodeSection, NodeType, Prisma } from '@luna/db';
+import { SearchQueueService } from '../infra/queue/search-queue.service.js';
 import { Injectable } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
@@ -49,6 +50,7 @@ export class NodesService {
     private readonly access: ContentAccessService,
     private readonly dto: NodeDtoService,
     private readonly audit: AuditService,
+    private readonly search: SearchQueueService,
     private readonly collab: CollabEventsService,
   ) {}
 
@@ -222,6 +224,7 @@ export class NodesService {
         metadata: { type: 'FOLDER', name: body.name, parentId },
         ctx,
       });
+      await this.search.node(node.id);
       return this.dto.one(user.id, node.id);
     } catch (err) {
       throw await this.mapNameConflict(err, workspaceId, parentId, body.name, undefined, section);
@@ -259,6 +262,7 @@ export class NodesService {
       metadata: { from: node.name, to: name },
       ctx,
     });
+    await this.search.node(nodeId);
     return this.dto.one(user.id, nodeId);
   }
 
@@ -308,12 +312,13 @@ export class NodesService {
       metadata: { from: node.parentId, to: targetParentId },
       ctx,
     });
+    await this.search.tree(nodeId);
     await this.collab.accessChanged({ workspaceId: node.workspaceId });
     return this.dto.one(user.id, nodeId);
   }
 
   async trash(user: AuthenticatedUser, nodeId: string, ctx: RequestContext): Promise<void> {
-    const node = await this.access.requireNode(user, nodeId, 'OWNER');
+    const node = await this.access.requireNode(user, nodeId, 'EDITOR');
     const count = await this.prisma.client.$executeRaw`
       UPDATE nodes
          SET deleted_at = now(), deleted_by = ${user.id}::uuid, deleted_root_id = ${nodeId}::uuid
@@ -328,6 +333,7 @@ export class NodesService {
       metadata: { name: node.name, itemCount: count },
       ctx,
     });
+    await this.search.tree(nodeId);
     await this.collab.accessChanged({ workspaceId: node.workspaceId });
   }
 
@@ -338,7 +344,7 @@ export class NodesService {
     section?: NodeSection,
   ): Promise<NodeSection> {
     if (!parentId) {
-      await this.access.requireMember(user, workspaceId);
+      await this.access.requireMember(user, workspaceId, 'MEMBER');
       return section ?? 'DOCS';
     }
     const parent = await this.access.requireNode(user, parentId, 'EDITOR');

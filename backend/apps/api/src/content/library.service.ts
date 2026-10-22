@@ -1,4 +1,5 @@
 import { Prisma } from '@luna/db';
+import { SearchQueueService } from '../infra/queue/search-queue.service.js';
 import { Injectable } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
@@ -19,6 +20,7 @@ export class LibraryService {
     private readonly access: ContentAccessService,
     private readonly dto: NodeDtoService,
     private readonly audit: AuditService,
+    private readonly search: SearchQueueService,
   ) {}
 
   async listTags(user: AuthenticatedUser, workspaceId: string) {
@@ -36,7 +38,7 @@ export class LibraryService {
     body: CreateTagBody,
     ctx: RequestContext,
   ) {
-    await this.access.requireMember(user, workspaceId);
+    await this.access.requireMember(user, workspaceId, 'MEMBER');
     const tag = await this.withTagConflict(() =>
       this.prisma.client.tag.create({ data: { workspaceId, ...body }, select: tagSelect }),
     );
@@ -55,12 +57,18 @@ export class LibraryService {
       this.prisma.client.tag.update({ where: { id: tagId }, data: body, select: tagSelect }),
     );
     await this.auditTag(user, 'tag.update', tag.workspaceId, tagId, body, ctx);
+    await this.reindexTagged(tagId);
     return updated;
   }
 
   async deleteTag(user: AuthenticatedUser, tagId: string, ctx: RequestContext) {
     const tag = await this.requireTag(user, tagId);
+    const tagged = await this.prisma.client.nodeTag.findMany({
+      where: { tagId },
+      select: { nodeId: true },
+    });
     await this.prisma.client.tag.delete({ where: { id: tagId } });
+    await this.search.node(...tagged.map((t) => t.nodeId));
     await this.auditTag(user, 'tag.delete', tag.workspaceId, tagId, { name: tag.name }, ctx);
   }
 
@@ -76,6 +84,7 @@ export class LibraryService {
       this.prisma.client.nodeTag.deleteMany({ where: { nodeId } }),
       this.prisma.client.nodeTag.createMany({ data: unique.map((tagId) => ({ nodeId, tagId })) }),
     ]);
+    await this.search.node(nodeId);
     return this.dto.one(user.id, nodeId);
   }
 
@@ -127,13 +136,18 @@ export class LibraryService {
     });
   }
 
+  private async reindexTagged(tagId: string) {
+    const tagged = await this.prisma.client.nodeTag.findMany({
+      where: { tagId },
+      select: { nodeId: true },
+    });
+    await this.search.node(...tagged.map((t) => t.nodeId));
+  }
+
   private async requireTag(user: AuthenticatedUser, tagId: string) {
     const tag = await this.prisma.client.tag.findUnique({ where: { id: tagId } });
     if (!tag) throw AppError.notFound('Tag not found');
-    if (!user.isSystemAdmin) {
-      await this.access.requireMember(user, tag.workspaceId);
-      throw AppError.forbidden('Only a system admin can rename or delete tags');
-    }
+    if (!user.isSystemAdmin) await this.access.requireMember(user, tag.workspaceId, 'ADMIN');
     return tag;
   }
 

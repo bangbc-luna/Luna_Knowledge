@@ -1,4 +1,5 @@
 import { JOBS, QUEUES } from '@luna/shared';
+import { SearchQueueService } from '../infra/queue/search-queue.service.js';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import type { Queue } from 'bullmq';
@@ -24,11 +25,12 @@ export class TrashService {
     private readonly nodes: NodesService,
     private readonly dto: NodeDtoService,
     private readonly audit: AuditService,
+    private readonly search: SearchQueueService,
     @InjectQueue(QUEUES.MAINTENANCE) private readonly maintenance: Queue,
   ) {}
 
   async list(user: AuthenticatedUser, workspaceId: string) {
-    if (!user.isSystemAdmin) await this.access.requireMember(user, workspaceId);
+    if (!user.isSystemAdmin) await this.access.requireMember(user, workspaceId, 'MEMBER');
     const roots = await this.prisma.client.$queryRaw<{ id: string; item_count: bigint }[]>`
       SELECT r.id, (SELECT count(*) FROM nodes d WHERE d.deleted_root_id = r.id) AS item_count
         FROM nodes r
@@ -57,9 +59,9 @@ export class TrashService {
 
   async restore(user: AuthenticatedUser, nodeId: string, ctx: RequestContext) {
     const node = await this.requireTrashRoot(user, nodeId);
-    if (!user.isSystemAdmin && node.deletedById !== user.id) {
+    if (!user.isSystemAdmin && node.deletedById !== user.id && node.memberRole !== 'ADMIN') {
       throw AppError.forbidden(
-        'Only the person who deleted this item or a system admin can restore it',
+        'Only the person who deleted this item, a workspace admin or a system admin can restore it',
       );
     }
 
@@ -101,6 +103,7 @@ export class TrashService {
       },
       ctx,
     });
+    await this.search.tree(nodeId);
     return {
       node: (await this.dto.one(user.id, nodeId)) ?? null,
       name: result.name,
@@ -111,7 +114,9 @@ export class TrashService {
 
   async deletePermanently(user: AuthenticatedUser, nodeId: string, ctx: RequestContext) {
     const node = await this.requireTrashRoot(user, nodeId);
-    if (!user.isSystemAdmin) throw AppError.forbidden('Only a system admin can delete permanently');
+    if (!user.isSystemAdmin && node.memberRole !== 'ADMIN') {
+      throw AppError.forbidden('Only a workspace admin can delete permanently');
+    }
     await this.prisma.client.node.delete({ where: { id: nodeId } });
     await this.collectGarbageSoon();
     await this.audit.log({
@@ -126,7 +131,7 @@ export class TrashService {
   }
 
   async empty(user: AuthenticatedUser, workspaceId: string, ctx: RequestContext) {
-    if (!user.isSystemAdmin) throw AppError.forbidden('Only a system admin can empty the trash');
+    if (!user.isSystemAdmin) await this.access.requireMember(user, workspaceId, 'ADMIN');
     const count = await this.prisma.client.$executeRaw`
       DELETE FROM nodes WHERE workspace_id = ${workspaceId}::uuid AND deleted_root_id = id`;
     await this.collectGarbageSoon();

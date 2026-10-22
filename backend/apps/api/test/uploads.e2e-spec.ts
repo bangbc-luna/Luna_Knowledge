@@ -119,12 +119,8 @@ describe('Uploads and files (e2e)', () => {
     outsider = await loginAs(ctx, 'outsider@lunatech.vn');
     const ws = await http()
       .post('/api/v1/workspaces')
-      .set(sysadmin.auth)
-      .send({
-        name: 'Files',
-        slug: 'files',
-        memberEmails: ['owner@lunatech.vn', 'editor@lunatech.vn'],
-      })
+      .set(owner.auth)
+      .send({ name: 'Files', slug: 'files', memberEmails: ['editor@lunatech.vn'] })
       .expect(201);
     wsId = ws.body.id;
   });
@@ -145,7 +141,7 @@ describe('Uploads and files (e2e)', () => {
       await startUpload(editor, { fileName: 'clip.mp4', size: 10 }).expect(400);
       await startUpload(editor, { fileName: 'doc.pdf', size: 10, kind: 'VIDEO' }).expect(400);
       const folder = (await createFolder(editor, 'Chỉ xem').expect(201)).body.id;
-      await shareToViewer(editor, folder);
+      await shareToViewer(owner, folder);
       await startUpload(viewer, { fileName: 'a.pdf', size: 10, parentId: folder }).expect(403);
       await startUpload(viewer, { fileName: 'a.pdf', size: 10 }).expect(404);
       await startUpload(outsider, { fileName: 'a.pdf', size: 10 }).expect(404);
@@ -308,7 +304,7 @@ describe('Uploads and files (e2e)', () => {
 
     beforeAll(async () => {
       ({ nodeId, content } = await uploadSmall(editor, 'Hợp đồng mẫu.pdf'));
-      await shareToViewer(editor, nodeId);
+      await shareToViewer(owner, nodeId);
     });
 
     it('chi tiết file và URL xem trước ký sẵn', async () => {
@@ -407,7 +403,7 @@ describe('Uploads and files (e2e)', () => {
         .send({})
         .expect(200);
       await simulateProcessed(start.body.uploadId, 'video/mp4');
-      await shareToViewer(editor, start.body.nodeId);
+      await shareToViewer(owner, start.body.nodeId);
       const detail = await http()
         .get(`/api/v1/files/${start.body.nodeId}`)
         .set(viewer.auth)
@@ -431,13 +427,13 @@ describe('Uploads and files (e2e)', () => {
       await http().get(`/api/v1/workspaces/${wsId}/storage`).set(viewer.auth).expect(404);
     });
 
-    it('xóa vĩnh viễn: blob được đưa vào hàng đợi dọn object', async () => {
+    it('xóa vĩnh viễn (quản trị workspace): blob được đưa vào hàng đợi dọn object', async () => {
       const keys = await ctx.prisma.blob.findMany({ where: { nodeId }, select: { key: true } });
       expect(keys.length).toBeGreaterThan(0);
-      await http().delete(`/api/v1/nodes/${nodeId}`).set(owner.auth).expect(403);
+      await http().delete(`/api/v1/nodes/${nodeId}`).set(viewer.auth).expect(403);
       await http().delete(`/api/v1/nodes/${nodeId}`).set(editor.auth).expect(204);
       await http().delete(`/api/v1/nodes/${nodeId}/permanent`).set(editor.auth).expect(403);
-      await http().delete(`/api/v1/nodes/${nodeId}/permanent`).set(sysadmin.auth).expect(204);
+      await http().delete(`/api/v1/nodes/${nodeId}/permanent`).set(owner.auth).expect(204);
       const queued = await ctx.prisma.blobGc.findMany({
         where: { key: { in: keys.map((k) => k.key) } },
       });

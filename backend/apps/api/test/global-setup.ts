@@ -8,12 +8,13 @@ import { GenericContainer, type StartedTestContainer, Wait } from 'testcontainer
 const MINIO_IMAGE = 'pgsty/minio:RELEASE.2026-08-04T00-00-00Z';
 const MINIO_USER = 'e2e_minio';
 const MINIO_PASSWORD = 'e2e_minio_password';
+const MEILI_KEY = 'e2e_meili_master_key_0123456789';
 
 let containers: Array<StartedPostgreSqlContainer | StartedRedisContainer | StartedTestContainer> =
   [];
 
 export async function setup() {
-  const [postgres, redis, minio] = await Promise.all([
+  const [postgres, redis, minio, meili] = await Promise.all([
     new PostgreSqlContainer('postgres:16-alpine').start(),
     new RedisContainer('redis:7-alpine').start(),
     new GenericContainer(MINIO_IMAGE)
@@ -22,8 +23,17 @@ export async function setup() {
       .withExposedPorts(9000)
       .withWaitStrategy(Wait.forHttp('/minio/health/live', 9000))
       .start(),
+    new GenericContainer('getmeili/meilisearch:v1.16')
+      .withEnvironment({
+        MEILI_MASTER_KEY: MEILI_KEY,
+        MEILI_NO_ANALYTICS: 'true',
+        MEILI_ENV: 'development',
+      })
+      .withExposedPorts(7700)
+      .withWaitStrategy(Wait.forHttp('/health', 7700))
+      .start(),
   ]);
-  containers = [postgres, redis, minio];
+  containers = [postgres, redis, minio, meili];
 
   Object.assign(process.env, {
     NODE_ENV: 'test',
@@ -34,6 +44,8 @@ export async function setup() {
     S3_ACCESS_KEY: MINIO_USER,
     S3_SECRET_KEY: MINIO_PASSWORD,
     S3_FORCE_PATH_STYLE: 'true',
+    MEILI_URL: `http://${meili.getHost()}:${meili.getMappedPort(7700)}`,
+    MEILI_MASTER_KEY: MEILI_KEY,
     S3_BUCKET_TMP: 'e2e-tmp',
     S3_BUCKET_HLS: 'e2e-hls',
     S3_BUCKET_PREVIEWS: 'e2e-previews',

@@ -4,6 +4,7 @@ import {
   loadEnv,
   redisEnvSchema,
   s3EnvSchema,
+  searchEnvSchema,
   uploadEnvSchema,
   videoEnvSchema,
   collabSecretsSchema,
@@ -27,6 +28,7 @@ export const apiEnvSchema = baseEnvSchema
   .extend(uploadEnvSchema.shape)
   .extend(videoEnvSchema.pick({ VIDEO_MASTER_KEY: true }).shape)
   .extend(collabSecretsSchema.shape)
+  .extend(searchEnvSchema.shape)
   .extend({
     API_PORT: z.coerce.number().int().positive().default(4000),
     API_PUBLIC_URL: z.url().default('http://localhost:4000'),
@@ -44,7 +46,6 @@ export const apiEnvSchema = baseEnvSchema
     SESSION_IDLE_TIMEOUT_MIN: z.coerce.number().int().positive().default(60),
     SESSION_ABSOLUTE_TIMEOUT_HOURS: z.coerce.number().int().positive().default(12),
     AUTH_REDIRECT_URL: z.url().optional(),
-    DEFAULT_WORKSPACE_SLUG: z.string().trim().default('lunatech'),
     COOKIE_SECURE: z
       .enum(['true', 'false'])
       .transform((v) => v === 'true')

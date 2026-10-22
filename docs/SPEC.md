@@ -53,35 +53,37 @@ Luna Knowledge là hệ thống lưu trữ và chia sẻ tri thức nội bộ c
 - **System Admin**: quản lý user, tạo/xóa workspace, xem audit log toàn hệ thống, cấu hình. System Admin có quyền quản trị mọi workspace (sửa, xóa, quản lý thành viên) kể cả khi không phải thành viên, nhưng **không** tự có quyền xem nội dung: muốn xem tài liệu/video phải tự thêm mình làm thành viên (được ghi audit log).
 - **User**: người dùng thông thường, được tự động tạo ở lần đăng nhập Google đầu tiên. Có thể được thêm vào workspace trước khi đăng nhập lần nào: hệ thống tạo sẵn tài khoản theo email công ty.
 
-### 3.2 Thành viên workspace và quyền trên từng mục
+### 3.2 Kho công ty, workspace nhóm và quyền trên từng mục
 
-Workspace chỉ có **một vai trò: Thành viên**. Chỉ System Admin thêm hoặc gỡ thành viên; thành viên tự rời được.
+Hệ thống phục vụ công ty LunaTech: ai có email @lunatech.vn đều đăng nhập được.
 
-Quyền trên một mục (folder, tài liệu, tệp, video) là quyền cao nhất trong các nguồn sau:
+- **Kho công ty** (workspace `kind = COMPANY`, slug `lunatech`, chỉ có một): tài liệu và video dùng chung toàn công ty. Mọi tài khoản luôn là **Chỉ xem** (`VIEWER`: xem và bình luận), được tự thêm lại ở mỗi lần đăng nhập, không gỡ được (muốn chặn thì khoá tài khoản). System Admin và người được quản trị kho chỉ định (vai trò `MEMBER` hoặc `ADMIN`) đăng, sửa, xoá nội dung. Kho công ty không xoá được.
+- **Workspace nhóm/dự án** (`kind = TEAM`): ai cũng tạo được và thành **Quản trị** (`ADMIN`). Quản trị mời **Thành viên** (`MEMBER`), nâng/hạ vai trò, sửa và xoá workspace. Luôn phải còn ít nhất một quản trị.
+
+Quyền trên một mục là quyền cao nhất trong các nguồn:
 
 | Nguồn | Quyền trên mục (`myRole`) |
 |---|---|
-| Thành viên workspace | `EDITOR` |
-| Người tạo mục, hoặc người tạo một folder tổ tiên của mục | `OWNER` |
-| Được share **Được chỉnh sửa** (`EDITOR`) trên mục hoặc folder tổ tiên | `OWNER` |
-| Được share **Chỉ xem** (`VIEWER`) trên mục hoặc folder tổ tiên | `VIEWER` |
+| Quản trị workspace (`ADMIN`) | `OWNER` |
+| Thành viên workspace (`MEMBER`) | `EDITOR` |
+| Chỉ xem (`VIEWER`, chỉ có ở kho công ty) | `VIEWER` |
+| Share **Được chỉnh sửa** trên mục hoặc folder tổ tiên | `OWNER` |
+| Share **Chỉ xem** trên mục hoặc folder tổ tiên | `VIEWER` |
 
-| Việc | VIEWER | EDITOR (thành viên) | OWNER |
+| Việc | VIEWER | EDITOR | OWNER |
 |---|:-:|:-:|:-:|
 | Xem, xem video, comment, tải file tài liệu (không áp dụng cho video) | ✓ | ✓ | ✓ |
-| Tạo, upload, sửa nội dung, đổi tên, di chuyển, tải bản mới, khôi phục phiên bản, gắn và tạo tag | | ✓ (có ghi log cho người sở hữu xem) | ✓ |
-| Xoá vào thùng rác | | | ✓ |
-| Chia sẻ mục cho người khác | | | ✓ |
-| Xem log hoạt động của mục (`GET /nodes/:id/activity`) | | | ✓ |
+| Tạo, upload, sửa nội dung, đổi tên, di chuyển, tải bản mới, khôi phục phiên bản, gắn và tạo tag | | ✓ | ✓ |
+| Xoá vào thùng rác (có log) | | ✓ | ✓ |
+| Chia sẻ mục, xem log hoạt động của mục, xoá bình luận của người khác | | | ✓ |
 
-- Thùng rác: thành viên xem được; người đã xoá hoặc System Admin khôi phục; xoá vĩnh viễn và dọn thùng rác chỉ System Admin.
-- Tag: thành viên tạo và gắn; đổi tên, xoá định nghĩa tag chỉ System Admin.
-- Comment: xoá comment là tác giả hoặc OWNER của tài liệu; resolve là người mở thread hoặc thành viên.
-- Log cho người sở hữu: mỗi khi người sửa tài liệu đổi sang người khác, hệ thống tự lưu một phiên bản cho người trước (ghi `document.edit` kèm số từ thêm, bớt). Đổi tên, di chuyển, tải bản mới, chia sẻ cũng có trong log hoạt động của mục.
+- Thùng rác: thành viên xem được; người đã xoá, quản trị workspace hoặc System Admin khôi phục; xoá vĩnh viễn và dọn thùng rác là quản trị workspace hoặc System Admin.
+- Tag: thành viên tạo và gắn; đổi tên, xoá định nghĩa tag là quản trị workspace hoặc System Admin.
+- Log: mọi sửa nội dung (tự lưu phiên bản theo từng người sửa, kèm số từ thêm/bớt), đổi tên, di chuyển, xoá, tải bản mới, chia sẻ đều ghi lại.
 
 ### 3.3 Share theo folder/node
 
-- OWNER của mục cấp quyền **Chỉ xem** hoặc **Được chỉnh sửa** trên một folder hay mục cho **bất kỳ user nào trong công ty**, kể cả người không thuộc workspace.
+- Quản trị workspace (hoặc người được share Được chỉnh sửa) cấp quyền **Chỉ xem** hoặc **Được chỉnh sửa** trên một folder hay mục cho **bất kỳ user nào trong công ty**, kể cả người không thuộc workspace.
 - Quyền share **được kế thừa** xuống toàn bộ cây con.
 - MVP chỉ cho phép share **cộng thêm quyền**, chưa hỗ trợ "folder hạn chế" (chặn bớt quyền). Tính năng này để ở bản sau.
 - Người chỉ có share (không thuộc workspace) chỉ nhìn thấy các nhánh được share, qua mục "Được chia sẻ với tôi".
@@ -114,9 +116,9 @@ Quyền trên một mục (folder, tài liệu, tệp, video) là quyền cao nh
 
 ### 4.2 Workspace (WS)
 
-- WS-1: System Admin tạo workspace, có thể kèm danh sách thành viên ban đầu.
+- WS-1: Mọi người dùng tạo được workspace nhóm/dự án và là quản trị của nó; có thể kèm danh sách thành viên ban đầu.
 - WS-1b: Có một workspace chung toàn công ty (slug trong env `DEFAULT_WORKSPACE_SLUG`, mặc định `lunatech`). User được tạo lần đầu (đăng nhập, được thêm làm thành viên hay được chia sẻ) tự vào workspace này làm thành viên, có ghi nhật ký. Ai đã bị xoá khỏi workspace chung thì không tự vào lại. User chưa thuộc workspace nào thấy hướng dẫn kèm danh sách quản trị hệ thống để liên hệ (`GET /users/admins`).
-- WS-2: System Admin thêm và gỡ thành viên; thành viên tự rời được. Trong app, thành viên xem danh sách thành viên ở cột bên phải (bật/tắt).
+- WS-2: Quản trị workspace (hoặc System Admin) mời, đổi vai trò, gỡ thành viên; thành viên tự rời được (trừ kho công ty). Trong app, danh sách và thao tác nằm ở cột thành viên bên phải (bật/tắt).
 - WS-3: Liệt kê các workspace mà user là thành viên.
 - WS-4: Thống kê dung lượng theo workspace (tổng file gốc, tổng HLS).
 
@@ -337,7 +339,7 @@ refresh_tokens(id, user_id FK, token_hash, expires_at, revoked_at, user_agent, i
 workspaces(id, name, slug UK, description, icon,
            storage_target_id FK, created_by, created_at, deleted_at)
 
-workspace_members(workspace_id FK, user_id FK, role[MEMBER],
+workspace_members(workspace_id FK, user_id FK, role[ADMIN|MEMBER|VIEWER],
                   added_by, created_at, PK(workspace_id,user_id))
 
 nodes(id, workspace_id FK, parent_id FK NULL, type[FOLDER|DOCUMENT|FILE|VIDEO],
@@ -556,7 +558,8 @@ Sửa tiêu đề/mô tả video dùng chung API đổi tên của node (`PATCH 
 
 | Method | Path | Mô tả | Quyền |
 |---|---|---|---|
-| GET | `/search?q=&workspaceId=&type=&tagIds=&createdBy=&from=&to=&cursor=` | Tìm toàn văn, có highlight | user (lọc theo acl) |
+| GET | `/search?q=&workspaceId=&section=&type=&tagIds=&createdBy=&from=&to=&cursor=&limit=` | Tìm toàn văn (có dấu hay không dấu), trả tên tách đoạn khớp, đoạn trích, đường dẫn | user (lọc theo acl, hậu kiểm quyền) |
+| POST | `/admin/search/reindex` | Dựng lại toàn bộ chỉ mục (chạy nền) | system admin |
 | GET/POST | `/workspaces/:wsId/tags` | Liệt kê/tạo tag | thành viên |
 | PATCH/DELETE | `/tags/:tagId` | Sửa/xóa tag | system admin |
 | PUT | `/nodes/:id/tags` | Gán tag `{tagIds:[]}` | EDITOR |

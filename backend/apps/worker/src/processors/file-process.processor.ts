@@ -15,6 +15,7 @@ import {
   type ProcessUploadJob,
   QUEUES,
   type RegenerateJob,
+  SEARCH_JOBS,
   type TranscodeJob,
   transcodeJobOptions,
 } from '@luna/shared';
@@ -45,6 +46,7 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
     private readonly events: NodeEventsPublisher,
     @Inject(WORKER_CONFIG) private readonly config: WorkerConfig,
     @InjectQueue(QUEUES.VIDEO_TRANSCODE) private readonly videoQueue: Queue,
+    @InjectQueue(QUEUES.SEARCH_INDEX) private readonly searchQueue: Queue,
   ) {
     super();
   }
@@ -55,10 +57,21 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
 
   async process(job: Job): Promise<unknown> {
     switch (job.name) {
-      case JOBS.PROCESS_UPLOAD:
-        return this.processUpload((job.data as ProcessUploadJob).uploadId);
-      case JOBS.REGENERATE:
-        return this.regenerate(job.data as RegenerateJob);
+      case JOBS.PROCESS_UPLOAD: {
+        const { uploadId } = job.data as ProcessUploadJob;
+        const result = await this.processUpload(uploadId);
+        const session = await this.prisma.client.uploadSession.findUnique({
+          where: { id: uploadId },
+          select: { nodeId: true },
+        });
+        if (session?.nodeId) await this.reindex(session.nodeId);
+        return result;
+      }
+      case JOBS.REGENERATE: {
+        const result = await this.regenerate(job.data as RegenerateJob);
+        await this.reindex((job.data as RegenerateJob).nodeId);
+        return result;
+      }
       default:
         throw new Error(`Unknown job "${job.name}" on queue ${QUEUES.FILE_PROCESS}`);
     }
@@ -78,7 +91,16 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
               select: { nodeId: true },
             })
           )?.nodeId;
-    if (nodeId) await this.markFailed(nodeId, publicMessage(err));
+    if (nodeId) {
+      await this.markFailed(nodeId, publicMessage(err));
+      await this.reindex(nodeId);
+    }
+  }
+
+  private async reindex(nodeId: string) {
+    await this.searchQueue
+      .add(SEARCH_JOBS.INDEX_NODE, { nodeId }, { removeOnComplete: true, removeOnFail: 100 })
+      .catch((err) => this.logger.warn({ err, nodeId }, 'Could not enqueue search index'));
   }
 
   async processUpload(uploadId: string) {

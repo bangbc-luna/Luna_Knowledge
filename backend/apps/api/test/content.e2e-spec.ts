@@ -53,14 +53,14 @@ describe('Content tree, sharing, trash (e2e)', () => {
 
     const ws = await http()
       .post('/api/v1/workspaces')
-      .set(sysadmin.auth)
-      .send({ name: 'Docs', slug: 'docs', memberEmails: ['alice@lunatech.vn', 'bob@lunatech.vn'] })
+      .set(alice.auth)
+      .send({ name: 'Docs', slug: 'docs', memberEmails: ['bob@lunatech.vn'] })
       .expect(201);
     wsId = ws.body.id;
     const other = await http()
       .post('/api/v1/workspaces')
-      .set(sysadmin.auth)
-      .send({ name: 'Other', slug: 'other', memberEmails: ['alice@lunatech.vn'] })
+      .set(alice.auth)
+      .send({ name: 'Other', slug: 'other' })
       .expect(201);
     otherWsId = other.body.id;
   });
@@ -70,7 +70,7 @@ describe('Content tree, sharing, trash (e2e)', () => {
   });
 
   describe('folders', () => {
-    it('thành viên tạo folder ở gốc và lồng nhau; người tạo là OWNER, thành viên khác là EDITOR; người ngoài 404', async () => {
+    it('tạo folder ở gốc và lồng nhau; quản trị là OWNER, thành viên là EDITOR kể cả mục mình tạo; người ngoài 404', async () => {
       const root = await createFolder(alice, 'Dự án').expect(201);
       expect(root.body).toMatchObject({
         type: 'FOLDER',
@@ -81,7 +81,9 @@ describe('Content tree, sharing, trash (e2e)', () => {
       });
       expect(await roleOf(bob, root.body.id)).toBe('EDITOR');
       const sub = await createFolder(bob, 'Thiết kế', root.body.id).expect(201);
-      expect(sub.body.myRole).toBe('OWNER');
+      expect(sub.body.myRole).toBe('EDITOR');
+      const bobRoot = await createFolder(bob, 'Của Bob').expect(201);
+      expect(bobRoot.body.myRole).toBe('EDITOR');
       expect(await roleOf(alice, sub.body.id)).toBe('OWNER');
       await createFolder(guest, 'Không được').expect(404);
       await list(sysadmin).expect(404);
@@ -386,7 +388,7 @@ describe('Content tree, sharing, trash (e2e)', () => {
   });
 
   describe('activity', () => {
-    it('OWNER xem lịch sử hoạt động của mục; thành viên thường 403', async () => {
+    it('OWNER và System Admin xem lịch sử hoạt động của mục; thành viên thường 403', async () => {
       const f = (await createFolder(alice, 'Có lịch sử').expect(201)).body.id;
       await http()
         .patch(`/api/v1/nodes/${f}`)
@@ -398,6 +400,7 @@ describe('Content tree, sharing, trash (e2e)', () => {
       await http().get(`/api/v1/nodes/${f}/activity`).set(bob.auth).expect(403);
       await http().get(`/api/v1/nodes/${f}/activity`).set(guest.auth).expect(403);
       await http().get(`/api/v1/nodes/${f}/activity`).set(viewer.auth).expect(404);
+      await http().get(`/api/v1/nodes/${f}/activity`).set(sysadmin.auth).expect(200);
 
       const res = await http().get(`/api/v1/nodes/${f}/activity`).set(alice.auth).expect(200);
       expect(res.body.items.map((i: { action: string }) => i.action)).toEqual([
@@ -438,15 +441,27 @@ describe('Content tree, sharing, trash (e2e)', () => {
       await createFolder(alice, 'Rác cháu', child).expect(201);
     });
 
-    it('chỉ OWNER xoá: thành viên thường 403; người tạo folder cha xoá được mục con người khác tạo', async () => {
+    it('thành viên xoá được mọi mục (kể cả của người khác); người chỉ xem 403; quản trị khôi phục được mục người khác xoá', async () => {
       const p = (await createFolder(alice, 'Của Alice').expect(201)).body.id;
       const q = (await createFolder(bob, 'Của Bob', p).expect(201)).body.id;
-      await http().delete(`/api/v1/nodes/${p}`).set(bob.auth).expect(403);
-      expect(await roleOf(alice, q)).toBe('OWNER');
-      await http().delete(`/api/v1/nodes/${q}`).set(alice.auth).expect(204);
+      await share(alice, p, 'viewer@lunatech.vn', 'VIEWER').expect(201);
+      await http().delete(`/api/v1/nodes/${q}`).set(viewer.auth).expect(403);
+      await http().delete(`/api/v1/nodes/${p}`).set(viewer.auth).expect(403);
+      await http().delete(`/api/v1/nodes/${p}`).set(guest.auth).expect(404);
+      await http().delete(`/api/v1/nodes/${p}`).set(bob.auth).expect(204);
+      const trash = await http()
+        .get(`/api/v1/workspaces/${wsId}/trash`)
+        .set(alice.auth)
+        .expect(200);
+      expect(trash.body.find((t: { id: string }) => t.id === p)).toMatchObject({
+        itemCount: 2,
+        deletedBy: { email: 'bob@lunatech.vn' },
+      });
+      const restored = await http().post(`/api/v1/nodes/${p}/restore`).set(alice.auth).expect(200);
+      expect(restored.body).toMatchObject({ node: { id: p, childCount: 1 } });
+      await http().delete(`/api/v1/nodes/${q}`).set(bob.auth).expect(204);
+      await http().post(`/api/v1/nodes/${q}/restore`).set(bob.auth).expect(200);
       await http().delete(`/api/v1/nodes/${p}`).set(alice.auth).expect(204);
-      const own = (await createFolder(bob, 'Bob tự xoá').expect(201)).body.id;
-      await http().delete(`/api/v1/nodes/${own}`).set(bob.auth).expect(204);
     });
 
     it('xóa cả nhánh vào thùng rác; mục con không còn truy cập', async () => {
@@ -491,7 +506,7 @@ describe('Content tree, sharing, trash (e2e)', () => {
       expect(crumb.body.map((x: { name: string }) => x.name)).toEqual(['Rác con']);
     });
 
-    it('chỉ người xoá hoặc System Admin khôi phục được', async () => {
+    it('thành viên không phải người xoá không khôi phục được; System Admin khôi phục được', async () => {
       const f = (await createFolder(alice, 'Alice xóa').expect(201)).body.id;
       await http().delete(`/api/v1/nodes/${f}`).set(alice.auth).expect(204);
       await http().post(`/api/v1/nodes/${f}/restore`).set(bob.auth).expect(403);
@@ -507,28 +522,39 @@ describe('Content tree, sharing, trash (e2e)', () => {
       expect(node.deletedAt).toBeNull();
     });
 
-    it('xóa vĩnh viễn chỉ System Admin (kể cả không là thành viên); xóa cả nhánh khỏi DB', async () => {
-      await http().delete(`/api/v1/nodes/${root}/permanent`).set(alice.auth).expect(403);
+    it('xóa vĩnh viễn chỉ quản trị workspace hoặc System Admin (kể cả không là thành viên); xóa cả nhánh khỏi DB', async () => {
       await http().delete(`/api/v1/nodes/${root}/permanent`).set(bob.auth).expect(403);
       await http().delete(`/api/v1/nodes/${root}/permanent`).set(viewer.auth).expect(404);
-      await http().delete(`/api/v1/nodes/${root}/permanent`).set(sysadmin.auth).expect(204);
+      await http().delete(`/api/v1/nodes/${root}/permanent`).set(alice.auth).expect(204);
       expect(await ctx.prisma.node.count({ where: { id: root } })).toBe(0);
       expect(
         await ctx.prisma.auditLog.count({
           where: { action: 'node.delete_permanent', targetId: root },
         }),
       ).toBe(1);
+      const f = (await createFolder(bob, 'Admin xoá hẳn').expect(201)).body.id;
+      await http().delete(`/api/v1/nodes/${f}`).set(bob.auth).expect(204);
+      await http().delete(`/api/v1/nodes/${f}/permanent`).set(sysadmin.auth).expect(204);
+      expect(await ctx.prisma.node.count({ where: { id: f } })).toBe(0);
     });
 
-    it('dọn sạch thùng rác chỉ System Admin', async () => {
+    it('dọn sạch thùng rác chỉ quản trị workspace hoặc System Admin', async () => {
       const f = (await createFolder(alice, 'Dọn').expect(201)).body.id;
-      await http().delete(`/api/v1/nodes/${f}`).set(alice.auth).expect(204);
-      await http().delete(`/api/v1/workspaces/${wsId}/trash`).set(alice.auth).expect(403);
+      await http().delete(`/api/v1/nodes/${f}`).set(bob.auth).expect(204);
+      await http().delete(`/api/v1/workspaces/${wsId}/trash`).set(bob.auth).expect(403);
+      await http().delete(`/api/v1/workspaces/${wsId}/trash`).set(guest.auth).expect(404);
       const res = await http()
+        .delete(`/api/v1/workspaces/${wsId}/trash`)
+        .set(alice.auth)
+        .expect(200);
+      expect(res.body.deleted).toBeGreaterThanOrEqual(1);
+      const g = (await createFolder(alice, 'Dọn 2').expect(201)).body.id;
+      await http().delete(`/api/v1/nodes/${g}`).set(alice.auth).expect(204);
+      const bySys = await http()
         .delete(`/api/v1/workspaces/${wsId}/trash`)
         .set(sysadmin.auth)
         .expect(200);
-      expect(res.body.deleted).toBeGreaterThanOrEqual(1);
+      expect(bySys.body.deleted).toBe(1);
       const trash = await http()
         .get(`/api/v1/workspaces/${wsId}/trash`)
         .set(alice.auth)
@@ -610,17 +636,23 @@ describe('Content tree, sharing, trash (e2e)', () => {
         .expect(403);
     });
 
-    it('sửa/xóa tag chỉ System Admin; xóa tag gỡ khỏi mục', async () => {
-      await http().patch(`/api/v1/tags/${tagId}`).set(alice.auth).send({ name: 'Gấp' }).expect(403);
+    it('sửa/xóa tag chỉ quản trị workspace hoặc System Admin; xóa tag gỡ khỏi mục', async () => {
+      await http().patch(`/api/v1/tags/${tagId}`).set(bob.auth).send({ name: 'Gấp' }).expect(403);
       await http().delete(`/api/v1/tags/${tagId}`).set(bob.auth).expect(403);
       await http().patch(`/api/v1/tags/${tagId}`).set(guest.auth).send({ name: 'Gấp' }).expect(404);
       const renamed = await http()
         .patch(`/api/v1/tags/${tagId}`)
-        .set(sysadmin.auth)
+        .set(alice.auth)
         .send({ name: 'Gấp' })
         .expect(200);
       expect(renamed.body.name).toBe('Gấp');
-      await http().delete(`/api/v1/tags/${tagId}`).set(sysadmin.auth).expect(204);
+      const bySys = await http()
+        .patch(`/api/v1/tags/${tagId}`)
+        .set(sysadmin.auth)
+        .send({ name: 'Gấp lắm' })
+        .expect(200);
+      expect(bySys.body.name).toBe('Gấp lắm');
+      await http().delete(`/api/v1/tags/${tagId}`).set(alice.auth).expect(204);
       const node = await http().get(`/api/v1/nodes/${folder}`).set(alice.auth).expect(200);
       expect(node.body.tags).toEqual([]);
     });

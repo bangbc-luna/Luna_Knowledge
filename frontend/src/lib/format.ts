@@ -1,4 +1,4 @@
-import type { ContentRole, NodeSection, NodeType } from "./types";
+import type { ContentRole, NodeSection, NodeType, WorkspaceRole } from "./types";
 
 export const SHARE_LABEL: Record<"VIEWER" | "EDITOR", string> = {
   VIEWER: "Chỉ xem",
@@ -9,6 +9,15 @@ export const SHARE_HINT: Record<"VIEWER" | "EDITOR", string> = {
   VIEWER: "Xem và bình luận",
   EDITOR: "Như người sở hữu: sửa, xoá, chia sẻ tiếp",
 };
+
+export const WS_ROLE_LABEL: Record<WorkspaceRole, string> = { ADMIN: "Quản trị", MEMBER: "Thành viên", VIEWER: "Chỉ xem" };
+export const WS_ROLE_HINT: Record<WorkspaceRole, string> = {
+  ADMIN: "Toàn quyền: mời, đổi vai trò, cài đặt workspace, xoá vĩnh viễn",
+  MEMBER: "Xem, bình luận, sửa, tải lên và xoá tài liệu",
+  VIEWER: "Chỉ xem và bình luận",
+};
+export const contentRoleOf = (role: WorkspaceRole | null | undefined): ContentRole | null =>
+  role === "ADMIN" ? "OWNER" : role === "MEMBER" ? "EDITOR" : role === "VIEWER" ? "VIEWER" : null;
 
 const RANK: Record<ContentRole, number> = { VIEWER: 1, EDITOR: 2, OWNER: 3 };
 export const roleAtLeast = (role: ContentRole | null | undefined, min: ContentRole) => !!role && RANK[role] >= RANK[min];
@@ -124,3 +133,13 @@ export function formatDuration(totalSec: number): string {
   const mm = h ? String(m).padStart(2, "0") : String(m);
   return `${h ? `${h}:` : ""}${mm}:${String(sec).padStart(2, "0")}`;
 }
+
+export const slugify = (s: string) =>
+  s
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/đ/gi, "d")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 50);

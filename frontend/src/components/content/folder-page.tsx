@@ -9,7 +9,7 @@ import { useAuth } from "@/lib/auth";
 import { createDocument, docHref } from "@/lib/documents";
 import { cn } from "@/lib/cn";
 import { DOC_ACCEPT_ATTR, extensionOf, VIDEO_ACCEPT_ATTR, VIDEO_EXTENSIONS } from "@/lib/files";
-import { formatWhen, roleAtLeast, SECTION_LABEL, sectionPath } from "@/lib/format";
+import { contentRoleOf, formatWhen, roleAtLeast, SECTION_LABEL, sectionPath } from "@/lib/format";
 import { useReportSection } from "@/lib/section";
 import type { Member, NodeItem, NodeSection, Page } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
@@ -112,7 +112,7 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
   useReportSection(section);
   const isVideo = section === "VIDEOS";
   const base = `/w/${wsId}/${sectionPath(section)}`;
-  const myRole = folderNode?.myRole ?? (membership ? "EDITOR" : null);
+  const myRole = folderNode?.myRole ?? contentRoleOf(membership?.role);
   const canEdit = roleAtLeast(myRole, "EDITOR");
   const canShare = roleAtLeast(folderNode?.myRole, "OWNER");
   const title = folderNode?.name ?? SECTION_LABEL[section];
@@ -352,7 +352,7 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
                                         { icon: Share2, label: "Chia sẻ", onSelect: () => setDialog({ kind: "share", node: n }), hidden: !rowOwner },
                                         { icon: TagIcon, label: "Gắn tag", onSelect: () => setDialog({ kind: "tags", node: n }), hidden: !rowEdit || !membership },
                                       ],
-                                      [{ icon: Trash2, label: "Xoá vào thùng rác", danger: true, onSelect: () => setDialog({ kind: "delete", node: n }), hidden: !rowOwner }],
+                                      [{ icon: Trash2, label: "Xoá vào thùng rác", danger: true, onSelect: () => setDialog({ kind: "delete", node: n }), hidden: !rowEdit }],
                                     ]}
                                   />
                                 </div>
@@ -406,7 +406,7 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
         onClose={() => setDialog(null)}
         node={dialog?.kind === "move" ? dialog.node : null}
         workspaceId={wsId}
-        canUseRoot={!!membership}
+        canUseRoot={!!membership && membership.role !== "VIEWER"}
         section={section}
         onMoved={() => {
           toast("success", "Đã di chuyển");

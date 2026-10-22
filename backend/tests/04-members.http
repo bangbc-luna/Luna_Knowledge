@@ -1,61 +1,67 @@
 # @import ./_auth.http
 @apiUrl = http://localhost:4000/api/v1
 
-# Thành viên workspace chỉ có một vai trò MEMBER. Chỉ System Admin thêm / gỡ thành viên;
-# thành viên tự rời được. Không còn đổi vai trò hay chuyển OWNER.
+# Vai trò thành viên: ADMIN | MEMBER | VIEWER.
+# Workspace nhóm (TEAM): chỉ ADMIN và MEMBER (VIEWER → 400). ADMIN workspace hoặc System Admin thêm / đổi vai trò / gỡ;
+#   thành viên tự rời được; không được hạ / gỡ / tự rời nếu là ADMIN cuối cùng (400).
+# Workspace công ty (COMPANY): ai cũng là VIEWER, không gỡ / rời được (403);
+#   ADMIN công ty hoặc System Admin đổi vai trò VIEWER / MEMBER / ADMIN.
 
-### Tạo workspace cho test thành viên (creator là thành viên ban đầu)
+### creator tạo workspace nhóm, member là thành viên ban đầu
 # @name ws
 # @ref admin
 # @ref creator
 # @ref member
 # @ref sharedViewer
+# @ref outsider
 POST {{apiUrl}}/workspaces
-Authorization: Bearer {{admin.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 Content-Type: application/json
 
-{ "name": "QA Members", "slug": "qa-members-{{$timestamp}}", "memberEmails": ["qa.creator@lunatech.vn"] }
+{ "name": "QA Members", "slug": "qa-members-{{$timestamp}}", "memberEmails": ["qa.member@lunatech.vn"] }
 
 ?? status == 201
-?? body memberCount == 1
+?? body memberCount == 2
+?? body myRole == ADMIN
 
-### Admin thêm member (không cần chọn vai trò)
+### ADMIN thêm thành viên, mặc định MEMBER
 # @ref ws
 POST {{apiUrl}}/workspaces/{{ws.id}}/members
-Authorization: Bearer {{admin.accessToken}}
-Content-Type: application/json
-
-{ "email": "qa.member@lunatech.vn" }
-
-?? status == 201
-?? body role == MEMBER
-?? body user.email == qa.member@lunatech.vn
-
-### Admin thêm sharedViewer
-# @ref ws
-POST {{apiUrl}}/workspaces/{{ws.id}}/members
-Authorization: Bearer {{admin.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 Content-Type: application/json
 
 { "email": "qa.shared.viewer@lunatech.vn" }
 
 ?? status == 201
+?? body role == MEMBER
+?? body user.email == qa.shared.viewer@lunatech.vn
 
 ### Thêm người chưa từng đăng nhập
+# @name newbie
 # @ref ws
 POST {{apiUrl}}/workspaces/{{ws.id}}/members
-Authorization: Bearer {{admin.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 Content-Type: application/json
 
-{ "email": "qa.newbie@lunatech.vn" }
+{ "email": "qa.newbie@lunatech.vn", "role": "MEMBER" }
 
 ?? status == 201
 ?? body role == MEMBER
 
+### Workspace nhóm không có vai trò VIEWER → 400
+# @ref ws
+POST {{apiUrl}}/workspaces/{{ws.id}}/members
+Authorization: Bearer {{creator.accessToken}}
+Content-Type: application/json
+
+{ "email": "qa.someone@lunatech.vn", "role": "VIEWER" }
+
+?? status == 400
+
 ### Thêm trùng → 409
 # @ref ws
 POST {{apiUrl}}/workspaces/{{ws.id}}/members
-Authorization: Bearer {{admin.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 Content-Type: application/json
 
 { "email": "qa.member@lunatech.vn" }
@@ -65,17 +71,17 @@ Content-Type: application/json
 ### Email ngoài công ty → 400
 # @ref ws
 POST {{apiUrl}}/workspaces/{{ws.id}}/members
-Authorization: Bearer {{admin.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 Content-Type: application/json
 
 { "email": "partner@gmail.com" }
 
 ?? status == 400
 
-### Thành viên không thêm được thành viên → 403
+### MEMBER không thêm được thành viên → 403
 # @ref ws
 POST {{apiUrl}}/workspaces/{{ws.id}}/members
-Authorization: Bearer {{creator.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 Content-Type: application/json
 
 { "email": "qa.someone@lunatech.vn" }
@@ -83,7 +89,6 @@ Content-Type: application/json
 ?? status == 403
 
 ### Người ngoài thêm thành viên → 404
-# @ref outsider
 # @ref ws
 POST {{apiUrl}}/workspaces/{{ws.id}}/members
 Authorization: Bearer {{outsider.accessToken}}
@@ -93,17 +98,18 @@ Content-Type: application/json
 
 ?? status == 404
 
-### Thành viên xem danh sách: ai cũng là MEMBER
+### Thành viên xem danh sách: creator là ADMIN, còn lại MEMBER
 # @ref ws
 GET {{apiUrl}}/workspaces/{{ws.id}}/members
 Authorization: Bearer {{sharedViewer.accessToken}}
 
 ?? status == 200
 ?? js response.parsedBody.length == 4
-?? js response.parsedBody.every(m => m.role === 'MEMBER') == true
+?? js response.parsedBody[0].user.email == qa.creator@lunatech.vn
+?? js response.parsedBody.filter(m => m.role === 'ADMIN').length == 1
+?? js response.parsedBody.filter(m => m.role === 'MEMBER').length == 3
 
 ### Người ngoài xem danh sách → 404
-# @ref outsider
 # @ref ws
 GET {{apiUrl}}/workspaces/{{ws.id}}/members
 Authorization: Bearer {{outsider.accessToken}}
@@ -117,55 +123,156 @@ Authorization: Bearer {{admin.accessToken}}
 
 ?? status == 200
 
-### Đổi vai trò thành viên: API đã bỏ → 404
+### ADMIN cuối cùng không tự hạ vai trò → 400
+# @ref ws
+PATCH {{apiUrl}}/workspaces/{{ws.id}}/members/{{creator.user.id}}
+Authorization: Bearer {{creator.accessToken}}
+Content-Type: application/json
+
+{ "role": "MEMBER" }
+
+?? status == 400
+
+### ADMIN cuối cùng không tự rời → 400
+# @ref ws
+DELETE {{apiUrl}}/workspaces/{{ws.id}}/members/{{creator.user.id}}
+Authorization: Bearer {{creator.accessToken}}
+
+?? status == 400
+
+### System Admin cũng không gỡ được ADMIN cuối cùng → 400
+# @ref ws
+DELETE {{apiUrl}}/workspaces/{{ws.id}}/members/{{creator.user.id}}
+Authorization: Bearer {{admin.accessToken}}
+
+?? status == 400
+
+### Đổi sang VIEWER trong workspace nhóm → 400
 # @ref ws
 PATCH {{apiUrl}}/workspaces/{{ws.id}}/members/{{member.user.id}}
-Authorization: Bearer {{admin.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 Content-Type: application/json
 
 { "role": "VIEWER" }
+
+?? status == 400
+
+### MEMBER không đổi vai trò được → 403
+# @ref ws
+PATCH {{apiUrl}}/workspaces/{{ws.id}}/members/{{member.user.id}}
+Authorization: Bearer {{member.accessToken}}
+Content-Type: application/json
+
+{ "role": "ADMIN" }
+
+?? status == 403
+
+### Đổi vai trò người không phải thành viên → 404
+# @ref ws
+PATCH {{apiUrl}}/workspaces/{{ws.id}}/members/{{outsider.user.id}}
+Authorization: Bearer {{creator.accessToken}}
+Content-Type: application/json
+
+{ "role": "MEMBER" }
 
 ?? status == 404
 
 ### Chuyển quyền OWNER: API đã bỏ → 404
 # @ref ws
 POST {{apiUrl}}/workspaces/{{ws.id}}/transfer-ownership
-Authorization: Bearer {{admin.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 Content-Type: application/json
 
 { "userId": "{{member.user.id}}" }
 
 ?? status == 404
 
-### Thành viên gỡ người khác → 403
+### ADMIN nâng member lên ADMIN
 # @ref ws
-DELETE {{apiUrl}}/workspaces/{{ws.id}}/members/{{member.user.id}}
+PATCH {{apiUrl}}/workspaces/{{ws.id}}/members/{{member.user.id}}
+Authorization: Bearer {{creator.accessToken}}
+Content-Type: application/json
+
+{ "role": "ADMIN" }
+
+?? status == 200
+?? body role == ADMIN
+
+### ADMIN mới hạ creator xuống MEMBER (vẫn còn một ADMIN)
+# @ref ws
+PATCH {{apiUrl}}/workspaces/{{ws.id}}/members/{{creator.user.id}}
+Authorization: Bearer {{member.accessToken}}
+Content-Type: application/json
+
+{ "role": "MEMBER" }
+
+?? status == 200
+?? body role == MEMBER
+
+### creator giờ là MEMBER → không gỡ được người khác (403)
+# @ref ws
+DELETE {{apiUrl}}/workspaces/{{ws.id}}/members/{{sharedViewer.user.id}}
 Authorization: Bearer {{creator.accessToken}}
 
 ?? status == 403
 
-### Admin gỡ người không phải thành viên → 404
+### creator giờ là MEMBER → không sửa workspace (403)
+# @ref ws
+PATCH {{apiUrl}}/workspaces/{{ws.id}}
+Authorization: Bearer {{creator.accessToken}}
+Content-Type: application/json
+
+{ "name": "Hack" }
+
+?? status == 403
+
+### member là ADMIN cuối cùng → không tự rời (400)
+# @ref ws
+DELETE {{apiUrl}}/workspaces/{{ws.id}}/members/{{member.user.id}}
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 400
+
+### ADMIN gỡ người không phải thành viên → 404
 # @ref ws
 DELETE {{apiUrl}}/workspaces/{{ws.id}}/members/00000000-0000-7000-8000-000000000000
-Authorization: Bearer {{admin.accessToken}}
+Authorization: Bearer {{member.accessToken}}
 
 ?? status == 404
 
-### Admin gỡ member → 204
-# @ref ws
-DELETE {{apiUrl}}/workspaces/{{ws.id}}/members/{{member.user.id}}
-Authorization: Bearer {{admin.accessToken}}
+### ADMIN gỡ thành viên → 204
+# @ref newbie
+DELETE {{apiUrl}}/workspaces/{{ws.id}}/members/{{newbie.user.id}}
+Authorization: Bearer {{member.accessToken}}
 
 ?? status == 204
 
-### Bị gỡ → không còn xem được workspace (404)
+### System Admin đổi vai trò: creator lại là ADMIN
+# @ref ws
+PATCH {{apiUrl}}/workspaces/{{ws.id}}/members/{{creator.user.id}}
+Authorization: Bearer {{admin.accessToken}}
+Content-Type: application/json
+
+{ "role": "ADMIN" }
+
+?? status == 200
+?? body role == ADMIN
+
+### Còn ADMIN khác nên member tự rời được → 204
+# @ref ws
+DELETE {{apiUrl}}/workspaces/{{ws.id}}/members/{{member.user.id}}
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 204
+
+### Đã rời → không còn xem được workspace (404)
 # @ref ws
 GET {{apiUrl}}/workspaces/{{ws.id}}
 Authorization: Bearer {{member.accessToken}}
 
 ?? status == 404
 
-### Thành viên tự rời workspace → 204
+### MEMBER tự rời workspace → 204
 # @ref ws
 DELETE {{apiUrl}}/workspaces/{{ws.id}}/members/{{sharedViewer.user.id}}
 Authorization: Bearer {{sharedViewer.accessToken}}
@@ -179,17 +286,153 @@ Authorization: Bearer {{sharedViewer.accessToken}}
 
 ?? status == 404
 
-### Còn lại creator và người mới
+### Còn lại creator (ADMIN)
 # @ref ws
 GET {{apiUrl}}/workspaces/{{ws.id}}/members
 Authorization: Bearer {{creator.accessToken}}
 
 ?? status == 200
-?? js response.parsedBody.map(m => m.user.email).sort().join(',') == qa.creator@lunatech.vn,qa.newbie@lunatech.vn
+?? js response.parsedBody.map(m => m.user.email + ':' + m.role).join(',') == qa.creator@lunatech.vn:ADMIN
 
-### Dọn dẹp: admin xóa workspace
+### Dọn dẹp: ADMIN xóa workspace
 # @ref ws
 DELETE {{apiUrl}}/workspaces/{{ws.id}}
-Authorization: Bearer {{admin.accessToken}}
+Authorization: Bearer {{creator.accessToken}}
 
 ?? status == 204
+
+### Workspace công ty: lấy id
+# @name companyWs
+# @ref member
+GET {{apiUrl}}/workspaces
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.some(w => w.slug === 'lunatech' && w.myRole === 'VIEWER') == true
+
+### Workspace công ty: VIEWER xem được danh sách thành viên
+# @ref companyWs
+GET {{apiUrl}}/workspaces/{{companyWs.find(w => w.slug === 'lunatech').id}}/members
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.find(m => m.user.email === 'qa.member@lunatech.vn').role == VIEWER
+?? js response.parsedBody.find(m => m.user.email === 'admin@lunatech.vn').role == ADMIN
+
+### Workspace công ty: VIEWER không đổi vai trò người khác → 403
+# @ref companyWs
+# @ref creator
+PATCH {{apiUrl}}/workspaces/{{companyWs.find(w => w.slug === 'lunatech').id}}/members/{{creator.user.id}}
+Authorization: Bearer {{member.accessToken}}
+Content-Type: application/json
+
+{ "role": "MEMBER" }
+
+?? status == 403
+
+### Workspace công ty: không tự rời được → 403
+# @ref companyWs
+DELETE {{apiUrl}}/workspaces/{{companyWs.find(w => w.slug === 'lunatech').id}}/members/{{member.user.id}}
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 403
+
+### Workspace công ty: System Admin cũng không gỡ được thành viên → 403
+# @ref admin
+# @ref companyWs
+DELETE {{apiUrl}}/workspaces/{{companyWs.find(w => w.slug === 'lunatech').id}}/members/{{member.user.id}}
+Authorization: Bearer {{admin.accessToken}}
+
+?? status == 403
+
+### Workspace công ty: System Admin đặt một người làm ADMIN công ty (POST với role)
+# @name lead
+# @ref admin
+# @ref companyWs
+POST {{apiUrl}}/workspaces/{{companyWs.find(w => w.slug === 'lunatech').id}}/members
+Authorization: Bearer {{admin.accessToken}}
+Content-Type: application/json
+
+{ "email": "qa.company.lead@lunatech.vn", "role": "ADMIN" }
+
+?? status == 201
+?? body role == ADMIN
+
+### Token của ADMIN công ty (không phải System Admin)
+# @name leadToken
+# @ref lead
+POST {{apiUrl}}/dev/token
+Content-Type: application/json
+
+{ "email": "qa.company.lead@lunatech.vn", "name": "QA Company Lead" }
+
+?? status == 200
+?? body user.isSystemAdmin == false
+
+### Đăng nhập lại không hạ vai trò ADMIN công ty
+# @ref leadToken
+GET {{apiUrl}}/workspaces/{{companyWs.find(w => w.slug === 'lunatech').id}}
+Authorization: Bearer {{leadToken.accessToken}}
+
+?? status == 200
+?? body myRole == ADMIN
+
+### ADMIN công ty thêm / đổi vai trò bằng POST: user mới thành MEMBER
+# @name staff
+# @ref leadToken
+POST {{apiUrl}}/workspaces/{{companyWs.find(w => w.slug === 'lunatech').id}}/members
+Authorization: Bearer {{leadToken.accessToken}}
+Content-Type: application/json
+
+{ "email": "qa.company.staff@lunatech.vn", "role": "MEMBER" }
+
+?? status == 201
+?? body role == MEMBER
+
+### ADMIN công ty đổi vai trò về VIEWER (công ty có vai trò VIEWER)
+# @ref staff
+# @ref leadToken
+PATCH {{apiUrl}}/workspaces/{{companyWs.find(w => w.slug === 'lunatech').id}}/members/{{staff.user.id}}
+Authorization: Bearer {{leadToken.accessToken}}
+Content-Type: application/json
+
+{ "role": "VIEWER" }
+
+?? status == 200
+?? body role == VIEWER
+
+### System Admin đổi vai trò người trong công ty: VIEWER → MEMBER
+# @ref staff
+# @ref admin
+PATCH {{apiUrl}}/workspaces/{{companyWs.find(w => w.slug === 'lunatech').id}}/members/{{staff.user.id}}
+Authorization: Bearer {{admin.accessToken}}
+Content-Type: application/json
+
+{ "role": "MEMBER" }
+
+?? status == 200
+?? body role == MEMBER
+
+### Dọn dẹp: trả staff về VIEWER
+# @ref staff
+# @ref admin
+PATCH {{apiUrl}}/workspaces/{{companyWs.find(w => w.slug === 'lunatech').id}}/members/{{staff.user.id}}
+Authorization: Bearer {{admin.accessToken}}
+Content-Type: application/json
+
+{ "role": "VIEWER" }
+
+?? status == 200
+?? body role == VIEWER
+
+### Dọn dẹp: System Admin trả lead về VIEWER
+# @ref lead
+# @ref admin
+PATCH {{apiUrl}}/workspaces/{{companyWs.find(w => w.slug === 'lunatech').id}}/members/{{lead.user.id}}
+Authorization: Bearer {{admin.accessToken}}
+Content-Type: application/json
+
+{ "role": "VIEWER" }
+
+?? status == 200
+?? body role == VIEWER

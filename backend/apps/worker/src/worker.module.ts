@@ -14,6 +14,7 @@ import { StorageService } from './infra/storage.provider.js';
 import { FileProcessProcessor } from './processors/file-process.processor.js';
 import { VideoTranscodeProcessor } from './processors/video-transcode.processor.js';
 import { MaintenanceProcessor } from './processors/maintenance.processor.js';
+import { SearchIndexProcessor } from './processors/search-index.processor.js';
 import { SystemProcessor } from './processors/system.processor.js';
 
 @Global()
@@ -53,6 +54,7 @@ class WorkerConfigModule {}
       { name: QUEUES.MAINTENANCE },
       { name: QUEUES.FILE_PROCESS },
       { name: QUEUES.VIDEO_TRANSCODE },
+      { name: QUEUES.SEARCH_INDEX },
     ),
   ],
   providers: [
@@ -63,6 +65,7 @@ class WorkerConfigModule {}
     MaintenanceProcessor,
     FileProcessProcessor,
     VideoTranscodeProcessor,
+    SearchIndexProcessor,
   ],
 })
 export class WorkerModule {}

@@ -2,7 +2,7 @@
 # Upload multipart → worker xử lý → xem trước / tải về / phiên bản (SPEC §7.7–7.8).
 # Cần worker đang chạy (`pnpm dev`) cùng Gotenberg, Tika: các bước chờ xử lý có `# @sleep`.
 # File mà sharedViewer cần xem được tải vào viewFolder (sharedViewer chỉ có share "Chỉ xem" trên folder đó).
-# File DOCX do creator tải lên (OWNER); member là thành viên thường: tải bản mới, khôi phục phiên bản.
+# File DOCX do creator (ADMIN workspace → OWNER) tải lên; member là MEMBER (EDITOR): tải bản mới, khôi phục phiên bản.
 @apiUrl = http://localhost:4000/api/v1
 @origin = http://localhost:4000
 
@@ -224,7 +224,7 @@ GET {{origin}}{{dlLink.url}}
 
 ?? status == 404
 
-### member là thành viên thường trên file này (EDITOR)
+### member là MEMBER nên là EDITOR trên file này
 # @ref docxFile
 # @ref member
 GET {{apiUrl}}/nodes/{{docxUpload.nodeId}}
@@ -295,7 +295,7 @@ Authorization: Bearer {{sharedViewer.accessToken}}
 
 ?? status == 403
 
-### Thành viên (không phải OWNER) khôi phục v1
+### MEMBER (EDITOR) khôi phục v1
 # @ref versions
 POST {{apiUrl}}/files/{{docxUpload.nodeId}}/versions/{{versions[1].id}}/restore
 Authorization: Bearer {{member.accessToken}}
@@ -426,3 +426,11 @@ Authorization: Bearer {{creator.accessToken}}
 ?? status == 200
 ?? js response.parsedBody.originalBytes > 0
 ?? js response.parsedBody.derivedBytes > 0
+
+### MEMBER (EDITOR) xóa được file do creator tải lên → vào thùng rác
+# @ref docxFile
+# @ref member
+DELETE {{apiUrl}}/nodes/{{docxUpload.nodeId}}
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 204

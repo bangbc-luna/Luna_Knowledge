@@ -6,6 +6,7 @@ import {
   Prisma,
   type NodeSection,
   type NodeType,
+  type WorkspaceRole,
 } from '@luna/db';
 import { Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
@@ -13,6 +14,8 @@ import { AppError } from '../common/errors/app-error.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 
 export type { ContentRole };
+
+export const MEMBER_RANK: Record<WorkspaceRole, number> = { VIEWER: 1, MEMBER: 2, ADMIN: 3 };
 
 export interface NodeAccess {
   id: string;
@@ -26,6 +29,7 @@ export interface NodeAccess {
   deletedRootId: string | null;
   deletedById: string | null;
   isMember: boolean;
+  memberRole: WorkspaceRole | null;
   role: ContentRole | null;
 }
 
@@ -42,7 +46,6 @@ interface AccessRow {
   deleted_by: string | null;
   member_role: string | null;
   share_role: string | null;
-  owns: boolean;
 }
 
 @Injectable()
@@ -72,6 +75,7 @@ export class ContentAccessService {
           deletedRootId: r.deleted_root_id,
           deletedById: r.deleted_by,
           isMember: !!r.member_role,
+          memberRole: (r.member_role as WorkspaceRole | null) ?? null,
           role: effectiveRole(r),
         },
       ]),
@@ -98,12 +102,24 @@ export class ContentAccessService {
     return access as NodeAccess & { role: ContentRole };
   }
 
-  async requireMember(user: AuthenticatedUser, workspaceId: string): Promise<void> {
+  async requireMember(
+    user: AuthenticatedUser,
+    workspaceId: string,
+    min: WorkspaceRole = 'VIEWER',
+  ): Promise<WorkspaceRole> {
     const member = await this.prisma.client.workspaceMember.findFirst({
       where: { workspaceId, userId: user.id, workspace: { deletedAt: null } },
       select: { role: true },
     });
     if (!member) throw AppError.notFound('Workspace not found');
+    if (MEMBER_RANK[member.role] < MEMBER_RANK[min]) {
+      throw AppError.forbidden(
+        min === 'ADMIN'
+          ? 'Only workspace admins can do this'
+          : 'You only have view access in this workspace',
+      );
+    }
+    return member.role;
   }
 
   visibleTo(userId: string): Prisma.Sql {

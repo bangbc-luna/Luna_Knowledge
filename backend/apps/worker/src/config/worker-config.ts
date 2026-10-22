@@ -5,6 +5,7 @@ import {
   processingEnvSchema,
   redisEnvSchema,
   s3EnvSchema,
+  searchEnvSchema,
   uploadEnvSchema,
   videoEnvSchema,
 } from '@luna/shared';
@@ -17,6 +18,7 @@ export const workerEnvSchema = baseEnvSchema
   .extend(processingEnvSchema.shape)
   .extend(uploadEnvSchema.shape)
   .extend(videoEnvSchema.shape)
+  .extend(searchEnvSchema.shape)
   .extend({
     FILE_PROCESS_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
     WORKER_TMP_DIR: z.string().optional(),

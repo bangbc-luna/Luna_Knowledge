@@ -16,7 +16,14 @@ enum UserStatus {
 }
 
 enum WorkspaceRole {
+  ADMIN
   MEMBER
+  VIEWER
+}
+
+enum WorkspaceKind {
+  COMPANY
+  TEAM
 }
 
 enum NodeSection {
@@ -134,6 +141,7 @@ model Workspace {
   id          String    @id @default(uuid(7)) @db.Uuid
   name        String
   slug        String    @unique
+  kind        WorkspaceKind @default(TEAM)
   description String?
   icon        String?
   createdById String    @map("created_by") @db.Uuid
@@ -146,6 +154,7 @@ model Workspace {
   nodes     Node[]
   tags      Tag[]
 
+  @@unique([kind], map: "workspaces_single_company", where: raw("kind = 'COMPANY' AND deleted_at IS NULL"))
   @@map("workspaces")
 }
 

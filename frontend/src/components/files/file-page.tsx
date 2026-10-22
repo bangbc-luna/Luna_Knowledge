@@ -217,7 +217,7 @@ export function FilePage() {
                         { icon: TagIcon, label: "Gắn tag", onSelect: () => setPanel("tags"), hidden: !canEdit || !membership },
                         { icon: Activity, label: "Hoạt động", onSelect: () => setPanel("activity"), hidden: !isOwner && !me?.isSystemAdmin },
                       ],
-                      [{ icon: Trash2, label: "Xoá vào thùng rác", danger: true, onSelect: () => setPanel("delete"), hidden: !isOwner }],
+                      [{ icon: Trash2, label: "Xoá vào thùng rác", danger: true, onSelect: () => setPanel("delete"), hidden: !canEdit }],
                     ]}
                   />
                 );

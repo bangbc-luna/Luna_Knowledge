@@ -2,6 +2,7 @@ import { QUEUES, redisConnection } from '@luna/shared';
 import { BullModule } from '@nestjs/bullmq';
 import { Global, Module } from '@nestjs/common';
 import { APP_CONFIG, type AppConfig } from '../../config/app-config.js';
+import { SearchQueueService } from './search-queue.service.js';
 
 @Global()
 @Module({
@@ -17,8 +18,10 @@ import { APP_CONFIG, type AppConfig } from '../../config/app-config.js';
       { name: QUEUES.FILE_PROCESS },
       { name: QUEUES.MAINTENANCE },
       { name: QUEUES.VIDEO_TRANSCODE },
+      { name: QUEUES.SEARCH_INDEX },
     ),
   ],
-  exports: [BullModule],
+  providers: [SearchQueueService],
+  exports: [BullModule, SearchQueueService],
 })
 export class QueueModule {}

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { api, ApiError, describeError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { formatWhen } from "@/lib/format";
+import { formatWhen, slugify, WS_ROLE_LABEL } from "@/lib/format";
 import type { Member, Workspace } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 import { PageBody, TopBar } from "../shell/shell";
@@ -16,15 +16,6 @@ import { RowMenu } from "../ui/menu";
 import { Avatar, Card, EmptyState, ErrorBanner, SkeletonRows } from "../ui/misc";
 import { useToast } from "../ui/toast";
 
-const slugify = (s: string) =>
-  s
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/đ/gi, "d")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 50);
 
 function MembersSheet({ ws, onClose, onChanged }: { ws: Workspace | null; onClose: () => void; onChanged: () => void }) {
   const toast = useToast();
@@ -86,7 +77,9 @@ function MembersSheet({ ws, onClose, onChanged }: { ws: Workspace | null; onClos
                 <Avatar name={m.user.name} src={m.user.avatarUrl} />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{m.user.name}</p>
-                  <p className="truncate text-xs text-muted">{m.user.email}</p>
+                  <p className="truncate text-xs text-muted">
+                    {WS_ROLE_LABEL[m.role]} · {m.user.email}
+                  </p>
                 </div>
                 <IconButton icon={UserMinus} label={`Gỡ ${m.user.name} khỏi workspace`} onClick={() => setRemoving(m)} />
               </li>

@@ -16,7 +16,6 @@ import type { Request } from 'express';
 import { z } from 'zod';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
-import { SystemAdmin } from '../auth/decorators/system-admin.decorator.js';
 import { requestContext } from '../common/http/request-context.js';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
 import { ApiZodBody, ApiZodCreated, ApiZodOk, ApiZodQuery } from '../common/swagger/zod-openapi.js';
@@ -27,6 +26,8 @@ import {
   type CreateWorkspaceBody,
   listWorkspacesQuery,
   memberSchema,
+  updateMemberBody,
+  type UpdateMemberBody,
   updateWorkspaceBody,
   type UpdateWorkspaceBody,
   workspaceSchema,
@@ -53,8 +54,9 @@ export class WorkspacesController {
   }
 
   @Post()
-  @SystemAdmin()
-  @ApiOperation({ summary: '[Admin] Tạo workspace, có thể kèm thành viên ban đầu' })
+  @ApiOperation({
+    summary: 'Tạo workspace nhóm/dự án; người tạo là quản trị, memberEmails là thành viên ban đầu',
+  })
   @ApiZodBody(createWorkspaceBody)
   @ApiZodCreated(workspaceSchema)
   create(
@@ -73,7 +75,7 @@ export class WorkspacesController {
   }
 
   @Patch(':wsId')
-  @ApiOperation({ summary: '[Admin] Sửa tên, mô tả, icon' })
+  @ApiOperation({ summary: 'Sửa tên, mô tả, icon (quản trị workspace)' })
   @ApiZodBody(updateWorkspaceBody)
   @ApiZodOk(workspaceSchema)
   update(
@@ -87,7 +89,9 @@ export class WorkspacesController {
 
   @Delete(':wsId')
   @HttpCode(204)
-  @ApiOperation({ summary: '[Admin] Xóa mềm workspace' })
+  @ApiOperation({
+    summary: 'Xóa mềm workspace (quản trị workspace; không xoá được workspace công ty)',
+  })
   @ApiNoContentResponse()
   remove(
     @CurrentUser() user: AuthenticatedUser,
@@ -107,7 +111,10 @@ export class WorkspacesController {
 
   @Post(':wsId/members')
   @ApiTags('members')
-  @ApiOperation({ summary: '[Admin] Thêm thành viên theo email' })
+  @ApiOperation({
+    summary:
+      'Thêm thành viên theo email (quản trị workspace). Workspace công ty: đặt vai trò cho người đã có',
+  })
   @ApiZodBody(addMemberBody)
   @ApiZodCreated(memberSchema)
   addMember(
@@ -119,10 +126,29 @@ export class WorkspacesController {
     return this.workspaces.addMember(user, id, body, requestContext(req));
   }
 
+  @Patch(':wsId/members/:userId')
+  @ApiTags('members')
+  @ApiOperation({
+    summary: 'Đổi vai trò thành viên (quản trị workspace); luôn phải còn một quản trị',
+  })
+  @ApiZodBody(updateMemberBody)
+  @ApiZodOk(memberSchema)
+  updateMember(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('wsId', wsId()) id: string,
+    @Param('userId', new ParseUUIDPipe()) userId: string,
+    @Body(new ZodValidationPipe(updateMemberBody)) body: UpdateMemberBody,
+    @Req() req: Request,
+  ) {
+    return this.workspaces.updateMember(user, id, userId, body, requestContext(req));
+  }
+
   @Delete(':wsId/members/:userId')
   @HttpCode(204)
   @ApiTags('members')
-  @ApiOperation({ summary: '[Admin] Gỡ thành viên, hoặc tự rời workspace' })
+  @ApiOperation({
+    summary: 'Gỡ thành viên (quản trị), hoặc tự rời workspace; luôn phải còn một quản trị',
+  })
   @ApiNoContentResponse()
   removeMember(
     @CurrentUser() user: AuthenticatedUser,

@@ -25,7 +25,7 @@ export function TrashPage() {
   const { me } = useAuth();
   const toast = useToast();
   const ws = me?.workspaces.find((w) => w.id === wsId);
-  const isAdmin = !!me?.isSystemAdmin;
+  const isAdmin = !!me?.isSystemAdmin || ws?.role === "ADMIN";
   const { data, loading, error, reload } = useApi(() => api<TrashItem[]>(`/workspaces/${wsId}/trash`), [wsId]);
   const [confirm, setConfirm] = useState<{ kind: "purge"; item: TrashItem } | { kind: "empty" } | null>(null);
 
@@ -46,7 +46,7 @@ export function TrashPage() {
       </TopBar>
       <PageBody>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <p className="min-w-0 flex-1 text-sm text-muted text-pretty">Người đã xoá hoặc quản trị hệ thống khôi phục được. Khôi phục đưa cả nhánh về chỗ cũ; thư mục cha đã bị xoá thì về gốc.</p>
+          <p className="min-w-0 flex-1 text-sm text-muted text-pretty">Người đã xoá hoặc quản trị workspace khôi phục được; chỉ quản trị xoá vĩnh viễn. Khôi phục đưa cả nhánh về chỗ cũ; thư mục cha đã bị xoá thì về gốc.</p>
           {isAdmin && data?.length ? (
             <Button variant="danger" icon={Trash2} className="shrink-0 self-start" onClick={() => setConfirm({ kind: "empty" })}>
               Dọn sạch thùng rác

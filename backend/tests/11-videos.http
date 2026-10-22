@@ -99,7 +99,7 @@ Authorization: Bearer {{creator.accessToken}}
 ?? status == 200
 ?? js response.parsedBody.items.some(n => n.id === vUpload.nodeId && n.type === 'VIDEO') == true
 
-### Không tải video được, kể cả OWNER (người tạo folder chứa video)
+### Không tải video được, kể cả OWNER (ADMIN workspace)
 # @ref vDetail
 # @ref creator
 GET {{apiUrl}}/files/{{vUpload.nodeId}}/download
@@ -237,3 +237,11 @@ POST {{apiUrl}}/admin/videos/{{vUpload.nodeId}}/original-link
 Authorization: Bearer {{creator.accessToken}}
 
 ?? status == 403
+
+### MEMBER (EDITOR) xóa được video trong folder của creator → vào thùng rác
+# @ref vDetail
+# @ref member
+DELETE {{apiUrl}}/nodes/{{vUpload.nodeId}}
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 204

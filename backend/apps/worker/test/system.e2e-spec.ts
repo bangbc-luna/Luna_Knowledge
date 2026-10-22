@@ -31,6 +31,8 @@ describe('Worker system queue (e2e)', () => {
       TIKA_URL: 'http://localhost:1',
       VIDEO_MASTER_KEY: Buffer.alloc(32, 1).toString('base64'),
       GOTENBERG_URL: 'http://localhost:1',
+      MEILI_URL: 'http://localhost:1',
+      MEILI_MASTER_KEY: 'unused-meili-master-key',
     });
     const { WorkerModule } = await import('../src/worker.module.js');
     const moduleRef = await Test.createTestingModule({ imports: [WorkerModule] }).compile();

@@ -23,7 +23,6 @@ export async function resolveDocumentAccess(
       created_by: string;
       member_role: string | null;
       share_role: string | null;
-      owns: boolean;
     }>
   >`
     SELECT n.id, n.workspace_id, n.type::text AS type, n.created_by, ${accessColumns(userId)}

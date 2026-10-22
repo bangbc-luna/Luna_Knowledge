@@ -26,12 +26,8 @@ describe('Admin: stats & audit logs (e2e)', () => {
     wsId = (
       await http()
         .post('/api/v1/workspaces')
-        .set(admin.auth)
-        .send({
-          name: 'Docs',
-          slug: 'docs',
-          memberEmails: ['owner@lunatech.vn', 'editor@lunatech.vn'],
-        })
+        .set(owner.auth)
+        .send({ name: 'Docs', slug: 'docs', memberEmails: ['editor@lunatech.vn'] })
         .expect(201)
     ).body.id;
     folderId = (
@@ -81,7 +77,7 @@ describe('Admin: stats & audit logs (e2e)', () => {
 
   it('mục đã xoá hẳn vẫn hiện tên từ metadata', async () => {
     await http().delete(`/api/v1/nodes/${folderId}`).set(editor.auth).expect(204);
-    await http().delete(`/api/v1/nodes/${folderId}/permanent`).set(owner.auth).expect(403);
+    await http().delete(`/api/v1/nodes/${folderId}/permanent`).set(editor.auth).expect(403);
     await http().delete(`/api/v1/nodes/${folderId}/permanent`).set(admin.auth).expect(204);
     const res = await http()
       .get(`/api/v1/admin/audit-logs?targetId=${folderId}&actions=node.delete_permanent`)
@@ -137,7 +133,12 @@ describe('Admin: stats & audit logs (e2e)', () => {
 
   it('danh sách workspace (scope=all) có số thành viên, không còn chủ sở hữu', async () => {
     const res = await http().get('/api/v1/workspaces?scope=all').set(admin.auth).expect(200);
-    expect(res.body[0]).toMatchObject({ slug: 'docs', memberCount: 2, myRole: null });
+    expect(res.body[0]).toMatchObject({
+      slug: 'docs',
+      kind: 'TEAM',
+      memberCount: 2,
+      myRole: null,
+    });
     expect(res.body[0]).not.toHaveProperty('owner');
   });
 });

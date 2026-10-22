@@ -33,7 +33,7 @@ async function main() {
       create: { ...ws, createdById: admin.id },
     });
     const members = [
-      { userId: admin.id, role: 'MEMBER' as const },
+      { userId: admin.id, role: 'ADMIN' as const },
       { userId: member1.id, role: 'MEMBER' as const },
       { userId: member2.id, role: 'MEMBER' as const },
     ];
@@ -46,20 +46,23 @@ async function main() {
     }
   }
 
-  const shared = await prisma.workspace.upsert({
-    where: { slug: process.env.DEFAULT_WORKSPACE_SLUG || 'lunatech' },
-    update: {},
-    create: {
-      slug: process.env.DEFAULT_WORKSPACE_SLUG || 'lunatech',
-      name: 'Lunatech',
-      description: 'Tài liệu chung toàn công ty',
-      createdById: admin.id,
-    },
-  });
+  const shared =
+    (await prisma.workspace.findFirst({ where: { kind: 'COMPANY', deletedAt: null } })) ??
+    (await prisma.workspace.upsert({
+      where: { slug: 'lunatech' },
+      update: { kind: 'COMPANY' },
+      create: {
+        slug: 'lunatech',
+        name: 'LunaTech',
+        kind: 'COMPANY',
+        description: 'Tài liệu và video dùng chung toàn công ty',
+        createdById: admin.id,
+      },
+    }));
   await prisma.workspaceMember.upsert({
     where: { workspaceId_userId: { workspaceId: shared.id, userId: admin.id } },
-    update: {},
-    create: { workspaceId: shared.id, userId: admin.id, role: 'MEMBER', addedById: admin.id },
+    update: { role: 'ADMIN' },
+    create: { workspaceId: shared.id, userId: admin.id, role: 'ADMIN', addedById: admin.id },
   });
   const everyone = await prisma.user.findMany({
     where: { status: 'ACTIVE', id: { not: admin.id } },
@@ -69,12 +72,12 @@ async function main() {
     data: everyone.map((u) => ({
       workspaceId: shared.id,
       userId: u.id,
-      role: 'MEMBER' as const,
+      role: 'VIEWER' as const,
       addedById: admin.id,
     })),
     skipDuplicates: true,
   });
-  console.log(`Shared workspace ${shared.name}: added ${count} existing users.`);
+  console.log(`Company workspace ${shared.name}: added ${count} existing users as viewers.`);
 
   console.log(`Seeded admin ${admin.email}, 2 demo users, ${workspaces.length} workspaces.`);
 }

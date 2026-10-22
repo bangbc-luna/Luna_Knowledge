@@ -171,15 +171,25 @@ Nguyên tắc làm việc:
 
 ---
 
+## Mô hình kho công ty + workspace nhóm (2026-10-22)
+
+- [x] `workspaces.kind` COMPANY/TEAM; vai trò ADMIN/MEMBER/VIEWER; mọi tài khoản là VIEWER của kho công ty (tự thêm khi đăng nhập, không gỡ được); ai cũng tạo workspace nhóm và là quản trị; thành viên xoá được (có log); quản trị khôi phục, xoá vĩnh viễn, quản lý tag và thành viên; luôn còn ít nhất một quản trị.
+- [x] Frontend: chọn workspace chia nhóm Công ty / Workspace của tôi kèm vai trò, Tạo workspace, Cài đặt workspace; cột thành viên có mời, đổi vai trò, gỡ, rời; ẩn thao tác ghi với người chỉ xem.
+- [x] Nội dung mẫu trong kho LunaTech (quy định, biểu mẫu, hướng dẫn, video đào tạo) trên dev.
+
+---
+
 ## Phase 6 — Tìm kiếm
 
 **Việc cần làm**
 
-- [ ] Index Meilisearch `nodes`: cấu hình searchable (name, contentText, tags), filterable (workspaceId, type, tagIds, createdBy, updatedAt, acl), highlight.
-- [ ] Hỗ trợ tiếng Việt không dấu: lưu thêm trường đã bỏ dấu (`name_ascii`, `content_ascii`), và chuẩn hóa query trước khi tìm.
-- [ ] Indexer worker: lắng nghe sự kiện tạo/sửa/xóa node, tài liệu cập nhật, text trích xong, quyền thay đổi (cập nhật acl cho cây con).
-- [ ] API `/search` dùng filter `acl IN [ws:…, user:…]` và hậu kiểm quyền.
-- [ ] Job reindex toàn bộ + reconcile hằng đêm.
+- [x] Index Meilisearch `nodes`: searchable `nameAscii`, `tagsAscii`, `contentAscii` (nội dung tài liệu soạn thảo hoặc chữ trích từ file, tối đa 100 000 ký tự); filterable `workspaceId`, `section`, `type`, `tagIds`, `createdById`, `updatedAt`, `acl`.
+- [x] Tiếng Việt không dấu: mọi trường tìm được lưu dạng đã bỏ dấu, mỗi ký tự gốc ứng với đúng một ký tự ASCII, nên vị trí khớp ánh xạ ngược về văn bản có dấu để tô đậm; query cũng được bỏ dấu.
+- [x] Indexer worker (`search-index`): `index-node`, `index-tree` (khi di chuyển, xoá, khôi phục, đổi share), `drop-workspace`; API và worker đẩy job ở mọi chỗ thay đổi tên, nội dung, tag, quyền; mục đang tải lên không được index.
+- [x] API `GET /search`: filter `acl IN [ws:…, user:…]`, hậu kiểm quyền từng kết quả; trả tên tách đoạn khớp, đoạn trích có dấu, đường dẫn thư mục; lọc workspace, khu, loại, tag, người tạo, thời gian; phân trang.
+- [x] Dựng lại toàn bộ hằng đêm 03:30 (index tạm rồi hoán đổi, dọn mục mồ côi), lúc khởi động nếu chỉ mục trống, và nút admin `POST /admin/search/reindex`.
+- [x] Tests: unit bỏ dấu và tô đậm, e2e API 7 ca (indexer mô phỏng qua hàng đợi), e2e worker 4 ca với Meilisearch thật, `tests/13-search.http`.
+- [x] Frontend: ô tìm nhanh trên thanh đầu trang (Ctrl+K hoặc `/`, gợi ý khi gõ, phạm vi workspace đang đứng hoặc mọi nơi), trang `/search` có chip loại, lọc workspace, thời gian, tag, người tạo, tô đậm chỗ khớp, đoạn trích, đường dẫn, xem thêm.
 
 **DoD:** tìm "bao cao" ra "Báo cáo"; user không có quyền không thấy kết quả; đổi share thì kết quả tìm kiếm cập nhật trong < 5 giây.
 

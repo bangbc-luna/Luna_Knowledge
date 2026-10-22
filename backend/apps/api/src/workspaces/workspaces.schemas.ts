@@ -43,10 +43,15 @@ export const workspaceSchema = z.object({
   description: z.string().nullable(),
   icon: z.string().nullable(),
   createdAt: z.date(),
+  kind: z
+    .enum(['COMPANY', 'TEAM'])
+    .describe('COMPANY: kho chung toàn công ty; TEAM: workspace nhóm/dự án'),
   memberCount: z.number().int(),
   myRole: workspaceRoleSchema
     .nullable()
-    .describe('MEMBER, hoặc null nếu là System Admin không phải thành viên'),
+    .describe(
+      'ADMIN (quản trị), MEMBER (thành viên), VIEWER (chỉ xem, chỉ có ở workspace công ty); null nếu là System Admin không phải thành viên',
+    ),
 });
 
 export const addMemberBody = z.object({
@@ -54,7 +59,12 @@ export const addMemberBody = z.object({
     .email()
     .transform((v) => v.toLowerCase())
     .describe('Email @lunatech.vn; user chưa đăng nhập lần nào sẽ được tạo trước'),
+  role: workspaceRoleSchema
+    .default('MEMBER')
+    .describe('ADMIN hoặc MEMBER; workspace công ty có thêm VIEWER'),
 });
+
+export const updateMemberBody = z.object({ role: workspaceRoleSchema });
 
 export const memberSchema = z.object({
   user: userSummarySchema,
@@ -65,3 +75,4 @@ export const memberSchema = z.object({
 export type CreateWorkspaceBody = z.output<typeof createWorkspaceBody>;
 export type UpdateWorkspaceBody = z.output<typeof updateWorkspaceBody>;
 export type AddMemberBody = z.output<typeof addMemberBody>;
+export type UpdateMemberBody = z.output<typeof updateMemberBody>;

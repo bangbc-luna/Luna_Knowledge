@@ -74,6 +74,8 @@ describe('Worker file-process (e2e)', () => {
       GOTENBERG_URL: url(gotenberg, 3000),
       VIDEO_MASTER_KEY: MASTER_KEY,
       TIKA_URL: url(tika, 9998),
+      MEILI_URL: 'http://localhost:1',
+      MEILI_MASTER_KEY: 'unused-meili-master-key',
     });
     execFileSync('pnpm', ['exec', 'prisma', 'migrate', 'deploy'], {
       cwd: fileURLToPath(new URL('../../../packages/db', import.meta.url)),

@@ -70,7 +70,7 @@ describe('Documents, versions, comments, notifications (e2e)', () => {
       .expect(201);
   const createShared = async (as: LoggedIn, name: string) => {
     const id = (await create(as, name).expect(201)).body.node.id as string;
-    await shareToViewer(as, id);
+    await shareToViewer(owner, id);
     return id;
   };
   const setContent = (nodeId: string, json: DocJSON) =>
@@ -96,12 +96,8 @@ describe('Documents, versions, comments, notifications (e2e)', () => {
     outsider = await loginAs(ctx, 'outsider@lunatech.vn');
     const ws = await http()
       .post('/api/v1/workspaces')
-      .set(admin.auth)
-      .send({
-        name: 'Docs',
-        slug: 'docs',
-        memberEmails: ['owner@lunatech.vn', 'editor@lunatech.vn'],
-      })
+      .set(owner.auth)
+      .send({ name: 'Docs', slug: 'docs', memberEmails: ['editor@lunatech.vn'] })
       .expect(201);
     wsId = ws.body.id;
   });
@@ -110,14 +106,19 @@ describe('Documents, versions, comments, notifications (e2e)', () => {
     await ctx?.close();
   });
 
-  it('tạo tài liệu trống; người chỉ xem không tạo được; trùng tên có gợi ý', async () => {
+  it('tạo tài liệu trống (thành viên là EDITOR, không thành OWNER); người chỉ xem không tạo được; trùng tên có gợi ý', async () => {
     const res = await create(editor, 'Biên bản họp').expect(201);
     expect(res.body.node).toMatchObject({
       type: 'DOCUMENT',
       name: 'Biên bản họp',
       section: 'DOCS',
-      myRole: 'OWNER',
+      myRole: 'EDITOR',
     });
+    await http()
+      .post(`/api/v1/nodes/${res.body.node.id}/shares`)
+      .set(editor.auth)
+      .send({ email: 'viewer@lunatech.vn', role: 'VIEWER' })
+      .expect(403);
     expect(res.body.wordCount).toBe(0);
     expect(res.body.contentJson).toEqual({ type: 'doc', content: [{ type: 'paragraph' }] });
     const folder = (
@@ -147,18 +148,18 @@ describe('Documents, versions, comments, notifications (e2e)', () => {
     expect(res.body.error.code).toBe('VALIDATION_ERROR');
   });
 
-  it('xem tài liệu: người được share chỉ xem chỉ đọc, thành viên sửa được, người ngoài 404, ghi lượt xem', async () => {
+  it('xem tài liệu: người được share chỉ xem chỉ đọc, thành viên và quản trị sửa được, người ngoài 404, ghi lượt xem', async () => {
     const id = await createShared(editor, 'Quy trình');
     await setContent(id, para('Nội dung quy trình'));
     const v = await http().get(`/api/v1/documents/${id}`).set(viewer.auth).expect(200);
     expect(v.body.readOnly).toBe(true);
     expect(jsonToText(v.body.contentJson)).toBe('Nội dung quy trình');
-    expect(
-      (await http().get(`/api/v1/documents/${id}`).set(editor.auth).expect(200)).body.readOnly,
-    ).toBe(false);
-    const asMember = await http().get(`/api/v1/documents/${id}`).set(owner.auth).expect(200);
+    const asMember = await http().get(`/api/v1/documents/${id}`).set(editor.auth).expect(200);
     expect(asMember.body.readOnly).toBe(false);
     expect(asMember.body.node.myRole).toBe('EDITOR');
+    const asAdmin = await http().get(`/api/v1/documents/${id}`).set(owner.auth).expect(200);
+    expect(asAdmin.body.readOnly).toBe(false);
+    expect(asAdmin.body.node.myRole).toBe('OWNER');
     await http().get(`/api/v1/documents/${id}`).set(outsider.auth).expect(404);
     expect(
       await ctx.prisma.auditLog.count({ where: { action: 'node.view', targetId: id } }),
@@ -448,7 +449,7 @@ describe('Documents, versions, comments, notifications (e2e)', () => {
         .send({ name: 'Nhập' })
         .expect(201)
     ).body.id;
-    await shareToViewer(editor, folder);
+    await shareToViewer(owner, folder);
     const node = await ctx.prisma.node.create({
       data: {
         workspaceId: wsId,
@@ -518,7 +519,7 @@ describe('Documents, versions, comments, notifications (e2e)', () => {
   it('gỡ thành viên báo collab server kiểm lại kết nối', async () => {
     const temp = await http()
       .post(`/api/v1/workspaces/${wsId}/members`)
-      .set(admin.auth)
+      .set(owner.auth)
       .send({ email: 'temp@lunatech.vn' })
       .expect(201);
     const sub = new Redis(process.env.REDIS_URL!);

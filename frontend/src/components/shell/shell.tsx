@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { createContext, useContext, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { AccountMenu } from "./account-menu";
+import { SearchTrigger } from "../search/search-palette";
 import { MembersPanel, MembersToggle } from "./members-panel";
 import { NotificationBell } from "./notification-bell";
 
@@ -28,7 +29,7 @@ export function AppFrame({ sidebar, members = false, children }: { sidebar: Reac
   return (
     <ShellContext.Provider value={{ openMenu: () => setMenuOpen(true) }}>
       <div className="flex min-h-dvh">
-        <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col bg-surface lg:flex">{sidebar}</aside>
+        <aside className="sticky top-0 z-40 hidden h-dvh w-60 shrink-0 flex-col bg-surface lg:flex">{sidebar}</aside>
         <div className="flex min-w-0 flex-1 flex-col">{children}</div>
         {members ? <MembersPanel /> : null}
       </div>
@@ -52,7 +53,8 @@ export function AppFrame({ sidebar, members = false, children }: { sidebar: Reac
 
 export function TopBar({ children, actions }: { children: React.ReactNode; actions?: React.ReactNode }) {
   const shell = useContext(ShellContext);
-  const inAdmin = usePathname().startsWith("/admin");
+  const pathname = usePathname();
+  const inAdmin = pathname.startsWith("/admin");
   return (
     <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b border-border bg-surface px-4 sm:px-6">
       <button
@@ -64,6 +66,7 @@ export function TopBar({ children, actions }: { children: React.ReactNode; actio
         <Menu className="size-4" aria-hidden />
       </button>
       <div className="min-w-0 flex-1">{children}</div>
+      {inAdmin || pathname === "/search" ? null : <SearchTrigger />}
       {actions}
       {inAdmin ? null : <MembersToggle />}
       {inAdmin ? null : <NotificationBell />}

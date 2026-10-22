@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { SearchModule } from './search/search.module.js';
 import { LoggerModule } from 'nestjs-pino';
 import { AdminModule } from './admin/admin.module.js';
 import { AuditModule } from './audit/audit.module.js';
@@ -44,6 +45,7 @@ const isDevelopment = loadAppConfig().NODE_ENV === 'development';
     NotificationsModule,
     DocumentsModule,
     AdminModule,
+    SearchModule,
     ...(isDevelopment ? [DevModule] : []),
   ],
 })

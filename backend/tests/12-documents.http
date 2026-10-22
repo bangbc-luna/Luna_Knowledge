@@ -1,7 +1,7 @@
 # @import ./_auth.http
 # Tài liệu soạn thảo: tạo, collab token, phiên bản, comment + @mention, thông báo, ảnh nhúng, import .docx (SPEC §4.5).
 # Cần `pnpm dev` (API + collab + worker).
-# Tài liệu đặt trong viewFolder: creator là người tạo (OWNER), member là thành viên (EDITOR), sharedViewer có share "Chỉ xem".
+# Tài liệu đặt trong viewFolder: creator là ADMIN workspace (OWNER), member là MEMBER (EDITOR), sharedViewer có share "Chỉ xem".
 @apiUrl = http://localhost:4000/api/v1
 
 ### Tạo tài liệu trống
@@ -229,7 +229,7 @@ Content-Type: application/json
 
 ?? status == 201
 
-### Không phải tác giả, không phải OWNER tài liệu → không xóa comment người khác (403)
+### MEMBER (EDITOR) không phải tác giả → không xóa comment người khác (403)
 # @ref editorReply
 DELETE {{apiUrl}}/comments/{{editorReply.comments[0].id}}
 Authorization: Bearer {{member.accessToken}}
@@ -251,7 +251,7 @@ Authorization: Bearer {{member.accessToken}}
 ?? status == 200
 ?? body threadDeleted == false
 
-### OWNER tài liệu (người tạo) xóa comment của người khác; comment cuối → xóa cả thread
+### OWNER tài liệu (ADMIN workspace) xóa comment của người khác; comment cuối → xóa cả thread
 # @ref editorReply
 DELETE {{apiUrl}}/comments/{{editorReply.comments[0].id}}
 Authorization: Bearer {{creator.accessToken}}

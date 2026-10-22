@@ -1,0 +1,98 @@
+# @import ./_auth.http
+# Tìm kiếm toàn văn (SPEC §4 SEARCH-1..4): không dấu, lọc theo quyền, cập nhật khi đổi share.
+# Cần `pnpm dev` (API + worker + Meilisearch).
+@apiUrl = http://localhost:4000/api/v1
+
+### Thư mục có tên tiếng Việt có dấu
+# @name reportFolder
+# @ref creator
+# @ref ws
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/folders
+Authorization: Bearer {{creator.accessToken}}
+Content-Type: application/json
+
+{ "name": "Báo cáo tài chính {{$timestamp}}" }
+
+?? status == 201
+
+### Tìm không dấu ra tên có dấu, tô đúng chỗ khớp
+# @sleep 2000
+# @ref reportFolder
+GET {{apiUrl}}/search?q=bao%20cao%20tai%20chinh&workspaceId={{contentWs.id}}
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.items.some(i => i.node.id === reportFolder.id) == true
+?? js response.parsedBody.items.find(i => i.node.id === reportFolder.id).name[0].text == Báo cáo tài chính
+?? js response.parsedBody.items.find(i => i.node.id === reportFolder.id).name[0].match == true
+
+### Người ngoài không thấy
+# @ref reportFolder
+GET {{apiUrl}}/search?q=bao%20cao%20tai%20chinh
+Authorization: Bearer {{outsider.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.items.some(i => i.node.id === reportFolder.id) == false
+
+### Share "Chỉ xem" cho người ngoài
+# @name searchShare
+# @ref reportFolder
+POST {{apiUrl}}/nodes/{{reportFolder.id}}/shares
+Authorization: Bearer {{creator.accessToken}}
+Content-Type: application/json
+
+{ "email": "qa.outsider@lunatech.vn", "role": "VIEWER" }
+
+?? status == 201
+
+### Dưới 5 giây sau, người được share tìm thấy
+# @sleep 3000
+# @ref searchShare
+GET {{apiUrl}}/search?q=bao%20cao%20tai%20chinh
+Authorization: Bearer {{outsider.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.items.some(i => i.node.id === reportFolder.id) == true
+
+### Thu hồi share
+# @ref searchShare
+DELETE {{apiUrl}}/nodes/{{reportFolder.id}}/shares/{{searchShare.id}}
+Authorization: Bearer {{creator.accessToken}}
+
+?? status == 204
+
+### Thu hồi xong thì không còn thấy
+# @sleep 3000
+# @ref searchShare
+GET {{apiUrl}}/search?q=bao%20cao%20tai%20chinh
+Authorization: Bearer {{outsider.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.items.some(i => i.node.id === reportFolder.id) == false
+
+### Lọc theo khu Video: thư mục tài liệu không xuất hiện
+# @ref reportFolder
+GET {{apiUrl}}/search?q=bao%20cao%20tai%20chinh&section=VIDEOS&workspaceId={{contentWs.id}}
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.items.some(i => i.node.id === reportFolder.id) == false
+
+### Từ khoá rỗng → 400
+GET {{apiUrl}}/search?q=%20%20
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 400
+
+### Thành viên không dựng lại chỉ mục được → 403
+POST {{apiUrl}}/admin/search/reindex
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 403
+
+### Admin dựng lại chỉ mục (chạy nền) → 202
+POST {{apiUrl}}/admin/search/reindex
+Authorization: Bearer {{admin.accessToken}}
+
+?? status == 202
+?? body queued == true
