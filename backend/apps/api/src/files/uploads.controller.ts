@@ -47,7 +47,13 @@ export class UploadsController {
       'cho từng part. Client `PUT` thẳng từng đoạn `partSize` byte lên URL, rồi gọi `/complete`. ' +
       'Đuôi file không được phép → 415; quá giới hạn → 413; trùng tên → 409 kèm `details.suggestion`.',
   })
-  @ApiZodBody(createUploadBody)
+  @ApiZodBody(createUploadBody, {
+    parentId: '3f6c1a52-8e0b-4d7a-9c21-5b7e4f0a9d13',
+    fileName: 'Hop-dong-mau.pdf',
+    size: 2483712,
+    mime: 'application/pdf',
+    kind: 'FILE',
+  })
   @ApiZodCreated(createdUploadSchema)
   create(
     @CurrentUser() user: AuthenticatedUser,
@@ -88,7 +94,9 @@ export class UploadsController {
       'Server tự kiểm tra đủ part và đúng kích thước, ghép file rồi giao cho worker xử lý ' +
       '(mục chuyển sang PROCESSING). Thiếu part → 400 kèm `details.missingParts`. Gọi lại an toàn.',
   })
-  @ApiZodBody(completeUploadBody)
+  @ApiZodBody(completeUploadBody, {
+    parts: [{ partNumber: 1, etag: '"9b2cf535f27731c974343645a3985328"' }],
+  })
   @ApiZodOk(uploadSchema)
   complete(
     @CurrentUser() user: AuthenticatedUser,

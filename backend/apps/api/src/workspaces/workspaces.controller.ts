@@ -57,7 +57,13 @@ export class WorkspacesController {
   @ApiOperation({
     summary: 'Tạo workspace nhóm/dự án; người tạo là quản trị, memberEmails là thành viên ban đầu',
   })
-  @ApiZodBody(createWorkspaceBody)
+  @ApiZodBody(createWorkspaceBody, {
+    name: 'Dự án Mobile',
+    slug: 'du-an-mobile',
+    description: 'Tài liệu và video của dự án app mobile',
+    icon: '📱',
+    memberEmails: ['an.nguyen@lunatech.vn', 'binh.tran@lunatech.vn'],
+  })
   @ApiZodCreated(workspaceSchema)
   create(
     @CurrentUser() user: AuthenticatedUser,
@@ -115,7 +121,7 @@ export class WorkspacesController {
     summary:
       'Thêm thành viên theo email (quản trị workspace). Workspace công ty: đặt vai trò cho người đã có',
   })
-  @ApiZodBody(addMemberBody)
+  @ApiZodBody(addMemberBody, { email: 'chi.le@lunatech.vn', role: 'MEMBER' })
   @ApiZodCreated(memberSchema)
   addMember(
     @CurrentUser() user: AuthenticatedUser,

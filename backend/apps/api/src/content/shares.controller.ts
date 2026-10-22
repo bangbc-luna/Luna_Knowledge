@@ -47,7 +47,7 @@ export class SharesController {
     summary: 'Share cho một người theo email (ADMIN workspace)',
     description: 'Quyền được kế thừa xuống mọi mục con; chỉ cộng thêm quyền, không bớt.',
   })
-  @ApiZodBody(createShareBody)
+  @ApiZodBody(createShareBody, { email: 'dung.pham@lunatech.vn', role: 'VIEWER' })
   @ApiZodCreated(shareSchema)
   create(
     @CurrentUser() user: AuthenticatedUser,

@@ -64,7 +64,10 @@ export class DocumentsController {
     summary: 'Tạo tài liệu trống (EDITOR)',
     description: 'Trùng tên → 409 kèm `details.suggestion`.',
   })
-  @ApiZodBody(createDocumentBody)
+  @ApiZodBody(createDocumentBody, {
+    parentId: '3f6c1a52-8e0b-4d7a-9c21-5b7e4f0a9d13',
+    name: 'Sổ tay nhân viên mới',
+  })
   @ApiZodCreated(documentSchema)
   create(
     @CurrentUser() user: AuthenticatedUser,
@@ -173,7 +176,7 @@ export class DocumentsController {
 
   @Post('documents/:id/versions')
   @ApiOperation({ summary: 'Lưu phiên bản có tên từ nội dung đang sửa (EDITOR)' })
-  @ApiZodBody(createVersionBody)
+  @ApiZodBody(createVersionBody, { name: 'Bản duyệt lần 1' })
   @ApiZodCreated(versionSummarySchema)
   createVersion(
     @CurrentUser() user: AuthenticatedUser,

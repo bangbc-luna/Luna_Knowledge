@@ -13,14 +13,17 @@ export function toOpenApi(schema: z.ZodType, io: 'input' | 'output' = 'output'):
   return json;
 }
 
-export const ApiZodBody = (schema: z.ZodType) =>
-  ApiBody({ schema: toOpenApi(schema, 'input') as never });
+const withExample = (json: JsonSchema, example: unknown) =>
+  example === undefined ? json : { ...json, example };
 
-export const ApiZodOk = (schema: z.ZodType, description?: string) =>
-  ApiOkResponse({ schema: toOpenApi(schema) as never, description });
+export const ApiZodBody = (schema: z.ZodType, example?: unknown) =>
+  ApiBody({ schema: withExample(toOpenApi(schema, 'input'), example) as never });
 
-export const ApiZodCreated = (schema: z.ZodType, description?: string) =>
-  ApiCreatedResponse({ schema: toOpenApi(schema) as never, description });
+export const ApiZodOk = (schema: z.ZodType, description?: string, example?: unknown) =>
+  ApiOkResponse({ schema: withExample(toOpenApi(schema), example) as never, description });
+
+export const ApiZodCreated = (schema: z.ZodType, description?: string, example?: unknown) =>
+  ApiCreatedResponse({ schema: withExample(toOpenApi(schema), example) as never, description });
 
 export function ApiZodQuery(schema: z.ZodObject) {
   const json = toOpenApi(schema, 'input') as {

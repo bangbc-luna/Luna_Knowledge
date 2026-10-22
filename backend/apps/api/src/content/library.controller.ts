@@ -49,7 +49,7 @@ export class LibraryController {
   @Post('workspaces/:wsId/tags')
   @ApiTags('tags')
   @ApiOperation({ summary: 'Tạo tag (EDITOR)' })
-  @ApiZodBody(createTagBody)
+  @ApiZodBody(createTagBody, { name: 'Quy định', color: '#1f6feb' })
   @ApiZodCreated(tagDetailSchema)
   createTag(
     @CurrentUser() user: AuthenticatedUser,

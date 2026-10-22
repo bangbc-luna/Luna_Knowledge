@@ -63,7 +63,7 @@ export class NodesController {
     summary: 'Tạo folder (EDITOR)',
     description: 'Trùng tên trong cùng folder → 409 kèm `details.suggestion`.',
   })
-  @ApiZodBody(createFolderBody)
+  @ApiZodBody(createFolderBody, { parentId: null, section: 'DOCS', name: 'Quy trình nội bộ' })
   @ApiZodCreated(nodeSchema)
   createFolder(
     @CurrentUser() user: AuthenticatedUser,
@@ -128,7 +128,7 @@ export class NodesController {
     summary: 'Di chuyển trong cùng workspace (EDITOR ở cả nguồn và đích)',
     description: 'Không di chuyển folder vào chính nó hoặc folder con của nó.',
   })
-  @ApiZodBody(moveNodeBody)
+  @ApiZodBody(moveNodeBody, { targetParentId: '3f6c1a52-8e0b-4d7a-9c21-5b7e4f0a9d13' })
   @ApiZodOk(nodeSchema)
   move(
     @CurrentUser() user: AuthenticatedUser,

@@ -1,0 +1,261 @@
+# @import ./_auth.http
+# Các luồng nghiệp vụ chính, chạy từ trên xuống. Sơ đồ từng luồng: docs/API_OVERVIEW.md.
+# Chạy: pnpm test:flows (cần `pnpm dev` đang chạy, NODE_ENV=development).
+# Vai trò: creator tạo workspace nhóm (ADMIN), member là thành viên (MEMBER), sharedViewer là người ngoài được share "Chỉ xem".
+@apiUrl = http://localhost:4000/api/v1
+@origin = http://localhost:4000
+
+{{
+  const fs = require('fs');
+  const path = require('path');
+  exports.pdfSize = fs.statSync(path.join(__dirname, 'fixtures', 'sample.pdf')).size;
+  exports.mp4Size = fs.statSync(path.join(__dirname, 'fixtures', 'sample.mp4')).size;
+}}
+
+### 1. Đăng nhập: thông tin của tôi và các workspace (workspace công ty có sẵn với vai trò VIEWER)
+# @ref creator
+GET {{apiUrl}}/me
+Authorization: Bearer {{creator.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.workspaces.some(w => w.kind === 'COMPANY') == true
+
+### 2. Tạo workspace nhóm, mời thành viên ngay khi tạo
+# @name flowWs
+# @ref creator
+POST {{apiUrl}}/workspaces
+Authorization: Bearer {{creator.accessToken}}
+Content-Type: application/json
+
+{ "name": "Dự án Mobile", "slug": "du-an-mobile-{{$timestamp}}", "icon": "📱", "memberEmails": ["qa.member@lunatech.vn"] }
+
+?? status == 201
+?? body myRole == ADMIN
+
+### 3. Tạo thư mục ở khu Tài liệu
+# @name flowFolder
+# @ref flowWs
+POST {{apiUrl}}/workspaces/{{flowWs.id}}/folders
+Authorization: Bearer {{creator.accessToken}}
+Content-Type: application/json
+
+{ "name": "Hợp đồng khách hàng", "section": "DOCS" }
+
+?? status == 201
+
+### 4a. Upload: xin URL ký sẵn (thành viên upload vào thư mục)
+# @name flowUpload
+# @ref member
+# @ref flowFolder
+POST {{apiUrl}}/workspaces/{{flowWs.id}}/uploads
+Authorization: Bearer {{member.accessToken}}
+Content-Type: application/json
+
+{ "fileName": "Hop dong khung {{$timestamp}}.pdf", "size": {{pdfSize}}, "mime": "application/pdf", "parentId": "{{flowFolder.id}}" }
+
+?? status == 201
+
+### 4b. Upload: PUT từng part thẳng lên object storage
+# @ref flowUpload
+PUT {{flowUpload.parts[0].url}}
+
+< ./fixtures/sample.pdf
+
+?? status == 200
+
+### 4c. Upload: hoàn tất, worker bắt đầu trích chữ và tạo preview
+# @ref flowUpload
+POST {{apiUrl}}/uploads/{{flowUpload.uploadId}}/complete
+Authorization: Bearer {{member.accessToken}}
+Content-Type: application/json
+
+{}
+
+?? status == 200
+?? body status == COMPLETED
+
+### 4d. File đã sẵn sàng (thực tế FE theo dõi qua SSE /nodes/{id}/events)
+# @sleep 4000
+# @ref flowUpload
+GET {{apiUrl}}/files/{{flowUpload.nodeId}}
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 200
+?? body node.status == READY
+
+### 4e. Xem trước: URL ký sẵn 10 phút
+# @ref flowUpload
+GET {{apiUrl}}/files/{{flowUpload.nodeId}}/preview
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 200
+
+### 5a. Tài liệu soạn thảo: tạo
+# @name flowDoc
+# @ref flowFolder
+POST {{apiUrl}}/workspaces/{{flowWs.id}}/documents
+Authorization: Bearer {{creator.accessToken}}
+Content-Type: application/json
+
+{ "parentId": "{{flowFolder.id}}", "name": "Quy trình ký hợp đồng" }
+
+?? status == 201
+
+### 5b. Tài liệu: token kết nối collab server (WebSocket Hocuspocus)
+# @ref flowDoc
+GET {{apiUrl}}/documents/{{flowDoc.node.id}}/collab-token
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 200
+?? body readOnly == false
+
+### 5c. Tài liệu: comment và @nhắc thành viên
+# @ref flowDoc
+POST {{apiUrl}}/documents/{{flowDoc.node.id}}/threads
+Authorization: Bearer {{creator.accessToken}}
+Content-Type: application/json
+
+{ "quotedText": "", "body": "Nhờ xem lại bước duyệt", "mentions": ["{{member.user.id}}"] }
+
+?? status == 201
+
+### 5d. Người được nhắc nhận thông báo
+# @ref flowDoc
+GET {{apiUrl}}/me/notifications?unread=true
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.items.some(n => n.type === 'comment.mention' && n.payload.nodeId === flowDoc.node.id) == true
+
+### 5e. Tài liệu: lưu phiên bản có tên
+# @ref flowDoc
+POST {{apiUrl}}/documents/{{flowDoc.node.id}}/versions
+Authorization: Bearer {{creator.accessToken}}
+Content-Type: application/json
+
+{ "name": "Bản nháp đầu" }
+
+?? status == 201
+
+### 6a. Chia sẻ: share "Chỉ xem" thư mục cho người ngoài workspace
+# @ref flowFolder
+# @ref sharedViewer
+POST {{apiUrl}}/nodes/{{flowFolder.id}}/shares
+Authorization: Bearer {{creator.accessToken}}
+Content-Type: application/json
+
+{ "email": "qa.shared.viewer@lunatech.vn", "role": "VIEWER" }
+
+?? status == 201
+
+### 6b. Người được share thấy thư mục trong "Được chia sẻ"
+# @ref flowFolder
+GET {{apiUrl}}/shared-with-me
+Authorization: Bearer {{sharedViewer.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.some(s => s.node.id === flowFolder.id) == true
+
+### 6c. Nhưng không sửa được
+# @ref flowFolder
+PATCH {{apiUrl}}/nodes/{{flowFolder.id}}
+Authorization: Bearer {{sharedViewer.accessToken}}
+Content-Type: application/json
+
+{ "name": "Đổi tên" }
+
+?? status == 403
+
+### 7. Tìm kiếm không dấu, chỉ ra mục có quyền xem
+# @sleep 2000
+# @ref flowDoc
+GET {{apiUrl}}/search?q=quy%20trinh%20ky%20hop%20dong&workspaceId={{flowWs.id}}
+Authorization: Bearer {{sharedViewer.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.items.some(i => i.node.id === flowDoc.node.id) == true
+
+### 8a. Video: thư mục khu Video
+# @name flowVideoFolder
+# @ref flowWs
+POST {{apiUrl}}/workspaces/{{flowWs.id}}/folders
+Authorization: Bearer {{creator.accessToken}}
+Content-Type: application/json
+
+{ "name": "Đào tạo", "section": "VIDEOS" }
+
+?? status == 201
+
+### 8b. Video: upload
+# @name flowVideo
+# @ref flowVideoFolder
+POST {{apiUrl}}/workspaces/{{flowWs.id}}/uploads
+Authorization: Bearer {{member.accessToken}}
+Content-Type: application/json
+
+{ "fileName": "Huong dan {{$timestamp}}.mp4", "size": {{mp4Size}}, "mime": "video/mp4", "kind": "VIDEO", "parentId": "{{flowVideoFolder.id}}" }
+
+?? status == 201
+
+###
+# @ref flowVideo
+PUT {{flowVideo.parts[0].url}}
+
+< ./fixtures/sample.mp4
+
+?? status == 200
+
+###
+# @ref flowVideo
+POST {{apiUrl}}/uploads/{{flowVideo.uploadId}}/complete
+Authorization: Bearer {{member.accessToken}}
+Content-Type: application/json
+
+{}
+
+?? status == 200
+
+### 8c. Video: transcode xong
+# @sleep 12000
+# @ref flowVideo
+GET {{apiUrl}}/videos/{{flowVideo.nodeId}}
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 200
+?? body node.status == READY
+
+### 8d. Video: mở phiên xem
+# @name flowPlayback
+# @ref flowVideo
+POST {{apiUrl}}/videos/{{flowVideo.nodeId}}/playback
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 200
+
+### 8e. Video: trình phát tải master playlist theo phiên xem (không cần Bearer)
+# @ref flowPlayback
+GET {{origin}}{{flowPlayback.masterUrl}}
+
+?? status == 200
+?? body includes #EXTM3U
+
+### 9a. Xoá vào thùng rác (thành viên được xoá, có ghi nhật ký)
+# @ref flowUpload
+DELETE {{apiUrl}}/nodes/{{flowUpload.nodeId}}
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 204
+
+### 9b. Quản trị xem hoạt động trên thư mục
+# @ref flowFolder
+GET {{apiUrl}}/nodes/{{flowFolder.id}}/activity
+Authorization: Bearer {{creator.accessToken}}
+
+?? status == 200
+
+### 10. Dọn: xoá workspace demo
+# @ref flowWs
+DELETE {{apiUrl}}/workspaces/{{flowWs.id}}
+Authorization: Bearer {{creator.accessToken}}
+
+?? status == 204

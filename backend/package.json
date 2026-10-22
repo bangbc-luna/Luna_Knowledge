@@ -14,6 +14,7 @@
     "test": "turbo run test",
     "test:e2e": "turbo run test:e2e",
     "test:http": "httpyac send 'tests/[0-9]*.http' --all -o none --output-failed exchange",
+    "test:flows": "httpyac send tests/flows.http --all -o none --output-failed exchange",
     "format": "prettier --write \"**/*.{ts,json,md,yml}\"",
     "infra:up": "docker compose -f docker/docker-compose.dev.yml --env-file .env up -d --wait",
     "infra:down": "docker compose -f docker/docker-compose.dev.yml --env-file .env down",

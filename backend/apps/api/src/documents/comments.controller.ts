@@ -58,7 +58,11 @@ export class CommentsController {
     description:
       'FE gắn mark `comment` với `threadId` trả về lên đoạn đã chọn. @nhắc người không xem được tài liệu thì bị bỏ (`ignoredMentions`).',
   })
-  @ApiZodBody(createThreadBody)
+  @ApiZodBody(createThreadBody, {
+    quotedText: 'nghỉ phép năm',
+    body: 'Mục này cần cập nhật theo quy định 2026',
+    mentions: ['9a2d4e71-1c3b-4f6e-8a50-7d2c9b1e3f48'],
+  })
   @ApiZodCreated(createdThreadSchema)
   create(
     @CurrentUser() user: AuthenticatedUser,
@@ -71,7 +75,7 @@ export class CommentsController {
 
   @Post('threads/:tid/comments')
   @ApiOperation({ summary: 'Trả lời thread (mở lại nếu đã resolve)' })
-  @ApiZodBody(replyBody)
+  @ApiZodBody(replyBody, { body: 'Đã sửa, nhờ anh xem lại', mentions: [] })
   @ApiZodCreated(createdThreadSchema)
   reply(
     @CurrentUser() user: AuthenticatedUser,

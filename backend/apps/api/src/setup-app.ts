@@ -1,5 +1,5 @@
 import { type INestApplication, RequestMethod } from '@nestjs/common';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { MetricsService } from './infra/metrics/metrics.service.js';
@@ -7,6 +7,7 @@ import type { Express } from 'express';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import type { AppConfig } from './config/app-config.js';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter.js';
+import { buildOpenApiDocument } from './common/swagger/openapi-document.js';
 
 export const API_PREFIX = 'api/v1';
 
@@ -40,16 +41,6 @@ export function setupApp(app: INestApplication, config: AppConfig) {
   app.enableShutdownHooks();
 
   if (!config.SWAGGER_ENABLED) return;
-  const document = SwaggerModule.createDocument(
-    app,
-    new DocumentBuilder()
-      .setTitle('Luna Knowledge API')
-      .setDescription('Backend API cho hệ thống lưu trữ tài liệu và video. Xem docs/SPEC.md.')
-      .setVersion('0.1.0')
-      .addServer(config.API_PUBLIC_URL)
-      .addBearerAuth()
-      .addCookieAuth('luna_rt')
-      .build(),
-  );
+  const document = buildOpenApiDocument(app, config);
   SwaggerModule.setup('api/docs', app, document, { jsonDocumentUrl: 'api/docs-json' });
 }

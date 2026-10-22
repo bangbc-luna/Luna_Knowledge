@@ -64,6 +64,7 @@ pnpm typecheck
 pnpm test        # unit test (Vitest)
 pnpm test:e2e    # e2e; tự dựng Postgres/Redis/MinIO bằng Testcontainers (cần Docker)
 pnpm test:http   # chạy các file tests/*.http (httpYac) với API dev đang chạy, xem tests/README.md
+pnpm test:flows  # chạy tests/flows.http: các luồng nghiệp vụ chính từ đầu tới cuối, dùng để trình bày API
 ```
 
 ## Docker image
