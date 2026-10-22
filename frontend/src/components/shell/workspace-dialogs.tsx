@@ -27,7 +27,7 @@ function apiFieldError(err: unknown, fallbackField?: string): FieldError {
   return { message: describeError(err) };
 }
 
-export function CreateWorkspaceDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function CreateWorkspaceDialog({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated?: (ws: Workspace) => void }) {
   const router = useRouter();
   const toast = useToast();
   const { reloadMe } = useAuth();
@@ -59,7 +59,8 @@ export function CreateWorkspaceDialog({ open, onClose }: { open: boolean; onClos
       await reloadMe();
       toast("success", `Đã tạo workspace «${ws.name}». Bạn là quản trị.`);
       onClose();
-      router.push(`/w/${ws.id}/f`);
+      if (onCreated) onCreated(ws);
+      else router.push(`/w/${ws.id}/f`);
     } catch (err) {
       setError(apiFieldError(err, "memberEmails"));
     } finally {

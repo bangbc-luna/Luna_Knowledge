@@ -117,7 +117,7 @@ Quyền trên một mục là quyền cao nhất trong các nguồn:
 ### 4.2 Workspace (WS)
 
 - WS-1: Mọi người dùng tạo được workspace nhóm/dự án và là quản trị của nó; có thể kèm danh sách thành viên ban đầu.
-- WS-1b: Có một workspace chung toàn công ty (slug trong env `DEFAULT_WORKSPACE_SLUG`, mặc định `lunatech`). User được tạo lần đầu (đăng nhập, được thêm làm thành viên hay được chia sẻ) tự vào workspace này làm thành viên, có ghi nhật ký. Ai đã bị xoá khỏi workspace chung thì không tự vào lại. User chưa thuộc workspace nào thấy hướng dẫn kèm danh sách quản trị hệ thống để liên hệ (`GET /users/admins`).
+- WS-1b: Có đúng một workspace công ty (`kind = COMPANY`, tạo bằng seed, slug `lunatech`). Mọi tài khoản đang hoạt động tự vào workspace này với vai trò VIEWER mỗi lần đăng nhập hoặc khi được tạo (thêm làm thành viên, được chia sẻ); lần vào đầu tiên có ghi nhật ký. Không gỡ được thành viên khỏi workspace công ty và không xoá được workspace này; quản trị chỉ đổi vai trò (VIEWER, MEMBER, ADMIN). Danh sách quản trị hệ thống để liên hệ: `GET /users/admins`.
 - WS-2: Quản trị workspace (hoặc System Admin) mời, đổi vai trò, gỡ thành viên; thành viên tự rời được (trừ kho công ty). Trong app, danh sách và thao tác nằm ở cột thành viên bên phải (bật/tắt).
 - WS-3: Liệt kê các workspace mà user là thành viên.
 - WS-4: Thống kê dung lượng theo workspace (tổng file gốc, tổng HLS).
@@ -126,7 +126,7 @@ Quyền trên một mục là quyền cao nhất trong các nguồn:
 
 - NODE-1: Tạo folder lồng nhau không giới hạn cấp.
 - NODE-2: Liệt kê con của một folder, có phân trang, sắp xếp (tên, ngày sửa, kích thước) và lọc theo loại.
-- NODE-3: Đổi tên, di chuyển trong cùng workspace (sang workspace khác: bản sau), sao chép (chỉ áp dụng cho document).
+- NODE-3: Đổi tên, di chuyển trong cùng workspace (sang workspace khác: bản sau). Sao chép tài liệu soạn thảo: cần VIEWER ở bản gốc và EDITOR ở nơi đặt bản sao, đặt được sang workspace khác (ví dụ lấy tài liệu mẫu của công ty về workspace nhóm). Bản sao gồm nội dung mới nhất và ảnh nhúng; không gồm phiên bản, comment, share, tag. Tên mặc định `<tên> (bản sao)`; ghi nhật ký `document.copy`.
 - NODE-4: Breadcrumb: trả về đường dẫn từ gốc tới node.
 - NODE-5: Xóa mềm vào thùng rác. Khôi phục về vị trí cũ, hoặc về gốc nếu folder cha đã bị xóa.
 - NODE-6: Job tự xóa vĩnh viễn các mục trong thùng rác quá 30 ngày, đồng thời dọn file trên MinIO.
@@ -137,7 +137,7 @@ Quyền trên một mục là quyền cao nhất trong các nguồn:
 - UPLOAD-1: Upload resumable, chia nhiều phần (multipart), tối đa **10 GB cho video** và **500 MB cho file khác**.
 - UPLOAD-2: Luồng xử lý: client xin phiên upload, nhận presigned URL cho từng part, upload thẳng lên S3 (bucket `tmp`) rồi gọi `complete`. Sau đó worker kiểm tra, lưu file gốc vào bucket `originals` và tạo bản xem trước.
 - UPLOAD-3: Kiểm tra định dạng bằng magic bytes, không chỉ dựa vào đuôi file. Giới hạn MIME theo whitelist.
-- UPLOAD-4: Tính checksum SHA-256 và lưu lại để phát hiện file trùng (chỉ cảnh báo, không chặn).
+- UPLOAD-4: Tính checksum SHA-256 và lưu lại để phát hiện file trùng (chỉ cảnh báo, không chặn). Chi tiết file trả `duplicates`: tối đa 5 mục khác có cùng nội dung mà người hỏi xem được (bỏ mục trong thùng rác).
 - UPLOAD-5: Trạng thái xử lý của node: `UPLOADING → PROCESSING → READY | FAILED`. Client theo dõi qua SSE hoặc polling.
 - UPLOAD-6: Tải lên phiên bản mới cho một file: giữ lịch sử phiên bản file (tối đa 20 bản).
 
@@ -200,7 +200,7 @@ Quyền trên một mục là quyền cao nhất trong các nguồn:
 - AUDIT-1: Ghi lại các hành động: đăng nhập, tạo/sửa/xóa/khôi phục/di chuyển node, đổi quyền, share, tải file, xem video (bắt đầu phiên xem), truy cập file gốc video, đổi thành viên. Lượt mở thư mục/tài liệu ghi là `node.view`; cùng một người mở lại cùng một mục trong 5 phút chỉ tính một lần.
 - AUDIT-2: Mỗi bản ghi gồm: actor, action, target, workspace, metadata (JSON), IP, user-agent, thời điểm.
 - AUDIT-3: System Admin xem log toàn hệ thống, có lọc và xuất CSV. Người sở hữu một mục xem log hoạt động của mục đó.
-- AUDIT-4: Bảng log chỉ cho phép ghi thêm (append-only), lưu tối thiểu 1 năm.
+- AUDIT-4: Bảng log chỉ cho phép ghi thêm (append-only), lưu tối thiểu 1 năm. Trigger trong PostgreSQL chặn mọi `UPDATE` và `DELETE`, trừ xoá bản ghi cũ hơn 1 năm.
 
 ---
 
@@ -491,7 +491,7 @@ Quy ước chung:
 
 | Method | Path | Mô tả | Quyền |
 |---|---|---|---|
-| GET | `/files/:id` | Chi tiết: phiên bản hiện tại, trạng thái xử lý, `canDownload` | VIEWER |
+| GET | `/files/:id` | Chi tiết: phiên bản hiện tại, trạng thái xử lý, `canDownload`, `duplicates` (file cùng nội dung) | VIEWER |
 | GET | `/files/:id/preview?version=` | `{kind: pdf|image|text|none, url, expiresAt}`, URL ký (10 phút) tới bản preview trên MinIO | VIEWER |
 | GET | `/files/:id/thumbnail` | Redirect tới thumbnail (ảnh) | VIEWER |
 | GET | `/files/:id/download?version=` | Stream file gốc qua API (không lộ vị trí lưu trữ), ghi audit `file.download`. Video → 403 | VIEWER |
@@ -533,6 +533,7 @@ Sửa tiêu đề/mô tả video dùng chung API đổi tên của node (`PATCH 
 | GET | `/documents/:id` | Metadata + `contentJson` (dùng để render nhanh hoặc khi không có WS) | VIEWER |
 | GET | `/documents/:id/collab-token` | Token ngắn hạn để kết nối Hocuspocus | VIEWER |
 | GET | `/documents/:id/export?format=html|md` | Xuất nội dung | VIEWER |
+| POST | `/documents/:id/copy` | Sao chép `{workspaceId?, parentId?, name?}` | VIEWER bản gốc, EDITOR nơi đặt |
 | POST | `/documents/:id/assets` | Upload ảnh/file nhúng (≤ 20 MB, multipart `file`) | EDITOR |
 | GET | `/documents/:id/assets` | Danh sách ảnh/file nhúng (URL ký) | VIEWER |
 | GET | `/documents/:id/versions` | Danh sách phiên bản | VIEWER |
@@ -587,9 +588,9 @@ Sửa tiêu đề/mô tả video dùng chung API đổi tên của node (`PATCH 
 | NFR-2 Video | Video bắt đầu phát < 3 giây; thời gian transcode ≤ 1,5 lần thời lượng video (với máy 8 vCPU) |
 | NFR-3 Tải đồng thời | 200 user, 50 người xem video cùng lúc, 20 người cùng sửa một tài liệu |
 | NFR-4 Bảo mật | HTTPS bắt buộc; mọi bucket để private; secret lưu trong env/secret manager; AES key mã hóa bằng master key; rate limit theo user/IP; kiểm tra magic bytes; quét virus bằng ClamAV (tùy chọn) |
-| NFR-5 Toàn vẹn | Không mất dữ liệu document: Yjs state persist tối đa 10 giây; DB backup hằng ngày (PITR), giữ 30 ngày |
+| NFR-5 Toàn vẹn | Không mất dữ liệu document: Yjs state persist tối đa 10 giây; DB và file gốc backup hằng đêm (mã hoá, ra ngoài server), giữ `BACKUP_KEEP_DAYS` ngày; mất tối đa dữ liệu một ngày nếu hỏng cả server. PITR (khôi phục tới từng phút bằng WAL archiving): bản sau |
 | NFR-6 Quan sát | Log có cấu trúc (pino) kèm request-id; metrics Prometheus; healthcheck `/health`; Sentry |
-| NFR-7 Kiểm thử | Unit test cho permission engine ≥ 90% coverage; e2e cho mọi endpoint chính (Vitest + Supertest + Testcontainers) |
+| NFR-7 Kiểm thử | Permission engine ≥ 90% coverage (đo bằng `pnpm test:coverage` ở `apps/api` và `apps/collab`, có ngưỡng chặn); e2e cho mọi endpoint chính (Vitest + Supertest + Testcontainers) |
 | NFR-8 Triển khai | On-premise tại văn phòng, Docker Compose. Server khuyến nghị: 8 vCPU, 32 GB RAM, SSD cho Postgres/Meilisearch, ổ HDD/SSD dung lượng lớn có RAID (hoặc MinIO nhiều ổ, erasure coding) cho MinIO. Dev/staging dùng cùng compose |
 | NFR-9 Ngôn ngữ | Thông báo lỗi có `code` cố định để FE dịch; tìm kiếm hỗ trợ tiếng Việt không dấu |
 

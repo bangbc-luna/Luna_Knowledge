@@ -1,9 +1,12 @@
 "use client";
 
-import { ChevronDown, CircleCheck, X } from "lucide-react";
+import { ChevronDown, CircleAlert, CircleCheck, X } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { formatBytes } from "@/lib/files";
+import type { FileDuplicate, NodeItem } from "@/lib/types";
 import { type UploadItem, useUploads } from "@/lib/uploads";
 import { IconButton } from "../ui/button";
 import { FileTypeIcon } from "./file-type-icon";
@@ -23,8 +26,41 @@ export function MiddleTruncate({ name, className }: { name: string; className?: 
   );
 }
 
+const DUPLICATE_POLL_MS = 3000;
+const DUPLICATE_POLL_MAX = 40;
+
+function useDuplicates(nodeId: string | undefined, enabled: boolean) {
+  const [duplicates, setDuplicates] = useState<FileDuplicate[]>([]);
+  useEffect(() => {
+    if (!enabled || !nodeId) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const check = async (attempt: number) => {
+      try {
+        const d = await api<{ status: NodeItem["status"]; duplicates: FileDuplicate[] }>(`/files/${nodeId}/duplicates`);
+        if (stopped) return;
+        if (d.status === "READY" || d.status === "FAILED") {
+          setDuplicates(d.duplicates);
+          return;
+        }
+      } catch {
+        return;
+      }
+      if (attempt < DUPLICATE_POLL_MAX) timer = setTimeout(() => void check(attempt + 1), DUPLICATE_POLL_MS);
+    };
+    timer = setTimeout(() => void check(1), DUPLICATE_POLL_MS);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [nodeId, enabled]);
+  return duplicates;
+}
+
 function UploadRow({ item }: { item: UploadItem }) {
   const { retry, cancel } = useUploads();
+  const duplicates = useDuplicates(item.nodeId, item.status === "done");
+  const firstDup = duplicates[0];
   const pct = Math.round(item.progress * 100);
   return (
     <li className="flex items-center gap-3 py-3">
@@ -75,6 +111,18 @@ function UploadRow({ item }: { item: UploadItem }) {
             </p>
           )}
         </div>
+        {item.status === "done" && firstDup ? (
+          <p className="mt-0.5 flex items-start gap-1 text-xs text-pretty text-foreground">
+            <CircleAlert className="mt-px size-3.5 shrink-0 text-warn" aria-hidden />
+            <span className="min-w-0 [overflow-wrap:anywhere]">
+              Trùng nội dung với{" "}
+              <Link href={`/w/${firstDup.workspace.id}/file/${firstDup.id}`} className="font-medium underline underline-offset-2 hover:text-primary">
+                «{firstDup.name}»
+              </Link>
+              {duplicates.length > 1 ? ` và ${duplicates.length - 1} mục khác` : ""}
+            </span>
+          </p>
+        ) : null}
       </div>
       <div className="flex w-8 shrink-0 justify-end">
         {item.status !== "done" ? (

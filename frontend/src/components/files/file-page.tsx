@@ -247,6 +247,25 @@ export function FilePage() {
               />
             </div>
 
+            {node.status === "READY" && d.duplicates?.length ? (
+              <div role="status" className="flex items-start gap-3 rounded-xl border border-border-strong bg-warn-bg p-4">
+                <CircleAlert className="mt-0.5 size-4 shrink-0 text-warn" aria-hidden />
+                <div className="min-w-0 text-sm text-pretty text-foreground">
+                  <p className="font-medium">{isVideo ? "Video này" : "Tệp này"} trùng nội dung với:</p>
+                  <ul className="mt-1 space-y-0.5">
+                    {d.duplicates.map((dup) => (
+                      <li key={dup.id} className="[overflow-wrap:anywhere]">
+                        <Link href={`/w/${dup.workspace.id}/file/${dup.id}`} className="font-medium underline underline-offset-4 hover:text-primary">
+                          {dup.name}
+                        </Link>
+                        <span className="text-muted"> · {dup.workspace.name}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            ) : null}
+
             {node.status === "READY" && d.processingError ? (
               <div role="status" className="flex items-start gap-3 rounded-xl border border-border-strong bg-warn-bg p-4">
                 <CircleAlert className="mt-0.5 size-4 shrink-0 text-warn" aria-hidden />

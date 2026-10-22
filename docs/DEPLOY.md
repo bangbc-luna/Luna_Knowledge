@@ -157,4 +157,5 @@ Sự cố thường gặp:
 - **Tải file / xem video không được nhưng trang vẫn mở**: kiểm tra `media.knowledge.lunatech.vn` phân giải được và `S3_PUBLIC_ENDPOINT` đúng.
 - **Video đứng ở "Đang xử lý"**: `luna logs worker`; worker transcode lần lượt từng video (`VIDEO_TRANSCODE_CONCURRENCY`).
 - **Báo lỗi 429 "Too many requests"**: một người dùng vượt `RATE_LIMIT_USER_PER_MIN` (mặc định 600 request/phút); tăng nếu cần rồi `luna up -d api`.
+- **Nhật ký hoạt động không sửa/xoá được**: bảng `audit_logs` có trigger chỉ cho ghi thêm, chỉ xoá được bản ghi cũ hơn 1 năm. Đây là chủ đích, không phải lỗi.
 - **Mất điện xong máy lên lại**: các dịch vụ có `restart: unless-stopped` nên tự chạy; kiểm tra `luna ps` và log Postgres.

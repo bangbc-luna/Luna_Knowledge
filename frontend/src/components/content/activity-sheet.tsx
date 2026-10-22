@@ -43,6 +43,8 @@ function describe(a: ActivityItem): { text: React.ReactNode; detail?: React.Reac
     }
     case "document.import":
       return { text: "đã tạo từ file Word" };
+    case "document.copy":
+      return { text: "đã tạo bản sao từ", detail: m.fromName ? `«${str(m.fromName)}»` : undefined };
     case "document.version_create":
       return { text: "đã lưu phiên bản", detail: m.versionName ? `«${str(m.versionName)}»` : undefined };
     case "document.version_restore":

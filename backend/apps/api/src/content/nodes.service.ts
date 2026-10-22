@@ -24,6 +24,7 @@ const ACTIVITY_ACTIONS = [
   'node.restore',
   'document.edit',
   'document.import',
+  'document.copy',
   'document.version_create',
   'document.version_restore',
   'file.upload',

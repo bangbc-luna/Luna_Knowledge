@@ -20,12 +20,30 @@ export const fileVersionSchema = z.object({
   isCurrent: z.boolean(),
 });
 
+const duplicatesSchema = z.array(
+  z.object({
+    id: z.uuid(),
+    name: z.string(),
+    type: z.enum(['FILE', 'VIDEO']),
+    section: z.enum(['DOCS', 'VIDEOS']),
+    workspace: z.object({ id: z.uuid(), name: z.string() }),
+  }),
+);
+
 export const fileDetailSchema = z.object({
   node: nodeSchema,
   currentVersion: fileVersionSchema.nullable(),
   versionCount: z.number().int(),
   processingError: z.string().nullable().describe('Lý do xử lý lỗi gần nhất (khi FAILED)'),
   canDownload: z.boolean().describe('Video chỉ được xem, không được tải'),
+  duplicates: duplicatesSchema.describe(
+    'Mục khác có cùng nội dung (SHA-256) mà bạn xem được, tối đa 5; chỉ để cảnh báo',
+  ),
+});
+
+export const duplicateInfoSchema = z.object({
+  status: z.enum(['UPLOADING', 'PROCESSING', 'READY', 'FAILED']),
+  duplicates: duplicatesSchema,
 });
 
 export const previewSchema = z.object({

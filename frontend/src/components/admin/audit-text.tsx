@@ -1,12 +1,13 @@
 "use client";
 
-import { Eye, FolderInput, FolderPlus, LogIn, LogOut, Pencil, Settings, Share2, ShieldAlert, Trash2, Undo2, UserX, type LucideIcon } from "lucide-react";
+import { Copy, Eye, FolderInput, FolderPlus, LogIn, LogOut, Pencil, Settings, Share2, ShieldAlert, Trash2, Undo2, UserX, type LucideIcon } from "lucide-react";
 import { ACTION_LABEL } from "@/lib/format";
 import type { AuditItem } from "@/lib/types";
 import { Badge, type BadgeTone } from "../ui/misc";
 
 const ICONS: Array<[RegExp, LucideIcon]> = [
   [/^node\.view$/, Eye],
+  [/^document\.copy$/, Copy],
   [/^node\.create$/, FolderPlus],
   [/^node\.rename$/, Pencil],
   [/^node\.move$/, FolderInput],

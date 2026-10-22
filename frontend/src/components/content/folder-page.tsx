@@ -1,6 +1,6 @@
 "use client";
 
-import { FilePlus2, FolderInput, FolderPlus, Pencil, Share2, Star, Tag as TagIcon, Trash2, Upload } from "lucide-react";
+import { Copy, FilePlus2, FolderInput, FolderPlus, Pencil, Share2, Star, Tag as TagIcon, Trash2, Upload } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -23,7 +23,7 @@ import { RowMenu } from "../ui/menu";
 import { Breadcrumb, Card, EmptyState, ErrorBanner, SkeletonRows } from "../ui/misc";
 import { Select } from "../ui/select";
 import { useToast } from "../ui/toast";
-import { MoveDialog, NameDialog, TagsDialog } from "./node-dialogs";
+import { CopyDialog, MoveDialog, NameDialog, TagsDialog } from "./node-dialogs";
 import { NodeName, TagCell, TagChip } from "./node-name";
 import { ShareSheet } from "./share-sheet";
 
@@ -71,7 +71,7 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
   const [sort, setSort] = useState<Sort>("name");
   const [dialog, setDialog] = useState<
     | { kind: "create" }
-    | { kind: "rename" | "move" | "tags" | "delete" | "share"; node: NodeItem }
+    | { kind: "rename" | "move" | "copy" | "tags" | "delete" | "share"; node: NodeItem }
     | null
   >(null);
 
@@ -349,6 +349,7 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
                                       [
                                         { icon: Pencil, label: "Đổi tên", onSelect: () => setDialog({ kind: "rename", node: n }), hidden: !rowEdit },
                                         { icon: FolderInput, label: "Di chuyển", onSelect: () => setDialog({ kind: "move", node: n }), hidden: !rowEdit },
+                                        { icon: Copy, label: "Tạo bản sao", onSelect: () => setDialog({ kind: "copy", node: n }), hidden: n.type !== "DOCUMENT" },
                                         { icon: Share2, label: "Chia sẻ", onSelect: () => setDialog({ kind: "share", node: n }), hidden: !rowOwner },
                                         { icon: TagIcon, label: "Gắn tag", onSelect: () => setDialog({ kind: "tags", node: n }), hidden: !rowEdit || !membership },
                                       ],
@@ -412,6 +413,11 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
           toast("success", "Đã di chuyển");
           reloadAll();
         }}
+      />
+      <CopyDialog
+        open={dialog?.kind === "copy"}
+        onClose={() => setDialog(null)}
+        source={dialog?.kind === "copy" ? { id: dialog.node.id, name: dialog.node.name, workspaceId: wsId, parentId: dialog.node.parentId, parentName: folderNode?.name ?? null } : null}
       />
       <TagsDialog
         open={dialog?.kind === "tags"}

@@ -31,6 +31,7 @@ import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
 import { ApiZodCreated, ApiZodOk, ApiZodQuery } from '../common/swagger/zod-openapi.js';
 import { z } from 'zod';
 import {
+  duplicateInfoSchema,
   downloadLinkSchema,
   fileDetailSchema,
   fileVersionSchema,
@@ -71,6 +72,16 @@ export class FilesController {
     @Req() req: Request,
   ) {
     return this.files.detail(user, id, requestContext(req));
+  }
+
+  @Get('files/:id/duplicates')
+  @ApiOperation({
+    summary: 'Trạng thái xử lý và các file trùng nội dung (VIEWER)',
+    description: 'Gọn hơn chi tiết file, không ghi lượt xem; dùng để hỏi lại sau khi upload xong.',
+  })
+  @ApiZodOk(duplicateInfoSchema)
+  duplicates(@CurrentUser() user: AuthenticatedUser, @Param('id', uuid()) id: string) {
+    return this.files.duplicateInfo(user, id);
   }
 
   @Get('files/:id/versions')

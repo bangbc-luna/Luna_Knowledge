@@ -82,6 +82,15 @@ export interface FileDetail {
   versionCount: number;
   processingError: string | null;
   canDownload: boolean;
+  duplicates: FileDuplicate[];
+}
+
+export interface FileDuplicate {
+  id: string;
+  name: string;
+  type: "FILE" | "VIDEO";
+  section: NodeSection;
+  workspace: { id: string; name: string };
 }
 
 export interface FilePreview {

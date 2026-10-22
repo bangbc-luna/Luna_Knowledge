@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { SearchQueueService } from '../infra/queue/search-queue.service.js';
-import { PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
+import { CopyObjectCommand, PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
 import {
   type DocJSON,
   emptyDoc,
@@ -9,10 +9,11 @@ import {
   jsonToMarkdown,
   jsonToState,
   jsonToText,
+  stateToJSON,
   wordCount,
 } from '@luna/editor';
 import { COLLAB_TOKEN_AUDIENCE, collabDocumentName } from '@luna/shared';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { fileTypeFromBuffer } from 'file-type';
 import { SignJWT } from 'jose';
 import mammoth from 'mammoth';
@@ -28,7 +29,8 @@ import { NodesService } from '../content/nodes.service.js';
 import { StorageService } from '../files/storage.service.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { BUCKETS, type Buckets, S3 } from '../infra/s3/s3.module.js';
-import type { CreateDocumentBody } from './documents.schemas.js';
+import { CollabClient } from './collab-client.service.js';
+import type { CopyDocumentBody, CreateDocumentBody } from './documents.schemas.js';
 
 const userSummary = { id: true, email: true, name: true, avatarUrl: true } as const;
 const COLLAB_TOKEN_TTL_SEC = 300;
@@ -53,6 +55,8 @@ export interface UploadedAsset {
 
 @Injectable()
 export class DocumentsService {
+  private readonly logger = new Logger(DocumentsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: ContentAccessService,
@@ -61,6 +65,7 @@ export class DocumentsService {
     private readonly storage: StorageService,
     private readonly audit: AuditService,
     private readonly search: SearchQueueService,
+    private readonly collab: CollabClient,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     @Inject(S3) private readonly s3: S3Client,
     @Inject(BUCKETS) private readonly buckets: Buckets,
@@ -86,6 +91,50 @@ export class DocumentsService {
     });
     await this.search.node(nodeId);
     return this.detail(user, nodeId);
+  }
+
+  async copy(user: AuthenticatedUser, nodeId: string, body: CopyDocumentBody, ctx: RequestContext) {
+    const source = await this.requireDocument(user, nodeId, 'VIEWER');
+    const workspaceId = body.workspaceId ?? source.workspaceId;
+    const parentId =
+      body.parentId !== undefined
+        ? body.parentId
+        : workspaceId === source.workspaceId
+          ? source.parentId
+          : null;
+    await this.nodes.requireContainer(user, workspaceId, parentId, 'DOCS');
+    const json = await this.latestContent(source.id, source.workspaceId, user.id);
+    let name = body.name;
+    if (!name) {
+      const taken = await this.nodes.siblingKeys(workspaceId, parentId);
+      const base = `${source.name} (bản sao)`;
+      name = taken.has(nameKey(base)) ? suggestName(base, taken) : base;
+    }
+    const copyId = await this.createNode(user, workspaceId, parentId, name, emptyDoc());
+    try {
+      const assetIds = await this.copyAssets(user.id, source.id, copyId);
+      await this.writeContent(copyId, remapAssets(json, assetIds));
+    } catch (err) {
+      await this.prisma.client.node.delete({ where: { id: copyId } }).catch(() => undefined);
+      throw err;
+    }
+    await this.audit.log({
+      actorId: user.id,
+      action: 'document.copy',
+      targetType: 'node',
+      targetId: copyId,
+      workspaceId,
+      metadata: {
+        name,
+        parentId,
+        fromNodeId: source.id,
+        fromName: source.name,
+        fromWorkspaceId: source.workspaceId,
+      },
+      ctx,
+    });
+    await this.search.node(copyId);
+    return this.detail(user, copyId);
   }
 
   async get(user: AuthenticatedUser, nodeId: string, ctx: RequestContext) {
@@ -310,6 +359,58 @@ export class DocumentsService {
     }
   }
 
+  private async latestContent(nodeId: string, workspaceId: string, actorId: string) {
+    const state = await this.collab.snapshot(nodeId, workspaceId, actorId).catch((err) => {
+      this.logger.warn({ err, nodeId }, 'Collab snapshot failed, copying the last saved content');
+      return null;
+    });
+    if (state?.length) return stateToJSON(state);
+    const doc = await this.prisma.client.document.findUnique({ where: { nodeId } });
+    return (doc?.contentJson as DocJSON | null) ?? emptyDoc();
+  }
+
+  private async copyAssets(userId: string, fromNodeId: string, toNodeId: string) {
+    const assets = await this.prisma.client.documentAsset.findMany({
+      where: { nodeId: fromNodeId },
+      include: { blob: true },
+    });
+    const copied = await Promise.all(
+      assets.map(async (a) => {
+        const id = randomUUID();
+        const key = `docs/${toNodeId}/${id}`;
+        const blob = await this.prisma.client.blob.create({
+          data: {
+            nodeId: toNodeId,
+            kind: 'ASSET',
+            provider: 'S3',
+            container: this.buckets.assets,
+            key,
+            sizeBytes: a.blob.sizeBytes,
+            mime: a.blob.mime,
+          },
+        });
+        await this.s3.send(
+          new CopyObjectCommand({
+            Bucket: this.buckets.assets,
+            Key: key,
+            CopySource: `${a.blob.container}/${a.blob.key}`,
+          }),
+        );
+        return { from: a.id, id, blobId: blob.id, fileName: a.fileName };
+      }),
+    );
+    await this.prisma.client.documentAsset.createMany({
+      data: copied.map((c) => ({
+        id: c.id,
+        nodeId: toNodeId,
+        blobId: c.blobId,
+        fileName: c.fileName,
+        createdById: userId,
+      })),
+    });
+    return new Map(copied.map((c) => [c.from, c.id]));
+  }
+
   private async writeContent(nodeId: string, json: DocJSON) {
     await this.prisma.client.document.update({ where: { nodeId }, data: this.contentFields(json) });
   }
@@ -409,6 +510,19 @@ export class DocumentsService {
     });
     return map(json);
   }
+}
+
+function remapAssets(json: DocJSON, ids: Map<string, string>): DocJSON {
+  const assetId = json.attrs?.assetId;
+  const marks = json.marks?.filter((m) => m.type !== 'comment');
+  return {
+    ...json,
+    ...(json.marks ? { marks: marks?.length ? marks : undefined } : {}),
+    ...(json.type === 'image' && typeof assetId === 'string'
+      ? { attrs: { ...json.attrs, assetId: ids.get(assetId) ?? null } }
+      : {}),
+    ...(json.content ? { content: json.content.map((c) => remapAssets(c, ids)) } : {}),
+  };
 }
 
 function escapeHtml(s: string) {

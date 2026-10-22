@@ -1,5 +1,5 @@
 # @import ./_auth.http
-# Tài liệu soạn thảo: tạo, collab token, phiên bản, comment + @mention, thông báo, ảnh nhúng, import .docx (SPEC §4.5).
+# Tài liệu soạn thảo: tạo, sao chép, collab token, phiên bản, comment + @mention, thông báo, ảnh nhúng, import .docx (SPEC §4.5).
 # Cần `pnpm dev` (API + collab + worker).
 # Tài liệu đặt trong viewFolder: creator là ADMIN workspace (OWNER), member là MEMBER (EDITOR), sharedViewer có share "Chỉ xem".
 @apiUrl = http://localhost:4000/api/v1
@@ -66,6 +66,41 @@ Authorization: Bearer {{sharedViewer.accessToken}}
 # @ref outsider
 GET {{apiUrl}}/documents/{{doc.node.id}}
 Authorization: Bearer {{outsider.accessToken}}
+
+?? status == 404
+
+### Thành viên sao chép tài liệu cùng thư mục → "(bản sao)"
+# @ref doc
+# @ref member
+POST {{apiUrl}}/documents/{{doc.node.id}}/copy
+Authorization: Bearer {{member.accessToken}}
+Content-Type: application/json
+
+{}
+
+?? status == 201
+?? js response.parsedBody.node.name === `${doc.node.name} (bản sao)` == true
+?? body node.myRole == EDITOR
+?? body versionCount == 0
+
+### Share "Chỉ xem" không đặt bản sao vào thư mục chỉ xem → 403
+# @ref doc
+POST {{apiUrl}}/documents/{{doc.node.id}}/copy
+Authorization: Bearer {{sharedViewer.accessToken}}
+Content-Type: application/json
+
+{}
+
+?? status == 403
+
+### Người ngoài không sao chép được → 404
+# @ref doc
+# @ref outsider
+POST {{apiUrl}}/documents/{{doc.node.id}}/copy
+Authorization: Bearer {{outsider.accessToken}}
+Content-Type: application/json
+
+{}
 
 ?? status == 404
 

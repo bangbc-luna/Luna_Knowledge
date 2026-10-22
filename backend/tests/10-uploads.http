@@ -170,6 +170,53 @@ Authorization: Bearer {{creator.accessToken}}
 ?? body canDownload == true
 ?? js response.parsedBody.currentVersion.sha256.length == 64
 
+### Tải lại đúng file đó với tên khác (để kiểm tra cảnh báo trùng)
+# @name dupUpload
+# @ref docxFile
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/uploads
+Authorization: Bearer {{creator.accessToken}}
+Content-Type: application/json
+
+{ "fileName": "Bản chép onboarding {{$timestamp}}.docx", "size": {{docxSize}}, "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "parentId": "{{viewFolder.id}}" }
+
+?? status == 201
+
+###
+# @ref dupUpload
+PUT {{dupUpload.parts[0].url}}
+
+< ./fixtures/sample.docx
+
+?? status == 200
+
+###
+# @ref dupUpload
+POST {{apiUrl}}/uploads/{{dupUpload.uploadId}}/complete
+Authorization: Bearer {{creator.accessToken}}
+Content-Type: application/json
+
+{}
+
+?? status == 200
+
+### File trùng nội dung: chi tiết có danh sách duplicates (chỉ cảnh báo)
+# @sleep 5000
+# @ref dupUpload
+GET {{apiUrl}}/files/{{dupUpload.nodeId}}
+Authorization: Bearer {{creator.accessToken}}
+
+?? status == 200
+?? body node.status == READY
+?? js response.parsedBody.duplicates.length >= 1 == true
+?? js response.parsedBody.duplicates.every(d => d.id !== dupUpload.nodeId) == true
+
+### Dọn file trùng
+# @ref dupUpload
+DELETE {{apiUrl}}/nodes/{{dupUpload.nodeId}}
+Authorization: Bearer {{creator.accessToken}}
+
+?? status == 204
+
 ### URL xem trước (ký sẵn 10 phút)
 # @name docxPreview
 # @ref docxFile

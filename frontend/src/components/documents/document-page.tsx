@@ -2,7 +2,7 @@
 
 import { type Editor, EditorContent, useEditor, useEditorState } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
-import { Activity, Bold, CircleAlert, Download, Eye, History, Italic, Link2, MessageSquare, MessageSquarePlus, Share2, Tag as TagIcon, WifiOff } from "lucide-react";
+import { Activity, Bold, CircleAlert, Copy, Download, Eye, History, Italic, Link2, MessageSquare, MessageSquarePlus, Share2, Tag as TagIcon, WifiOff } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -15,7 +15,7 @@ import type { Member, NodeItem, UserSummary } from "@/lib/types";
 import { useReportSection } from "@/lib/section";
 import { useApi } from "@/lib/use-api";
 import { ActivitySheet } from "../content/activity-sheet";
-import { TagsDialog } from "../content/node-dialogs";
+import { CopyDialog, TagsDialog } from "../content/node-dialogs";
 import { ShareSheet } from "../content/share-sheet";
 import { TopBar } from "../shell/shell";
 import { Button } from "../ui/button";
@@ -277,6 +277,7 @@ export function DocumentPage() {
   const [shareOpen, setShareOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
   const [tagsOpen, setTagsOpen] = useState(false);
+  const [copyOpen, setCopyOpen] = useState(false);
   useReportSection("DOCS");
   const [wide, setWide] = useState(false);
   const imageInput = useRef<HTMLInputElement>(null);
@@ -551,6 +552,7 @@ export function DocumentPage() {
                         { icon: History, label: "Lịch sử phiên bản", onSelect: () => setVersionsOpen(true) },
                         { icon: Activity, label: "Hoạt động", onSelect: () => setActivityOpen(true), hidden: !roleAtLeast(node.myRole, "OWNER") && !me?.isSystemAdmin },
                         { icon: TagIcon, label: "Gắn tag", onSelect: () => setTagsOpen(true), hidden: !membership || !roleAtLeast(node.myRole, "EDITOR") },
+                        { icon: Copy, label: "Tạo bản sao", onSelect: () => setCopyOpen(true) },
                       ],
                       [
                         { icon: Download, label: "Tải về dạng HTML", onSelect: () => void exportAs("html") },
@@ -619,6 +621,11 @@ export function DocumentPage() {
             refreshKey={versionsOpen}
           />
           <ActivitySheet node={node} open={activityOpen} onClose={() => setActivityOpen(false)} />
+          <CopyDialog
+            open={copyOpen}
+            onClose={() => setCopyOpen(false)}
+            source={{ id: node.id, name: node.name, workspaceId: node.workspaceId, parentId: node.parentId, parentName: path.length > 1 ? path[path.length - 2]!.name : null }}
+          />
           <TagsDialog
             open={tagsOpen}
             onClose={() => setTagsOpen(false)}

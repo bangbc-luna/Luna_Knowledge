@@ -33,6 +33,8 @@ import { contentDisposition } from '../files/storage.service.js';
 import {
   assetSchema,
   collabTokenSchema,
+  copyDocumentBody,
+  type CopyDocumentBody,
   createDocumentBody,
   type CreateDocumentBody,
   createVersionBody,
@@ -89,6 +91,27 @@ export class DocumentsController {
     @Req() req: Request,
   ) {
     return this.documents.get(user, id, requestContext(req));
+  }
+
+  @Post('documents/:id/copy')
+  @ApiOperation({
+    summary: 'Sao chép tài liệu (VIEWER ở bản gốc, EDITOR ở nơi đặt bản sao)',
+    description:
+      'Chép nội dung mới nhất (kể cả phần đang sửa dở) và ảnh nhúng; không chép lịch sử phiên bản, comment, share, tag. ' +
+      'Đặt được sang workspace khác, ví dụ lấy tài liệu mẫu của công ty về workspace nhóm. Trùng tên → 409 kèm `details.suggestion`.',
+  })
+  @ApiZodBody(copyDocumentBody, {
+    workspaceId: '7b1e2c3d-4f5a-4b6c-8d7e-9f0a1b2c3d4e',
+    parentId: null,
+  })
+  @ApiZodCreated(documentSchema)
+  copy(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', uuid()) id: string,
+    @Body(new ZodValidationPipe(copyDocumentBody)) body: CopyDocumentBody,
+    @Req() req: Request,
+  ) {
+    return this.documents.copy(user, id, body, requestContext(req));
   }
 
   @Get('documents/:id/collab-token')

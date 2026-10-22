@@ -307,6 +307,52 @@ describe('Uploads and files (e2e)', () => {
       await shareToViewer(owner, nodeId);
     });
 
+    it('cảnh báo file trùng nội dung: chỉ liệt kê mục mình xem được, bỏ mục trong thùng rác', async () => {
+      const other = await uploadSmall(editor, 'Bản chép hợp đồng.pdf');
+      const sha = 'a'.repeat(64);
+      const setSha = (id: string) =>
+        ctx.prisma.blob.updateMany({
+          where: { nodeId: id, kind: 'ORIGINAL' },
+          data: { sha256: sha },
+        });
+      await setSha(nodeId);
+      await setSha(other.nodeId);
+      const dupOf = async (as: LoggedIn, id: string) =>
+        (await http().get(`/api/v1/files/${id}`).set(as.auth).expect(200)).body.duplicates;
+
+      expect(await dupOf(editor, nodeId)).toEqual([
+        {
+          id: other.nodeId,
+          name: 'Bản chép hợp đồng.pdf',
+          type: 'FILE',
+          section: 'DOCS',
+          workspace: { id: wsId, name: 'Files' },
+        },
+      ]);
+      expect(await dupOf(viewer, nodeId)).toEqual([]);
+      await shareToViewer(owner, other.nodeId);
+      expect((await dupOf(viewer, nodeId)).map((d: { id: string }) => d.id)).toEqual([
+        other.nodeId,
+      ]);
+      const views = await ctx.prisma.auditLog.count({
+        where: { action: 'node.view', targetId: nodeId },
+      });
+      const light = await http()
+        .get(`/api/v1/files/${nodeId}/duplicates`)
+        .set(viewer.auth)
+        .expect(200);
+      expect(light.body).toEqual({
+        status: 'READY',
+        duplicates: [expect.objectContaining({ id: other.nodeId })],
+      });
+      expect(
+        await ctx.prisma.auditLog.count({ where: { action: 'node.view', targetId: nodeId } }),
+      ).toBe(views);
+      await http().get(`/api/v1/files/${nodeId}/duplicates`).set(outsider.auth).expect(404);
+      await http().delete(`/api/v1/nodes/${other.nodeId}`).set(editor.auth).expect(204);
+      expect(await dupOf(editor, nodeId)).toEqual([]);
+    });
+
     it('chi tiết file và URL xem trước ký sẵn', async () => {
       const detail = await http().get(`/api/v1/files/${nodeId}`).set(viewer.auth).expect(200);
       expect(detail.body.node.status).toBe('READY');

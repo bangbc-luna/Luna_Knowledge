@@ -516,6 +516,114 @@ describe('Documents, versions, comments, notifications (e2e)', () => {
     await http().post(`/api/v1/files/${pdf.id}/convert-to-document`).set(editor.auth).expect(415);
   });
 
+  it('sao chép tài liệu: nội dung mới nhất và ảnh nhúng, không chép phiên bản; sang workspace khác; quyền', async () => {
+    const id = await createShared(editor, 'Mẫu hợp đồng');
+    const img = await http()
+      .post(`/api/v1/documents/${id}/assets`)
+      .set(editor.auth)
+      .attach('file', PNG_1PX, 'logo.png')
+      .expect(201);
+    const json: DocJSON = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'text',
+              text: 'Điều khoản thanh toán',
+              marks: [{ type: 'bold' }, { type: 'comment', attrs: { threadId: 't1' } }],
+            },
+          ],
+        },
+        { type: 'image', attrs: { src: img.body.url, assetId: img.body.id } },
+      ],
+    };
+    await setContent(id, json);
+    await http()
+      .post(`/api/v1/documents/${id}/versions`)
+      .set(editor.auth)
+      .send({ name: 'v1' })
+      .expect(201);
+
+    const copy = await http()
+      .post(`/api/v1/documents/${id}/copy`)
+      .set(editor.auth)
+      .send({})
+      .expect(201);
+    expect(copy.body.node).toMatchObject({ name: 'Mẫu hợp đồng (bản sao)', myRole: 'EDITOR' });
+    expect(copy.body.node.id).not.toBe(id);
+    expect(copy.body.versionCount).toBe(0);
+    expect(copy.body.wordCount).toBe(4);
+    expect(
+      copy.body.contentJson.content[0].content[0].marks.map((m: { type: string }) => m.type),
+    ).toEqual(['bold']);
+    const copiedImage = copy.body.contentJson.content[1].attrs;
+    expect(copiedImage.assetId).not.toBe(img.body.id);
+    expect(copiedImage.src).toContain('X-Amz-Signature');
+    expect((await fetch(copiedImage.src)).status).toBe(200);
+    const assets = await http()
+      .get(`/api/v1/documents/${copy.body.node.id}/assets`)
+      .set(editor.auth)
+      .expect(200);
+    expect(assets.body.map((a: { id: string }) => a.id)).toEqual([copiedImage.assetId]);
+
+    const again = await http()
+      .post(`/api/v1/documents/${id}/copy`)
+      .set(editor.auth)
+      .send({})
+      .expect(201);
+    expect(again.body.node.name).toBe('Mẫu hợp đồng (bản sao) (1)');
+    await http()
+      .post(`/api/v1/documents/${id}/copy`)
+      .set(editor.auth)
+      .send({ name: 'mẫu hợp đồng (BẢN SAO)' })
+      .expect(409);
+
+    await http().post(`/api/v1/documents/${id}/copy`).set(viewer.auth).send({}).expect(404);
+    await http().post(`/api/v1/documents/${id}/copy`).set(outsider.auth).send({}).expect(404);
+    const own = await http()
+      .post('/api/v1/workspaces')
+      .set(viewer.auth)
+      .send({ name: 'Của tôi', slug: 'cua-toi' })
+      .expect(201);
+    const mine = await http()
+      .post(`/api/v1/documents/${id}/copy`)
+      .set(viewer.auth)
+      .send({ workspaceId: own.body.id })
+      .expect(201);
+    expect(mine.body.node).toMatchObject({
+      workspaceId: own.body.id,
+      parentId: null,
+      name: 'Mẫu hợp đồng (bản sao)',
+      myRole: 'OWNER',
+    });
+    await http()
+      .post(`/api/v1/documents/${id}/copy`)
+      .set(outsider.auth)
+      .send({ workspaceId: own.body.id })
+      .expect(404);
+
+    const log = await ctx.prisma.auditLog.findFirstOrThrow({
+      where: { action: 'document.copy', targetId: mine.body.node.id },
+    });
+    expect(log.metadata).toMatchObject({ fromNodeId: id, fromWorkspaceId: wsId });
+  });
+
+  it('nhật ký chỉ ghi thêm: DB chặn sửa và xoá, trừ bản ghi quá 1 năm', async () => {
+    const row = await ctx.prisma.auditLog.findFirstOrThrow();
+    await expect(
+      ctx.prisma.auditLog.update({ where: { id: row.id }, data: { action: 'x' } }),
+    ).rejects.toThrow(/append-only/);
+    await expect(ctx.prisma.auditLog.delete({ where: { id: row.id } })).rejects.toThrow(
+      /append-only/,
+    );
+    const old = await ctx.prisma.auditLog.create({
+      data: { action: 'test.old', createdAt: new Date(Date.now() - 400 * 86_400_000) },
+    });
+    await ctx.prisma.auditLog.delete({ where: { id: old.id } });
+  });
+
   it('gỡ thành viên báo collab server kiểm lại kết nối', async () => {
     const temp = await http()
       .post(`/api/v1/workspaces/${wsId}/members`)

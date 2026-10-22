@@ -10,6 +10,25 @@ export const createDocumentBody = z
   })
   .strict();
 
+export const copyDocumentBody = z
+  .object({
+    workspaceId: z
+      .uuid()
+      .optional()
+      .describe('Workspace đích; bỏ trống = cùng workspace với bản gốc'),
+    parentId: z
+      .uuid()
+      .nullable()
+      .optional()
+      .describe(
+        'Folder đích; bỏ trống = cùng folder với bản gốc (hoặc gốc workspace đích), null = gốc',
+      ),
+    name: nodeNameSchema.optional().describe('Bỏ trống = "<tên gốc> (bản sao)"'),
+  })
+  .strict();
+
+export type CopyDocumentBody = z.output<typeof copyDocumentBody>;
+
 export const documentSchema = z.object({
   node: nodeSchema,
   contentJson: z.unknown().describe('Tiptap JSON, để hiển thị nhanh khi chưa kết nối collab'),

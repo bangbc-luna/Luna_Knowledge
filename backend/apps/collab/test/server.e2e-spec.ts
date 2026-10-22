@@ -185,6 +185,39 @@ describe('Collab server (e2e)', () => {
       'synced',
     );
     expect((await connect(users.outsider, nodeId)).result).not.toBe('synced');
+    const noDoc = await new SignJWT({ name: 'Tester' })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setSubject(users.editor)
+      .setAudience(COLLAB_TOKEN_AUDIENCE)
+      .setIssuer('luna-api')
+      .setExpirationTime('5m')
+      .sign(new TextEncoder().encode(SECRET));
+    expect((await connect(users.editor, nodeId, noDoc)).result).not.toBe('synced');
+    expect(
+      (await connect(users.editor, folderId, await token(users.editor, folderId))).result,
+    ).not.toBe('synced');
+  });
+
+  it('từ chối tài liệu đã vào thùng rác và tài khoản bị khoá', async () => {
+    const trashed = await newDocument();
+    await prisma.node.update({ where: { id: trashed }, data: { deletedAt: new Date() } });
+    expect((await connect(users.editor, trashed)).result).not.toBe('synced');
+
+    const nodeId = await newDocument();
+    await prisma.user.update({ where: { id: users.editor2 }, data: { status: 'DISABLED' } });
+    try {
+      expect((await connect(users.editor2, nodeId)).result).not.toBe('synced');
+    } finally {
+      await prisma.user.update({ where: { id: users.editor2 }, data: { status: 'ACTIVE' } });
+    }
+    const nameless = await new SignJWT({ doc: nodeId })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setSubject(users.editor2)
+      .setAudience(COLLAB_TOKEN_AUDIENCE)
+      .setIssuer('luna-api')
+      .setExpirationTime('5m')
+      .sign(new TextEncoder().encode(SECRET));
+    expect((await connect(users.editor2, nodeId, nameless)).result).toBe('synced');
   });
 
   it('hai người cùng sửa đồng thời hội tụ cùng nội dung, lưu xuống DB', async () => {

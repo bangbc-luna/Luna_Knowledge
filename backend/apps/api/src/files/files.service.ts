@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { SearchQueueService } from '../infra/queue/search-queue.service.js';
 import type { Readable } from 'node:stream';
-import type { Prisma } from '@luna/db';
+import { accessColumns, effectiveRole, Prisma } from '@luna/db';
 import { JOBS, QUEUES, type RegenerateJob } from '@luna/shared';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Inject, Injectable } from '@nestjs/common';
@@ -37,6 +37,8 @@ interface DownloadGrant {
   versionId: string;
 }
 
+const MAX_DUPLICATES = 5;
+
 @Injectable()
 export class FilesService {
   constructor(
@@ -60,13 +62,70 @@ export class FilesService {
       include: { currentVersion: { include: versionInclude } },
     });
     const versionCount = await this.prisma.client.fileVersion.count({ where: { nodeId } });
+    const sha256 = info?.currentVersion?.original.sha256;
     return {
       node: await this.dto.one(user.id, nodeId),
       currentVersion: info?.currentVersion ? this.toVersionDto(info.currentVersion, true) : null,
       versionCount,
       processingError: info?.processingError ?? null,
       canDownload: node.type === 'FILE',
+      duplicates: sha256 ? await this.duplicates(user.id, nodeId, sha256) : [],
     };
+  }
+
+  async duplicateInfo(user: AuthenticatedUser, nodeId: string) {
+    await this.requireFile(user, nodeId, 'VIEWER');
+    const info = await this.prisma.client.fileInfo.findUnique({
+      where: { nodeId },
+      include: {
+        node: { select: { status: true } },
+        currentVersion: { include: { original: true } },
+      },
+    });
+    const sha256 = info?.currentVersion?.original.sha256;
+    return {
+      status: info?.node.status ?? 'UPLOADING',
+      duplicates: sha256 ? await this.duplicates(user.id, nodeId, sha256) : [],
+    };
+  }
+
+  private async duplicates(userId: string, nodeId: string, sha256: string) {
+    const rows = await this.prisma.client.$queryRaw<
+      {
+        id: string;
+        name: string;
+        type: 'FILE' | 'VIDEO';
+        section: 'DOCS' | 'VIDEOS';
+        workspace_id: string;
+        workspace_name: string;
+        member_role: string | null;
+        share_role: string | null;
+      }[]
+    >(Prisma.sql`
+      SELECT * FROM (
+      SELECT n.id, n.name, n.type::text AS type, n.section::text AS section,
+             n.workspace_id, w.name AS workspace_name, n.created_at, ${accessColumns(userId)}
+        FROM blobs b
+        JOIN file_versions v ON v.original_blob_id = b.id
+        JOIN files f ON f.current_version_id = v.id
+        JOIN nodes n ON n.id = f.node_id
+        JOIN workspaces w ON w.id = n.workspace_id
+       WHERE b.sha256 = ${sha256} AND b.kind = 'ORIGINAL'
+         AND n.id <> ${nodeId}::uuid AND n.deleted_at IS NULL AND w.deleted_at IS NULL
+      ) d
+       WHERE d.member_role IS NOT NULL OR d.share_role IS NOT NULL
+       ORDER BY d.created_at
+       LIMIT ${MAX_DUPLICATES * 2}`);
+    return rows
+      .filter((r) => effectiveRole(r))
+      .slice(0, MAX_DUPLICATES)
+      .map((r) => ({
+        id: r.id,
+        name: r.name,
+        type: r.type,
+        section: r.section,
+        workspace: { id: r.workspace_id, name: r.workspace_name },
+      }));
   }
 
   async versions(user: AuthenticatedUser, nodeId: string): Promise<FileVersionDto[]> {

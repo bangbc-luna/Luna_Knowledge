@@ -327,6 +327,7 @@ model Blob {
   documentAsset DocumentAsset?
 
   @@index([nodeId])
+  @@index([sha256])
   @@map("blobs")
 }
 
