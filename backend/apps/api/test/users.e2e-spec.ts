@@ -46,6 +46,14 @@ describe('Users & admin (e2e)', () => {
     const byEmail = await http().get('/api/v1/users?q=ALICE.N').set(alice.auth).expect(200);
     expect(byEmail.body).toHaveLength(1);
     await http().get('/api/v1/users?q=').set(alice.auth).expect(400);
+    const unaccented = await http().get('/api/v1/users?q=bob tran').set(alice.auth).expect(200);
+    expect(unaccented.body.map((u: { email: string }) => u.email)).toEqual([
+      'bob.tran@lunatech.vn',
+    ]);
+    const accented = await http().get('/api/v1/users?q=Trần').set(alice.auth).expect(200);
+    expect(accented.body).toHaveLength(1);
+    const literal = await http().get('/api/v1/users?q=%25').set(alice.auth).expect(200);
+    expect(literal.body).toEqual([]);
   });
 
   it('API admin chỉ dành cho System Admin', async () => {
@@ -83,6 +91,29 @@ describe('Users & admin (e2e)', () => {
     expect(disabled.body.items.map((u: { email: string }) => u.email)).toEqual([
       'bob.tran@lunatech.vn',
     ]);
+    const tran = await http()
+      .get('/api/v1/admin/users?q=tran&status=DISABLED')
+      .set(admin.auth)
+      .expect(200);
+    expect(tran.body.items.map((u: { email: string }) => u.email)).toEqual([
+      'bob.tran@lunatech.vn',
+    ]);
+    await http()
+      .get('/api/v1/admin/users?q=tran&status=ACTIVE')
+      .set(admin.auth)
+      .expect(200)
+      .expect((r) => expect(r.body.items).toEqual([]));
+    const page1 = await http()
+      .get('/api/v1/admin/users?q=lunatech&limit=2')
+      .set(admin.auth)
+      .expect(200);
+    expect(page1.body.items).toHaveLength(2);
+    const page2 = await http()
+      .get(`/api/v1/admin/users?q=lunatech&limit=2&cursor=${page1.body.nextCursor}`)
+      .set(admin.auth)
+      .expect(200);
+    expect(page2.body.items).toHaveLength(1);
+    expect(page2.body.nextCursor).toBeNull();
   });
 
   it('admin không tự khóa / tự gỡ quyền của chính mình', async () => {

@@ -17,11 +17,9 @@ function WorkspaceSwitcher() {
   const { ws } = useCurrentWorkspace();
   const { open, setOpen, toggle, rootRef } = usePopover();
   const [creating, setCreating] = useState(false);
-  const [settings, setSettings] = useState(false);
   const list = me?.workspaces ?? [];
   const company = list.filter((w) => w.kind === "COMPANY");
   const teams = list.filter((w) => w.kind !== "COMPANY");
-  const canManage = !!ws && (ws.role === "ADMIN" || !!me?.isSystemAdmin);
   const item = (w: (typeof list)[number]) => (
     <Link
       key={w.id}
@@ -73,28 +71,19 @@ function WorkspaceSwitcher() {
             <Plus className="size-4 shrink-0 text-muted" aria-hidden />
             Tạo workspace
           </MenuItem>
-          {canManage ? (
-            <MenuItem
-              onClick={() => {
-                setOpen(false);
-                setSettings(true);
-              }}
-            >
-              <Settings className="size-4 shrink-0 text-muted" aria-hidden />
-              Cài đặt «{ws!.name}»
-            </MenuItem>
-          ) : null}
         </div>
       </PopoverPanel>
       <CreateWorkspaceDialog open={creating} onClose={() => setCreating(false)} />
-      <WorkspaceSettingsDialog ws={ws ? { id: ws.id, name: ws.name, kind: ws.kind } : null} open={settings} onClose={() => setSettings(false)} />
     </div>
   );
 }
 
 export function UserSidebar() {
   const pathname = usePathname();
+  const { me } = useAuth();
   const { wsId, ws } = useCurrentWorkspace();
+  const [settings, setSettings] = useState(false);
+  const canManage = !!ws && (ws.role === "ADMIN" || !!me?.isSystemAdmin);
   const base = wsId && ws ? `/w/${wsId}` : null;
   const section = useActiveSection();
   const inWs = !!base && pathname.startsWith(`${base}/`);
@@ -117,6 +106,19 @@ export function UserSidebar() {
           {base && ws?.role !== "VIEWER" ? <NavLink href={`${base}/trash`} icon={Trash2} label="Thùng rác" active={pathname === `${base}/trash`} /> : null}
         </NavGroup>
       </nav>
+      {canManage ? (
+        <div className="border-t border-border px-3 py-3">
+          <button
+            type="button"
+            onClick={() => setSettings(true)}
+            className="flex h-10 w-full cursor-pointer items-center gap-2.5 rounded-xl px-3 text-left text-sm text-foreground/70 outline-hidden transition-colors hover:bg-item-hover hover:text-foreground"
+          >
+            <Settings className="size-4 shrink-0" aria-hidden />
+            <span className="min-w-0 flex-1 truncate">Cài đặt «{ws.name}»</span>
+          </button>
+        </div>
+      ) : null}
+      <WorkspaceSettingsDialog ws={ws ? { id: ws.id, name: ws.name, kind: ws.kind } : null} open={settings} onClose={() => setSettings(false)} />
     </>
   );
 }

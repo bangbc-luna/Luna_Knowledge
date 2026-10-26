@@ -14,7 +14,8 @@ Cài extension **httpYac** cho VS Code: `anweber.vscode-httpyac` (Extensions →
 Hoặc chạy trên terminal:
 
 ```bash
-pnpm test:http                                          # tất cả file
+pnpm test:http                                          # tất cả file, trước và sau đều tự dọn dữ liệu test
+pnpm test:cleanup                                       # xoá tài khoản qa.*/load.* và workspace, nội dung, nhật ký do test tạo (chỉ chạy ở development)
 pnpm exec httpyac send tests/04-members.http --all      # một file
 ```
 

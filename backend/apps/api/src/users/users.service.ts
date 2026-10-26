@@ -1,4 +1,4 @@
-import type { Prisma } from '@luna/db';
+import { Prisma } from '@luna/db';
 import { Injectable } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service.js';
 import { AuthService, type AuthenticatedUser } from '../auth/auth.service.js';
@@ -46,17 +46,37 @@ export class UsersService {
   }
 
   async search(q: string, limit: number) {
-    return this.prisma.client.user.findMany({
-      where: { status: 'ACTIVE', ...this.textFilter(q) },
+    const ids = await this.prisma.client.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT id FROM users
+       WHERE status = 'ACTIVE' AND ${accentInsensitiveMatch(q)}
+       ORDER BY name, id
+       LIMIT ${limit}`);
+    const rows = await this.prisma.client.user.findMany({
+      where: { id: { in: ids.map((r) => r.id) } },
       select: summarySelect,
-      orderBy: { name: 'asc' },
-      take: limit,
     });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    return ids.flatMap((r) => byId.get(r.id) ?? []);
   }
 
   async adminList(query: AdminListUsersQuery) {
+    if (query.q) {
+      const ids = await this.prisma.client.$queryRaw<{ id: string }[]>(Prisma.sql`
+        SELECT id FROM users
+         WHERE ${accentInsensitiveMatch(query.q)}
+           ${query.status ? Prisma.sql`AND status = ${query.status}::"UserStatus"` : Prisma.empty}
+           ${query.cursor ? Prisma.sql`AND id > ${query.cursor}::uuid` : Prisma.empty}
+         ORDER BY id
+         LIMIT ${query.limit + 1}`);
+      const rows = await this.prisma.client.user.findMany({
+        where: { id: { in: ids.map((r) => r.id) } },
+        select: adminSelect,
+        orderBy: { id: 'asc' },
+      });
+      return toPage(rows, query.limit);
+    }
     const rows = await this.prisma.client.user.findMany({
-      where: { status: query.status, ...(query.q ? this.textFilter(query.q) : {}) },
+      where: { status: query.status },
       select: adminSelect,
       orderBy: { id: 'asc' },
       cursor: query.cursor ? { id: query.cursor } : undefined,
@@ -127,13 +147,10 @@ export class UsersService {
     await this.auth.joinDefaultWorkspace(user.id);
     return user;
   }
+}
 
-  private textFilter(q: string): Prisma.UserWhereInput {
-    return {
-      OR: [
-        { name: { contains: q, mode: 'insensitive' } },
-        { email: { contains: q, mode: 'insensitive' } },
-      ],
-    };
-  }
+function accentInsensitiveMatch(q: string): Prisma.Sql {
+  const pattern = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+  return Prisma.sql`(unaccent(lower(name)) LIKE unaccent(lower(${pattern}))
+    OR unaccent(lower(email)) LIKE unaccent(lower(${pattern})))`;
 }

@@ -13,8 +13,8 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "test:e2e": "turbo run test:e2e",
-    "test:http": "httpyac send 'tests/[0-9]*.http' --all -o none --output-failed exchange",
-    "test:flows": "httpyac send tests/flows.http --all -o none --output-failed exchange",
+    "test:http": "sh tests/with-cleanup.sh httpyac send 'tests/[0-9]*.http' --all -o none --output-failed exchange",
+    "test:flows": "sh tests/with-cleanup.sh httpyac send tests/flows.http --all -o none --output-failed exchange",
     "format": "prettier --write \"**/*.{ts,json,md,yml}\"",
     "infra:up": "docker compose -f docker/docker-compose.dev.yml --env-file .env up -d --wait",
     "infra:down": "docker compose -f docker/docker-compose.dev.yml --env-file .env down",
@@ -28,7 +28,8 @@
     "restore": "bash scripts/backup/restore.sh",
     "format:check": "prettier --check \"apps/*/{src,test}/**/*.ts\" \"packages/*/src/**/*.ts\" \"packages/db/prisma/*.ts\" \"scripts/*.ts\"",
     "load:api": "docker run --rm --network host -v \"$PWD/tests/load:/load\" grafana/k6:1.8.1 run /load/api.js",
-    "load:collab": "pnpm --filter @luna/collab load"
+    "load:collab": "pnpm --filter @luna/collab load",
+    "test:cleanup": "pnpm --filter @luna/scripts cleanup:test"
   },
   "devDependencies": {
     "httpyac": "^6.16.7",

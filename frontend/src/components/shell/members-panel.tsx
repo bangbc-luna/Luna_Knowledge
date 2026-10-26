@@ -12,10 +12,11 @@ import { useApi } from "@/lib/use-api";
 import { useCurrentWorkspace } from "@/lib/workspace";
 import { Button } from "../ui/button";
 import { ConfirmDialog, Sheet } from "../ui/dialog";
-import { Input, SearchInput } from "../ui/input";
+import { SearchInput } from "../ui/input";
 import { RowMenu } from "../ui/menu";
 import { Select } from "../ui/select";
 import { useToast } from "../ui/toast";
+import { UserSuggestInput } from "../ui/user-suggest";
 import { Avatar, EmptyState, ErrorBanner, SkeletonRows } from "../ui/misc";
 
 const KEY = "luna:membersOpen";
@@ -90,13 +91,14 @@ export function MembersToggle() {
   );
 }
 
-function InviteForm({ wsId, kind, onDone }: { wsId: string; kind: WorkspaceKind; onDone: () => void }) {
+function InviteForm({ wsId, kind, members, onDone }: { wsId: string; kind: WorkspaceKind; members: Member[]; onDone: () => void }) {
   const toast = useToast();
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<WorkspaceRole>("MEMBER");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const roles: WorkspaceRole[] = kind === "COMPANY" ? ["VIEWER", "MEMBER", "ADMIN"] : ["MEMBER", "ADMIN"];
+  const taken = useMemo(() => new Set(kind === "COMPANY" ? [] : members.map((m) => m.user.id)), [kind, members]);
   const submit = async () => {
     const value = email.trim().toLowerCase();
     if (!value) return;
@@ -124,7 +126,16 @@ function InviteForm({ wsId, kind, onDone }: { wsId: string; kind: WorkspaceKind;
       <label htmlFor="invite-email" className="text-sm font-medium text-foreground">
         {kind === "COMPANY" ? "Cấp quyền đăng bài" : "Mời vào workspace"}
       </label>
-      <Input id="invite-email" type="email" className="mt-1.5" placeholder="ten@lunatech.vn" value={email} invalid={!!error} onChange={(e) => (setEmail(e.target.value), setError(null))} />
+      <UserSuggestInput
+        id="invite-email"
+        className="mt-1.5"
+        placeholder="Tên hoặc email @lunatech.vn"
+        value={email}
+        invalid={!!error}
+        taken={taken}
+        onChange={(v) => (setEmail(v), setError(null))}
+        onPick={(u) => (setEmail(u.email), setError(null))}
+      />
       <div className="mt-2 flex gap-2">
         <Select value={role} ariaLabel="Vai trò" options={roles.map((r) => ({ value: r, label: WS_ROLE_LABEL[r], hint: WS_ROLE_HINT[r] }))} onChange={setRole} className="min-w-0 flex-1" />
         <Button type="submit" variant="primary" loading={busy} disabled={!email.trim()} className="shrink-0">
@@ -251,7 +262,7 @@ export function MembersPanel() {
     <SkeletonRows rows={4} />
   ) : (
     <>
-      {canManage ? <InviteForm wsId={ws.id} kind={ws.kind} onDone={() => void members.reload()} /> : null}
+      {canManage ? <InviteForm wsId={ws.id} kind={ws.kind} members={members.data} onDone={() => void members.reload()} /> : null}
       <MemberList members={members.data} meId={me?.id} wsId={ws.id} kind={ws.kind} canManage={canManage} onChanged={() => void members.reload()} />
     </>
   );
