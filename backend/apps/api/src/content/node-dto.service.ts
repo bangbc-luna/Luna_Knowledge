@@ -48,6 +48,7 @@ export class NodeDtoService {
           type: n.type,
           section: n.section,
           name: n.name,
+          description: n.description,
           status: n.status,
           createdBy: n.createdBy,
           createdAt: n.createdAt,

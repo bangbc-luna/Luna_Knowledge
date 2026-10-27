@@ -200,6 +200,7 @@ model Node {
   section        NodeSection           @default(DOCS)
   name           String
   nameNormalized String                @map("name_normalized")
+  description    String?
   path           Unsupported("ltree")?
   status         NodeStatus            @default(READY)
   createdById    String                @map("created_by") @db.Uuid

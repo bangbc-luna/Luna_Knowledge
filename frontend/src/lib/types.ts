@@ -48,6 +48,7 @@ export interface NodeItem {
   type: NodeType;
   section: NodeSection;
   name: string;
+  description: string | null;
   status: "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
   createdBy: UserSummary;
   createdAt: string;

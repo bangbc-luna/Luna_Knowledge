@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { nodeNameSchema } from '../content/node-names.js';
+import { nodeDescriptionSchema, nodeNameSchema, nodeTitleSchema } from '../content/node-names.js';
 
 export const createUploadBody = z
   .object({
@@ -12,8 +12,25 @@ export const createUploadBody = z
       .uuid()
       .optional()
       .describe('Tải phiên bản mới cho một file đã có (bỏ qua parentId)'),
+    title: nodeTitleSchema
+      .optional()
+      .describe('Tiêu đề video, cũng là tên mục; bắt buộc khi tải video mới'),
+    description: nodeDescriptionSchema
+      .optional()
+      .describe('Mô tả video; bắt buộc khi tải video mới'),
   })
-  .strict();
+  .strict()
+  .superRefine((body, ctx) => {
+    const newVideo = body.kind === 'VIDEO' && !body.replaceNodeId;
+    for (const key of ['title', 'description'] as const) {
+      if (newVideo && body[key] === undefined) {
+        ctx.addIssue({ code: 'custom', path: [key], message: 'Required for a new video' });
+      }
+      if (!newVideo && body[key] !== undefined) {
+        ctx.addIssue({ code: 'custom', path: [key], message: 'Only allowed for a new video' });
+      }
+    }
+  });
 
 export const partUrlSchema = z.object({ partNumber: z.number().int(), url: z.url() });
 

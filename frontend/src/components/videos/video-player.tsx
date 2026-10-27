@@ -48,12 +48,21 @@ function Watermark({ text }: { text: string }) {
   );
 }
 
+const H264_AAC = 'video/mp4; codecs="avc1.42E01E,mp4a.40.2"';
+const CODEC_ERRORS = new Set<string>(["manifestIncompatibleCodecsError", "bufferIncompatibleCodecsError", "bufferAddCodecError"]);
+
+function canDecodeH264(el: HTMLVideoElement) {
+  const mse = typeof MediaSource !== "undefined" && MediaSource.isTypeSupported(H264_AAC);
+  return mse || el.canPlayType(H264_AAC) !== "";
+}
+
 export function VideoPlayer({ nodeId, title }: { nodeId: string; title: string }) {
   const stage = useRef<HTMLDivElement>(null);
   const video = useRef<HTMLVideoElement>(null);
   const hls = useRef<HlsType | null>(null);
   const [playback, setPlayback] = useState<Playback | null>(null);
   const [failed, setFailed] = useState(false);
+  const [unsupported, setUnsupported] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [levels, setLevels] = useState<Array<{ index: number; height: number }>>([]);
   const [quality, setQuality] = useState<Quality>("auto");
@@ -70,6 +79,10 @@ export function VideoPlayer({ nodeId, title }: { nodeId: string; title: string }
     if (!el) return;
     (async () => {
       try {
+        if (!canDecodeH264(el)) {
+          setUnsupported(true);
+          return;
+        }
         const pb = await api<Playback>(`/videos/${nodeId}/playback`, { method: "POST" });
         if (!alive) return;
         setPlayback(pb);
@@ -85,6 +98,10 @@ export function VideoPlayer({ nodeId, title }: { nodeId: string; title: string }
           instance.on(Hls.Events.LEVEL_SWITCHED, (_e, data) => setAutoHeight(instance?.levels[data.level]?.height ?? null));
           instance.on(Hls.Events.ERROR, (_e, data) => {
             if (!data.fatal) return;
+            if (CODEC_ERRORS.has(data.details)) {
+              setUnsupported(true);
+              return;
+            }
             if (data.type === Hls.ErrorTypes.NETWORK_ERROR && !restarted.current) {
               restarted.current = true;
               restartAt.current = el.currentTime;
@@ -201,7 +218,15 @@ export function VideoPlayer({ nodeId, title }: { nodeId: string; title: string }
           aria-label={title}
         />
         {playback ? <Watermark text={`${playback.watermark.name} · ${playback.watermark.email}`} /> : null}
-        {failed ? (
+        {unsupported ? (
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black/80 px-6 text-center">
+            <CircleAlert className="size-5 text-white/80" aria-hidden />
+            <p className="text-sm font-medium text-white">Trình duyệt này không phát được video</p>
+            <p className="max-w-[44ch] text-sm text-pretty text-white/70">
+              Video dùng định dạng H.264 mà trình duyệt này không hỗ trợ, ví dụ trình duyệt dựng sẵn trong VS Code. Mở trang bằng Chrome, Edge, Firefox hoặc Safari.
+            </p>
+          </div>
+        ) : failed ? (
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-black/80 px-6 text-center">
             <CircleAlert className="size-5 text-white/80" aria-hidden />
             <p className="text-sm font-medium text-white">Không phát được video</p>

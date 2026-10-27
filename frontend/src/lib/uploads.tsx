@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { ApiError, api } from "./api";
 import { ALLOWED_EXTENSIONS, MAX_FILE_MB, MAX_VIDEO_MB, VIDEO_EXTENSIONS, extensionOf, formatBytes } from "./files";
 
-export type UploadStatus = "queued" | "uploading" | "done" | "error";
+export type UploadStatus = "draft" | "queued" | "uploading" | "done" | "error";
 
 export interface UploadTarget {
   wsId: string;
@@ -23,11 +23,19 @@ export interface UploadItem extends UploadTarget {
   retryable?: boolean;
   uploadId?: string;
   nodeId?: string;
+  title?: string;
+  description?: string;
+}
+
+export interface VideoInfo {
+  title: string;
+  description: string;
 }
 
 interface Ctx {
   items: UploadItem[];
   add: (files: FileList | File[], target: UploadTarget) => void;
+  confirmDraft: (id: string, info: VideoInfo) => void;
   retry: (id: string, rename?: string) => void;
   cancel: (id: string) => void;
   clearFinished: () => void;
@@ -89,7 +97,7 @@ function describeUploadError(err: unknown, item: UploadItem): Partial<UploadItem
   if (err instanceof ApiError) {
     const details = err.details as { suggestion?: string } | undefined;
     if (err.status === 409 && details?.suggestion) {
-      return { error: "Thư mục đã có mục cùng tên", suggestion: details.suggestion, retryable: false };
+      return { error: item.title ? "Thư mục đã có mục trùng tiêu đề" : "Thư mục đã có mục cùng tên", suggestion: details.suggestion, retryable: false };
     }
     if (err.status === 409 && item.replaceNodeId) return { error: "Tệp này đang được tải lên hoặc xử lý", retryable: true };
     if (err.status === 415) return { error: `Không nhận tệp .${extensionOf(item.name)}`, retryable: false };
@@ -156,6 +164,8 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
               kind,
               parentId: item.replaceNodeId ? undefined : item.parentId,
               replaceNodeId: item.replaceNodeId,
+              title: item.title,
+              description: item.description,
             },
           });
           patch(item.id, { uploadId: session.uploadId, nodeId: session.nodeId });
@@ -234,7 +244,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
     }
   }, [items, patch, run]);
 
-  const busy = items.some((i) => i.status === "uploading" || i.status === "queued");
+  const busy = items.some((i) => i.status === "uploading" || i.status === "queued" || i.status === "draft");
   useEffect(() => {
     if (!busy) return;
     const onLeave = (e: BeforeUnloadEvent) => e.preventDefault();
@@ -245,12 +255,13 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
   const add = useCallback((files: FileList | File[], target: UploadTarget) => {
     const list = Array.from(files).map((file): UploadItem => {
       const rejected = precheck(file);
+      const newVideo = !target.replaceNodeId && VIDEO_EXTENSIONS.includes(extensionOf(file.name));
       return {
         ...target,
         id: crypto.randomUUID(),
         file,
         name: file.name.normalize("NFC"),
-        status: rejected ? "error" : "queued",
+        status: rejected ? "error" : newVideo ? "draft" : "queued",
         progress: 0,
         error: rejected ?? undefined,
         retryable: false,
@@ -259,11 +270,21 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
     setItems((cur) => [...cur, ...list]);
   }, []);
 
+  const confirmDraft = useCallback((id: string, info: VideoInfo) => {
+    setItems((list) => list.map((it) => (it.id === id && it.status === "draft" ? { ...it, ...info, status: "queued" } : it)));
+  }, []);
+
   const retry = useCallback((id: string, rename?: string) => {
     setItems((list) =>
       list.map((it) =>
         it.id === id
-          ? { ...it, status: "queued", error: undefined, suggestion: undefined, ...(rename ? { name: rename, uploadId: undefined, nodeId: undefined } : {}) }
+          ? {
+              ...it,
+              status: "queued",
+              error: undefined,
+              suggestion: undefined,
+              ...(rename ? { ...(it.title ? { title: rename } : { name: rename }), uploadId: undefined, nodeId: undefined } : {}),
+            }
           : it,
       ),
     );
@@ -278,12 +299,15 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const clearFinished = useCallback(() => {
-    setItems((list) => list.filter((i) => i.status === "uploading" || i.status === "queued"));
+    setItems((list) => list.filter((i) => i.status === "uploading" || i.status === "queued" || i.status === "draft"));
   }, []);
 
   const doneTick = useCallback((wsId: string, parentId: string | null) => ticks[`${wsId}:${parentId ?? ""}`] ?? 0, [ticks]);
 
-  const value = useMemo(() => ({ items, add, retry, cancel, clearFinished, doneTick }), [items, add, retry, cancel, clearFinished, doneTick]);
+  const value = useMemo(
+    () => ({ items, add, confirmDraft, retry, cancel, clearFinished, doneTick }),
+    [items, add, confirmDraft, retry, cancel, clearFinished, doneTick],
+  );
   return <UploadContext.Provider value={value}>{children}</UploadContext.Provider>;
 }
 

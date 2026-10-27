@@ -9,13 +9,17 @@ const { values, positionals } = parseArgs({
     ws: { type: 'string' },
     parent: { type: 'string' },
     replace: { type: 'string' },
+    title: { type: 'string' },
+    description: { type: 'string' },
     email: { type: 'string', default: 'qa.creator@lunatech.vn' },
     api: { type: 'string', default: 'http://localhost:4000' },
   },
 });
 const path = positionals[0];
 if (!path) {
-  console.error('Usage: pnpm upload <file> [--ws id|slug] [--parent folderId] [--replace nodeId]');
+  console.error(
+    'Usage: pnpm upload <file> [--ws id|slug] [--parent folderId] [--replace nodeId] [--title t --description d]',
+  );
   process.exit(1);
 }
 const base = `${values.api}/api/v1`;
@@ -57,6 +61,13 @@ if (!ws) throw new Error(`Workspace not found for ${values.email}`);
 const { size } = await stat(path);
 const fileName = basename(path);
 const kind = ruleForFileName(fileName)?.category === 'video' ? 'VIDEO' : 'FILE';
+const newVideo = kind === 'VIDEO' && !values.replace;
+const videoInfo = newVideo
+  ? {
+      title: values.title ?? fileName.replace(/\.[^.]+$/, ''),
+      description: values.description ?? `Tải lên từ ${fileName}`,
+    }
+  : {};
 console.log(
   `↑ ${fileName} (${(size / 1024 / 1024).toFixed(2)} MB) → ${ws.name} as ${values.email}`,
 );
@@ -77,6 +88,7 @@ const upload = await call<{
   kind,
   parentId: values.parent,
   replaceNodeId: values.replace,
+  ...videoInfo,
 });
 
 const fh = await open(path, 'r');

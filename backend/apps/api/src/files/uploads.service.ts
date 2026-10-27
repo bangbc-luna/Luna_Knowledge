@@ -79,6 +79,7 @@ export class UploadsService {
       nodeId = node.id;
     } else {
       const parentId = body.parentId ?? null;
+      const name = body.title ?? body.fileName;
       const section = body.kind === 'VIDEO' ? 'VIDEOS' : 'DOCS';
       await this.nodes.requireContainer(user, workspaceId, parentId, section);
       try {
@@ -88,8 +89,9 @@ export class UploadsService {
             parentId,
             section,
             type: body.kind,
-            name: body.fileName,
-            nameNormalized: nameKey(body.fileName),
+            name,
+            nameNormalized: nameKey(name),
+            description: body.description ?? null,
             status: 'UPLOADING',
             createdById: user.id,
             updatedById: user.id,
@@ -101,7 +103,7 @@ export class UploadsService {
           err,
           workspaceId,
           parentId,
-          body.fileName,
+          name,
           undefined,
           section,
         );

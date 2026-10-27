@@ -481,7 +481,7 @@ Quy ước chung:
 
 | Method | Path | Mô tả | Quyền |
 |---|---|---|---|
-| POST | `/workspaces/:wsId/uploads` | Khởi tạo `{parentId, fileName, size, mime, kind: FILE|VIDEO, replaceNodeId?}`, trả `{uploadId, nodeId, partSize, parts:[{partNumber,url}]}` | EDITOR |
+| POST | `/workspaces/:wsId/uploads` | Khởi tạo `{parentId, fileName, size, mime, kind: FILE|VIDEO, replaceNodeId?, title?, description?}`; video mới bắt buộc `title` (≤ 200 ký tự, thành tên mục) và `description` (≤ 5000 ký tự), trả `{uploadId, nodeId, partSize, parts:[{partNumber,url}]}` | EDITOR |
 | GET | `/uploads/:uploadId/parts?from=&to=` | Lấy thêm presigned URL (khi URL cũ hết hạn hoặc resume) | owner của upload |
 | GET | `/uploads/:uploadId` | Trạng thái, các part đã nhận (để resume) | owner của upload |
 | POST | `/uploads/:uploadId/complete` | Hoàn tất `{parts:[{partNumber, etag}]}` | owner của upload |
@@ -520,11 +520,12 @@ Loại file cho phép: PDF; Office (docx/xlsx/pptx/doc/xls/ppt/odt/ods/odp/rtf);
 | GET | `/videos/:id/sprite.vtt` | WebVTT ảnh xem trước khi tua (ảnh sprite là URL ký) | VIEWER |
 | PUT | `/videos/:id/progress` | Lưu `{positionSec}` | VIEWER |
 | POST | `/videos/:id/retranscode` | Transcode lại từ file gốc | EDITOR |
+| PATCH | `/videos/:id` | Sửa `{title, description}`; trùng tên → 409 kèm gợi ý; ghi `video.update_info` | EDITOR |
 | GET | `/admin/videos?q=` | Danh sách video toàn hệ thống | System Admin |
 | POST | `/admin/videos/:id/original-link` | Link tải file gốc dùng một lần (60 giây) | System Admin |
 | GET | `/downloads/video/:token` | Tải file gốc video, ghi `video.original_access` | link |
 
-Sửa tiêu đề/mô tả video dùng chung API đổi tên của node (`PATCH /nodes/:id`). Tải phiên bản mới cho video dùng `POST /workspaces/:wsId/uploads` với `replaceNodeId`; khôi phục phiên bản cũ thì transcode lại phiên bản đó.
+Sửa tiêu đề và mô tả video qua `PATCH /videos/:id`; mô tả được đưa vào tìm kiếm. Tải phiên bản mới cho video dùng `POST /workspaces/:wsId/uploads` với `replaceNodeId`; khôi phục phiên bản cũ thì transcode lại phiên bản đó.
 
 ### 7.10 Documents
 

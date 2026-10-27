@@ -193,7 +193,7 @@ POST {{apiUrl}}/workspaces/{{flowWs.id}}/uploads
 Authorization: Bearer {{member.accessToken}}
 Content-Type: application/json
 
-{ "fileName": "Huong dan {{$timestamp}}.mp4", "size": {{mp4Size}}, "mime": "video/mp4", "kind": "VIDEO", "parentId": "{{flowVideoFolder.id}}" }
+{ "fileName": "Huong dan {{$timestamp}}.mp4", "size": {{mp4Size}}, "mime": "video/mp4", "kind": "VIDEO", "title": "Hướng dẫn {{$timestamp}}", "description": "Hướng dẫn dùng kho tài liệu", "parentId": "{{flowVideoFolder.id}}" }
 
 ?? status == 201
 

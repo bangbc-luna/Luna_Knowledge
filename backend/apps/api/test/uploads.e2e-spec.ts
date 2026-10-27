@@ -148,12 +148,14 @@ describe('Uploads and files (e2e)', () => {
     });
 
     it('video vào khu VIDEOS, file vào khu DOCS; sai khu → 400', async () => {
+      const info = { title: 'Giới thiệu', description: 'Video giới thiệu công ty' };
       const docsFolder = (await createFolder(editor, 'Tài liệu').expect(201)).body.id;
       const videosFolder = (await createFolder(editor, 'Video', 'VIDEOS').expect(201)).body.id;
       const video = await startUpload(editor, {
         fileName: 'intro.mp4',
         size: 10,
         kind: 'VIDEO',
+        ...info,
       }).expect(201);
       const file = await startUpload(editor, { fileName: 'intro.pdf', size: 10 }).expect(201);
       const sectionOf = async (id: string) =>
@@ -164,6 +166,8 @@ describe('Uploads and files (e2e)', () => {
         fileName: 'clip.mp4',
         size: 10,
         kind: 'VIDEO',
+        title: 'Clip',
+        description: 'Clip mẫu',
         parentId: videosFolder,
       }).expect(201);
       expect(await sectionOf(inVideos.body.nodeId)).toBe('VIDEOS');
@@ -171,6 +175,7 @@ describe('Uploads and files (e2e)', () => {
         fileName: 'clip.mp4',
         size: 10,
         kind: 'VIDEO',
+        ...info,
         parentId: docsFolder,
       }).expect(400);
       await startUpload(editor, { fileName: 'a.pdf', size: 10, parentId: videosFolder }).expect(
@@ -181,9 +186,34 @@ describe('Uploads and files (e2e)', () => {
         .get(`/api/v1/workspaces/${wsId}/nodes?section=VIDEOS`)
         .set(editor.auth)
         .expect(200);
-      expect(videosRoot.body.items.map((n: { name: string }) => n.name)).toContain('intro.mp4');
+      expect(videosRoot.body.items).toContainEqual(
+        expect.objectContaining({ name: info.title, description: info.description }),
+      );
       for (const id of [video.body.uploadId, file.body.uploadId, inVideos.body.uploadId])
         await http().delete(`/api/v1/uploads/${id}`).set(editor.auth).expect(204);
+    });
+
+    it('video mới bắt buộc tiêu đề và mô tả; tệp thường không nhận hai trường này', async () => {
+      const base = { fileName: 'buoi-hop.mp4', size: 10, kind: 'VIDEO' };
+      await startUpload(editor, base).expect(400);
+      await startUpload(editor, { ...base, title: 'Buổi họp' }).expect(400);
+      await startUpload(editor, { ...base, title: 'Buổi họp', description: '  ' }).expect(400);
+      await startUpload(editor, { ...base, title: '   ', description: 'Mô tả' }).expect(400);
+      await startUpload(editor, {
+        fileName: 'a.pdf',
+        size: 10,
+        title: 'Tài liệu',
+        description: 'Mô tả',
+      }).expect(400);
+      const start = await startUpload(editor, {
+        ...base,
+        title: ' Buổi họp  tháng 10 ',
+        description: ' Tổng kết quý. ',
+      }).expect(201);
+      expect(start.body.fileName).toBe('buoi-hop.mp4');
+      const node = await ctx.prisma.node.findUniqueOrThrow({ where: { id: start.body.nodeId } });
+      expect(node).toMatchObject({ name: 'Buổi họp tháng 10', description: 'Tổng kết quý.' });
+      await http().delete(`/api/v1/uploads/${start.body.uploadId}`).set(editor.auth).expect(204);
     });
 
     it('trùng tên trong folder → 409 kèm gợi ý', async () => {
@@ -441,6 +471,8 @@ describe('Uploads and files (e2e)', () => {
         fileName: 'demo.mp4',
         size: 5,
         kind: 'VIDEO',
+        title: 'Demo',
+        description: 'Video demo',
       }).expect(201);
       await putPart(start.body.parts[0].url, Buffer.from('video'));
       await http()

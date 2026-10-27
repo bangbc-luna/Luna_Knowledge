@@ -42,7 +42,18 @@ POST {{apiUrl}}/workspaces/{{contentWs.id}}/uploads
 Authorization: Bearer {{member.accessToken}}
 Content-Type: application/json
 
-{ "fileName": "Sai khu {{$timestamp}}.mp4", "size": {{mp4Size}}, "kind": "VIDEO", "parentId": "{{viewFolder.id}}" }
+{ "fileName": "Sai khu {{$timestamp}}.mp4", "size": {{mp4Size}}, "kind": "VIDEO", "title": "Sai khu", "description": "Không được tải vào khu Tài liệu", "parentId": "{{viewFolder.id}}" }
+
+?? status == 400
+
+### Video mới thiếu tiêu đề và mô tả → 400
+# @ref member
+# @ref videoShare
+POST {{apiUrl}}/workspaces/{{contentWs.id}}/uploads
+Authorization: Bearer {{member.accessToken}}
+Content-Type: application/json
+
+{ "fileName": "Thieu thong tin {{$timestamp}}.mp4", "size": {{mp4Size}}, "kind": "VIDEO", "parentId": "{{videoFolder.id}}" }
 
 ?? status == 400
 
@@ -54,7 +65,7 @@ POST {{apiUrl}}/workspaces/{{contentWs.id}}/uploads
 Authorization: Bearer {{member.accessToken}}
 Content-Type: application/json
 
-{ "fileName": "Giới thiệu {{$timestamp}}.mp4", "size": {{mp4Size}}, "kind": "VIDEO", "parentId": "{{videoFolder.id}}" }
+{ "fileName": "gioi-thieu-{{$timestamp}}.mp4", "size": {{mp4Size}}, "kind": "VIDEO", "title": "Giới thiệu {{$timestamp}}", "description": "Video giới thiệu công ty cho nhân viên mới", "parentId": "{{videoFolder.id}}" }
 
 ?? status == 201
 ?? body kind == VIDEO
@@ -235,6 +246,29 @@ GET {{origin}}{{origLink.url}}
 # @ref creator
 POST {{apiUrl}}/admin/videos/{{vUpload.nodeId}}/original-link
 Authorization: Bearer {{creator.accessToken}}
+
+?? status == 403
+
+### Sửa tiêu đề và mô tả (EDITOR)
+# @ref vDetail
+# @ref member
+PATCH {{apiUrl}}/videos/{{vUpload.nodeId}}
+Authorization: Bearer {{member.accessToken}}
+Content-Type: application/json
+
+{ "title": "Giới thiệu công ty {{$timestamp}}", "description": "Bản cập nhật: lịch sử, sản phẩm và văn hoá công ty" }
+
+?? status == 200
+?? js response.parsedBody.description.startsWith('Bản cập nhật') == true
+
+### Người chỉ xem không sửa được thông tin video → 403
+# @ref vDetail
+# @ref sharedViewer
+PATCH {{apiUrl}}/videos/{{vUpload.nodeId}}
+Authorization: Bearer {{sharedViewer.accessToken}}
+Content-Type: application/json
+
+{ "title": "Đổi trộm", "description": "Không được phép" }
 
 ?? status == 403
 

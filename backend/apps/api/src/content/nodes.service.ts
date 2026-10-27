@@ -31,6 +31,7 @@ const ACTIVITY_ACTIONS = [
   'file.version_restore',
   'file.regenerate',
   'video.retranscode',
+  'video.update_info',
   'share.add',
   'share.update',
   'share.remove',
@@ -232,17 +233,31 @@ export class NodesService {
     }
   }
 
-  async rename(
+  rename(user: AuthenticatedUser, nodeId: string, name: string, ctx: RequestContext) {
+    return this.updateDetails(user, nodeId, { name }, ctx);
+  }
+
+  async updateDetails(
     user: AuthenticatedUser,
     nodeId: string,
-    name: string,
+    details: { name: string; description?: string },
     ctx: RequestContext,
+    type?: NodeType,
   ): Promise<NodeDto> {
     const node = await this.access.requireNode(user, nodeId, 'EDITOR');
+    if (type && node.type !== type) throw AppError.notFound('Item not found');
+    const { name, description } = details;
+    const before =
+      description === undefined
+        ? null
+        : await this.prisma.client.node.findUniqueOrThrow({
+            where: { id: nodeId },
+            select: { description: true },
+          });
     try {
       await this.prisma.client.node.update({
         where: { id: nodeId },
-        data: { name, nameNormalized: nameKey(name), updatedById: user.id },
+        data: { name, nameNormalized: nameKey(name), description, updatedById: user.id },
       });
     } catch (err) {
       throw await this.mapNameConflict(
@@ -256,11 +271,13 @@ export class NodesService {
     }
     await this.audit.log({
       actorId: user.id,
-      action: 'node.rename',
+      action: before ? 'video.update_info' : 'node.rename',
       targetType: 'node',
       targetId: nodeId,
       workspaceId: node.workspaceId,
-      metadata: { from: node.name, to: name },
+      metadata: before
+        ? { from: node.name, to: name, descriptionChanged: before.description !== description }
+        : { from: node.name, to: name },
       ctx,
     });
     await this.search.node(nodeId);

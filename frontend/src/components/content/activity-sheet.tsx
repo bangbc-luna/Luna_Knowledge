@@ -57,6 +57,12 @@ function describe(a: ActivityItem): { text: React.ReactNode; detail?: React.Reac
       return { text: "đã tạo lại bản xem trước" };
     case "video.retranscode":
       return { text: "đã xử lý lại video" };
+    case "video.update_info":
+    {
+      const renamed = m.from !== m.to;
+      const text = renamed && m.descriptionChanged ? "đã sửa tiêu đề và mô tả" : renamed ? "đã sửa tiêu đề" : "đã sửa mô tả";
+      return { text, detail: renamed ? `«${str(m.from)}» → «${str(m.to)}»` : undefined };
+    }
     case "share.add":
       return { text: "đã chia sẻ", detail: `${str(m.email) || "một người"} · ${SHARE_LABEL[m.role === "EDITOR" ? "EDITOR" : "VIEWER"]}` };
     case "share.update":

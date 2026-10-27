@@ -14,6 +14,7 @@ export const nodeSchema = z.object({
   parentId: z.uuid().nullable(),
   type: nodeTypeSchema,
   name: z.string(),
+  description: z.string().nullable().describe('Mô tả (hiện dùng cho video)'),
   status: z.enum(['UPLOADING', 'PROCESSING', 'READY', 'FAILED']),
   createdBy: userSummarySchema,
   createdAt: z.date(),

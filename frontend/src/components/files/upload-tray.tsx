@@ -67,7 +67,7 @@ function UploadRow({ item }: { item: UploadItem }) {
       <FileTypeIcon name={item.name} mime={item.file.type} className="size-5 shrink-0 text-muted" />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-3">
-          <MiddleTruncate name={item.name} />
+          {item.title ? <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{item.title}</p> : <MiddleTruncate name={item.name} />}
           {item.status === "uploading" ? <p className="shrink-0 text-sm text-muted tabular-nums">{pct}%</p> : null}
         </div>
         <div className="mt-1 flex min-h-5 items-center">
@@ -134,7 +134,8 @@ function UploadRow({ item }: { item: UploadItem }) {
 }
 
 export function UploadTray() {
-  const { items, clearFinished } = useUploads();
+  const { items: all, clearFinished } = useUploads();
+  const items = all.filter((i) => i.status !== "draft");
   const [collapsed, setCollapsed] = useState(false);
   const listRef = useRef<HTMLUListElement>(null);
   const count = items.length;

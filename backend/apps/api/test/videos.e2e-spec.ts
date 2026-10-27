@@ -379,4 +379,46 @@ describe('Videos: phát có bảo vệ (e2e)', () => {
     const node = await ctx.prisma.node.findUniqueOrThrow({ where: { id: nodeId } });
     expect(node.status).toBe('PROCESSING');
   });
+
+  it('sửa tiêu đề và mô tả: EDITOR được, người xem 403, người ngoài 404, trùng tên 409', async () => {
+    const { nodeId } = await seedVideo('Cũ.mp4');
+    await seedVideo('đã có');
+    const folder = await http()
+      .post(`/api/v1/workspaces/${wsId}/folders`)
+      .set(editor.auth)
+      .send({ name: 'Thư mục video', section: 'VIDEOS' })
+      .expect(201);
+    const patch = (as: LoggedIn, id: string, body: object) =>
+      http().patch(`/api/v1/videos/${id}`).set(as.auth).send(body);
+    const info = { title: 'A', description: 'B' };
+
+    const res = await patch(editor, nodeId, {
+      title: '  Quy trình  nhập kho ',
+      description: ' Các bước nhập kho. ',
+    }).expect(200);
+    expect(res.body).toMatchObject({
+      name: 'Quy trình nhập kho',
+      description: 'Các bước nhập kho.',
+    });
+    const detail = await http().get(`/api/v1/files/${nodeId}`).set(viewer.auth).expect(200);
+    expect(detail.body.node.description).toBe('Các bước nhập kho.');
+
+    await patch(viewer, nodeId, info).expect(403);
+    await patch(outsider, nodeId, info).expect(404);
+    await patch(editor, folder.body.id, info).expect(404);
+    const dup = await patch(editor, nodeId, { title: 'Đã có', description: 'x' }).expect(409);
+    expect(dup.body.error.details.suggestion).toBe('Đã có (1)');
+    await patch(editor, nodeId, { title: 'A', description: '   ' }).expect(400);
+    await patch(editor, nodeId, { title: 'A', description: 'x'.repeat(5001) }).expect(400);
+    await patch(editor, nodeId, { title: 'A' }).expect(400);
+
+    const log = await ctx.prisma.auditLog.findFirstOrThrow({
+      where: { targetId: nodeId, action: 'video.update_info' },
+    });
+    expect(log.metadata).toMatchObject({
+      from: 'Cũ.mp4',
+      to: 'Quy trình nhập kho',
+      descriptionChanged: true,
+    });
+  });
 });

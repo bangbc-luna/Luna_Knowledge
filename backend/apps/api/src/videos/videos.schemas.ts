@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { nodeDescriptionSchema, nodeTitleSchema } from '../content/node-names.js';
 import { nodeSchema } from '../content/nodes.schemas.js';
 
 export const renditionSchema = z.object({
@@ -65,3 +66,10 @@ export const adminVideosQuery = z.object({
 
 export type SessionQuery = z.output<typeof sessionQuery>;
 export type AdminVideosQuery = z.output<typeof adminVideosQuery>;
+
+export const videoInfoBody = z
+  .object({
+    title: nodeTitleSchema.describe('Tiêu đề, cũng là tên mục'),
+    description: nodeDescriptionSchema,
+  })
+  .strict();

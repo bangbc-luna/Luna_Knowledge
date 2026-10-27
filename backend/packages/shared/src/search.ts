@@ -101,7 +101,7 @@ export async function loadSearchDocs(db: QueryDb, ids: string[]): Promise<Search
   const rows = await db.$queryRaw<Row[]>`
     SELECT n.id, n.workspace_id, n.section::text AS section, n.type::text AS type, n.name,
            n.created_by, n.updated_at,
-           COALESCE(d.content_text, f.extracted_text) AS content,
+           concat_ws(E'\n', n.description, COALESCE(d.content_text, f.extracted_text)) AS content,
            (SELECT array_agg(t.id) FROM node_tags nt JOIN tags t ON t.id = nt.tag_id WHERE nt.node_id = n.id) AS tag_ids,
            (SELECT array_agg(t.name) FROM node_tags nt JOIN tags t ON t.id = nt.tag_id WHERE nt.node_id = n.id) AS tag_names,
            (SELECT array_agg(DISTINCT s.user_id) FROM node_shares s JOIN nodes a ON a.id = s.node_id

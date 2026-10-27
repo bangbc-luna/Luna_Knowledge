@@ -7,6 +7,7 @@ import {
   HttpCode,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Put,
   Query,
@@ -31,6 +32,8 @@ import { SystemAdmin } from '../auth/decorators/system-admin.decorator.js';
 import { requestContext } from '../common/http/request-context.js';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
 import { ApiZodBody, ApiZodCreated, ApiZodOk, ApiZodQuery } from '../common/swagger/zod-openapi.js';
+import { NodesService } from '../content/nodes.service.js';
+import { nodeSchema } from '../content/nodes.schemas.js';
 import { contentDisposition } from '../files/storage.service.js';
 import { AdminVideosService } from './admin-videos.service.js';
 import {
@@ -42,6 +45,7 @@ import {
   sessionQuery,
   type SessionQuery,
   videoDetailSchema,
+  videoInfoBody,
 } from './videos.schemas.js';
 import { VideosService } from './videos.service.js';
 
@@ -53,7 +57,10 @@ const M3U8 = 'application/vnd.apple.mpegurl';
 @ApiBearerAuth()
 @Controller('videos')
 export class VideosController {
-  constructor(private readonly videos: VideosService) {}
+  constructor(
+    private readonly videos: VideosService,
+    private readonly nodes: NodesService,
+  ) {}
 
   @Get(':id')
   @ApiOperation({
@@ -186,6 +193,28 @@ export class VideosController {
     @Req() req: Request,
   ) {
     await this.videos.retranscode(user, id, requestContext(req));
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Sửa tiêu đề và mô tả video (EDITOR); trùng tên → 409 kèm gợi ý' })
+  @ApiZodBody(videoInfoBody, {
+    title: 'Hướng dẫn quy trình nhập kho',
+    description: 'Các bước nhập kho từ lúc nhận hàng tới khi cập nhật phần mềm.',
+  })
+  @ApiZodOk(nodeSchema)
+  updateInfo(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', uuid()) id: string,
+    @Body(new ZodValidationPipe(videoInfoBody)) body: z.output<typeof videoInfoBody>,
+    @Req() req: Request,
+  ) {
+    return this.nodes.updateDetails(
+      user,
+      id,
+      { name: body.title, description: body.description },
+      requestContext(req),
+      'VIDEO',
+    );
   }
 }
 

@@ -23,6 +23,16 @@ export const nodeNameSchema = z
       .refine((v) => v !== '.' && v !== '..', 'Invalid name'),
   );
 
+export const NODE_TITLE_MAX = 200;
+export const NODE_DESCRIPTION_MAX = 5000;
+
+export const nodeTitleSchema = nodeNameSchema.pipe(z.string().max(NODE_TITLE_MAX));
+
+export const nodeDescriptionSchema = z
+  .string()
+  .transform((v) => v.normalize('NFC').trim())
+  .pipe(z.string().min(1, 'Description is required').max(NODE_DESCRIPTION_MAX));
+
 export function suggestName(name: string, taken: Set<string>): string {
   const dot = name.lastIndexOf('.');
   const hasExt = dot > 0 && dot < name.length - 1;
