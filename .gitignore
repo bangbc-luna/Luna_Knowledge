@@ -13,3 +13,5 @@ coverage
 # Thông tin tài khoản / key Google, không đưa lên git
 GCP_account.txt
 **/gdrive-key*.json
+*.mp4
+*.txt
