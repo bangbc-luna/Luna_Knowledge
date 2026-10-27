@@ -17,6 +17,7 @@ import {
   COLLAB_ACCESS_CHANNEL,
   type CollabAccessEvent,
   createMetricsRegistry,
+  listenHost,
   metricsAllowed,
   QUEUES,
   redisConnection,
@@ -170,6 +171,7 @@ export function createCollabServer(
   const server = new Server<CollabContext>({
     name: 'luna-collab',
     port: config.COLLAB_PORT,
+    address: listenHost(config),
     quiet: true,
     stopOnSignals: true,
     debounce: 2000,

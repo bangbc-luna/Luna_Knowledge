@@ -9,7 +9,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - '${POSTGRES_PORT:-5432}:5432'
+      - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -23,7 +23,7 @@ services:
     restart: unless-stopped
     command: ['redis-server', '--appendonly', 'yes', '--maxmemory-policy', 'noeviction']
     ports:
-      - '${REDIS_PORT:-6379}:6379'
+      - '127.0.0.1:${REDIS_PORT:-6379}:6379'
     volumes:
       - redis-data:/data
     healthcheck:
@@ -42,8 +42,8 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     ports:
-      - '${MINIO_API_PORT:-9000}:9000'
-      - '${MINIO_CONSOLE_PORT:-9001}:9001'
+      - '127.0.0.1:${MINIO_API_PORT:-9000}:9000'
+      - '127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001'
     volumes:
       - minio-data:/data
     healthcheck:
@@ -60,7 +60,7 @@ services:
       MEILI_ENV: development
       MEILI_NO_ANALYTICS: 'true'
     ports:
-      - '${MEILI_PORT:-7700}:7700'
+      - '127.0.0.1:${MEILI_PORT:-7700}:7700'
     volumes:
       - meili-data:/meili_data
     healthcheck:
@@ -73,13 +73,13 @@ services:
     image: apache/tika:latest-full
     restart: unless-stopped
     ports:
-      - '${TIKA_PORT:-9998}:9998'
+      - '127.0.0.1:${TIKA_PORT:-9998}:9998'
 
   gotenberg:
     image: gotenberg/gotenberg:8
     restart: unless-stopped
     ports:
-      - '${GOTENBERG_PORT:-3100}:3000'
+      - '127.0.0.1:${GOTENBERG_PORT:-3100}:3000'
     healthcheck:
       test: ['CMD', 'curl', '-fsS', 'http://localhost:3000/health']
       interval: 10s

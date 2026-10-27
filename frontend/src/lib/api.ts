@@ -102,6 +102,18 @@ export async function api<T = unknown>(
   return (await res.json()) as T;
 }
 
+export async function requestDevToken(email: string, name?: string): Promise<TokenResponse> {
+  const origin = process.env.NEXT_PUBLIC_DEV_API_ORIGIN ?? `${window.location.protocol}//${window.location.hostname}:4000`;
+  const res = await fetch(`${origin}/api/v1/dev/token`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, name }),
+  });
+  if (!res.ok) throw await parseError(res);
+  return (await res.json()) as TokenResponse;
+}
+
 export async function downloadFile(path: string, query: Query, fallbackName: string) {
   const res = await api<Response>(path, { query, raw: true });
   const name = /filename="([^"]+)"/.exec(res.headers.get("content-disposition") ?? "")?.[1] ?? fallbackName;

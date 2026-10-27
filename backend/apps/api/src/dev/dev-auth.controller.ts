@@ -11,6 +11,7 @@ import { requestContext } from '../common/http/request-context.js';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
 import { ApiZodBody, ApiZodOk } from '../common/swagger/zod-openapi.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
+import { isLocalRequest } from './local-only.js';
 
 const devTokenBody = z.object({
   email: z
@@ -37,7 +38,7 @@ export class DevAuthController {
   @ApiOperation({
     summary: '[DEV] Lấy access token cho một email công ty (không qua Google)',
     description:
-      'Chỉ có ở môi trường development. Tạo phiên thật (có idle/absolute timeout, audit log ' +
+      'Chỉ có ở môi trường development và chỉ nhận yêu cầu từ chính máy chạy API (máy khác trong mạng → 403). Tạo phiên thật (có idle/absolute timeout, audit log ' +
       '`auth.login` với method=dev) và đặt cookie `luna_rt` như đăng nhập Google.',
   })
   @ApiZodBody(devTokenBody)
@@ -47,6 +48,9 @@ export class DevAuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
+    if (!isLocalRequest(req)) {
+      throw AppError.forbidden('Quick login only works from the machine running the API');
+    }
     if (!this.auth.isAllowedEmail(body.email)) {
       throw AppError.validation(`Only company accounts are allowed (${body.email})`);
     }

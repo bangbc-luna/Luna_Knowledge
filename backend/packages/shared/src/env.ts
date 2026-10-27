@@ -8,7 +8,9 @@ const bool = z.enum(['true', 'false', '1', '0']).transform((v) => v === 'true' |
 export const baseEnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+  LISTEN_HOST: z.string().min(1).optional(),
 });
+
 
 export const databaseEnvSchema = z.object({
   DATABASE_URL: z.url(),

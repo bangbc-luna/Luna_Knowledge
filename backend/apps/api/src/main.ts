@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { initSentry } from '@luna/shared';
+import { initSentry, listenHost } from '@luna/shared';
 import { NestFactory } from '@nestjs/core';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module.js';
@@ -13,7 +13,7 @@ async function bootstrap() {
   const config = app.get<AppConfig>(APP_CONFIG);
   initSentry('api', config);
   setupApp(app, config);
-  await app.listen(config.API_PORT);
+  await app.listen(config.API_PORT, listenHost(config));
   const logger = app.get(Logger);
   logger.log(`API listening on ${config.API_PUBLIC_URL} (docs: /api/docs)`);
   await warnIfDependenciesDown(app, logger);

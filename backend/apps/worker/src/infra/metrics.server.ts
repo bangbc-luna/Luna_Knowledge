@@ -1,5 +1,5 @@
 import { createServer, type Server } from 'node:http';
-import { createMetricsRegistry, metricsAllowed, QUEUES } from '@luna/shared';
+import { createMetricsRegistry, listenHost, metricsAllowed, QUEUES } from '@luna/shared';
 import { InjectQueue } from '@nestjs/bullmq';
 import {
   Inject,
@@ -61,7 +61,7 @@ export class MetricsServer implements OnModuleInit, OnModuleDestroy {
       res.end(await this.registry.metrics());
     });
     this.server.on('error', (err) => this.logger.warn({ err }, 'Metrics server failed'));
-    this.server.listen(this.config.WORKER_METRICS_PORT);
+    this.server.listen(this.config.WORKER_METRICS_PORT, listenHost(this.config));
   }
 
   async onModuleDestroy() {

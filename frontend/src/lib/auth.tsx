@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { api, ApiError, onSessionExpired, refreshSession, setSession, type TokenResponse } from "./api";
+import { api, ApiError, onSessionExpired, refreshSession, requestDevToken, setSession, type TokenResponse } from "./api";
 import type { Me } from "./types";
 
 type Status = "loading" | "anon" | "authed";
@@ -51,7 +51,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const loginDev = useCallback(
     async (email: string, name?: string) => {
-      const token = await api<TokenResponse>("/dev/token", { method: "POST", body: { email, name } });
+      const token = await requestDevToken(email, name);
       await startSession(token);
     },
     [startSession],
