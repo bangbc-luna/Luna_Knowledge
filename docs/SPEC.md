@@ -448,7 +448,7 @@ Quy ước chung:
 |---|---|---|---|
 | GET | `/workspaces/:wsId/nodes?parentId=&section=&type=&sort=&cursor=` | Liệt kê con (parentId rỗng = gốc của khu `section`, mặc định DOCS) | VIEWER |
 | POST | `/workspaces/:wsId/folders` | Tạo folder `{parentId, name, section?}` | EDITOR |
-| POST | `/workspaces/:wsId/documents` | Tạo document `{parentId, name}` | EDITOR |
+| POST | `/workspaces/:wsId/documents` | Tạo document `{parentId, name, format: RICH|LATEX}`; LATEX tạo sẵn khung mẫu | EDITOR |
 | GET | `/nodes/:id` | Chi tiết node (kèm effective role, tags, isFavorite, chi tiết theo loại) | VIEWER |
 | GET | `/nodes/:id/breadcrumb` | Đường dẫn từ gốc tới node | VIEWER |
 | PATCH | `/nodes/:id` | Đổi tên `{name}` | EDITOR |
@@ -533,7 +533,7 @@ Sửa tiêu đề và mô tả video qua `PATCH /videos/:id`; mô tả được 
 |---|---|---|---|
 | GET | `/documents/:id` | Metadata + `contentJson` (dùng để render nhanh hoặc khi không có WS) | VIEWER |
 | GET | `/documents/:id/collab-token` | Token ngắn hạn để kết nối Hocuspocus | VIEWER |
-| GET | `/documents/:id/export?format=html|md` | Xuất nội dung | VIEWER |
+| GET | `/documents/:id/export?format=html|md|tex` | Xuất nội dung; `tex` chỉ cho tài liệu LaTeX | VIEWER |
 | POST | `/documents/:id/copy` | Sao chép `{workspaceId?, parentId?, name?}` | VIEWER bản gốc, EDITOR nơi đặt |
 | POST | `/documents/:id/assets` | Upload ảnh/file nhúng (≤ 20 MB, multipart `file`) | EDITOR |
 | GET | `/documents/:id/assets` | Danh sách ảnh/file nhúng (URL ký) | VIEWER |
@@ -542,6 +542,8 @@ Sửa tiêu đề và mô tả video qua `PATCH /videos/:id`; mô tả được 
 | GET | `/documents/:id/versions/:vid` | Nội dung một phiên bản | VIEWER |
 | GET | `/documents/:id/versions/:vid/diff?with=` | Diff theo từ với phiên bản khác hoặc `with=current` | VIEWER |
 | POST | `/documents/:id/versions/:vid/restore` | Khôi phục (áp lên Yjs qua collab server) | EDITOR |
+
+Tài liệu LaTeX (`format: LATEX`): mã nguồn nằm trong `Y.Text` tên `latex` của cùng Y.Doc, Y.Map `meta` đánh dấu `format = LATEX`; `contentJson` lưu `{type: "latex", source}`, `contentText` là mã đã bỏ lệnh để tìm kiếm. Soạn chung, phiên bản, khôi phục, sao chép, chia sẻ dùng chung cơ chế với tài liệu văn bản. Bản xem trước dựng trong trình duyệt (unified-latex + KaTeX), hỗ trợ một tập con LaTeX; chưa có bình luận (tạo thread → 400) và chưa có `\includegraphics`.
 
 **WebSocket** `wss://…/collab`: giao thức Hocuspocus, `documentName = doc:{nodeId}`, `token = collabToken`.
 

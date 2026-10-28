@@ -9,12 +9,22 @@ import {
 import TurndownService from 'turndown';
 import * as Y from 'yjs';
 import { editorExtensions, editorSchema, YJS_FIELD } from './extensions.js';
+import {
+  isLatexDoc,
+  isLatexJSON,
+  LATEX_FIELD,
+  latexJSON,
+  latexToText,
+  latexToYDoc,
+  replaceLatex,
+} from './latex.js';
 
 export type DocJSON = JSONContent;
 
 export const emptyDoc = (): DocJSON => ({ type: 'doc', content: [{ type: 'paragraph' }] });
 
 export function ydocToJSON(ydoc: Y.Doc): DocJSON {
+  if (isLatexDoc(ydoc)) return latexJSON(ydoc.getText(LATEX_FIELD).toString());
   const json = yXmlFragmentToProsemirrorJSON(ydoc.getXmlFragment(YJS_FIELD)) as DocJSON;
   return json.content?.length ? json : emptyDoc();
 }
@@ -26,6 +36,7 @@ export function stateToJSON(state: Uint8Array): DocJSON {
 }
 
 export function jsonToYDoc(json: DocJSON): Y.Doc {
+  if (isLatexJSON(json)) return latexToYDoc(json.source);
   return prosemirrorJSONToYDoc(editorSchema, normalize(json), YJS_FIELD);
 }
 
@@ -34,6 +45,7 @@ export function jsonToState(json: DocJSON): Uint8Array {
 }
 
 export function replaceContent(ydoc: Y.Doc, json: DocJSON, origin?: unknown) {
+  if (isLatexJSON(json)) return replaceLatex(ydoc, json.source, origin);
   const node = PMNode.fromJSON(editorSchema, normalize(json));
   const fragment = ydoc.getXmlFragment(YJS_FIELD);
   ydoc.transact(() => {
@@ -42,6 +54,7 @@ export function replaceContent(ydoc: Y.Doc, json: DocJSON, origin?: unknown) {
 }
 
 export function jsonToHTML(json: DocJSON): string {
+  if (isLatexJSON(json)) return `<pre>${escapeHtml(json.source)}</pre>`;
   return generateHTML(normalize(json), editorExtensions);
 }
 
@@ -50,6 +63,7 @@ export function htmlToJSON(html: string): DocJSON {
 }
 
 export function jsonToText(json: DocJSON): string {
+  if (isLatexJSON(json)) return latexToText(json.source);
   const node = PMNode.fromJSON(editorSchema, normalize(json));
   return node
     .textBetween(0, node.content.size, '\n', ' ')
@@ -73,7 +87,15 @@ turndown.addRule('commentMark', {
 });
 
 export function jsonToMarkdown(json: DocJSON): string {
+  if (isLatexJSON(json)) return `\`\`\`latex\n${json.source}\n\`\`\`\n`;
   return turndown.turndown(jsonToHTML(json));
+}
+
+function escapeHtml(s: string) {
+  return s.replace(
+    /[&<>"]/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!,
+  );
 }
 
 function normalize(json: DocJSON): DocJSON {

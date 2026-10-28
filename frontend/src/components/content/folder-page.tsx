@@ -6,7 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, describeError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { createDocument, docHref } from "@/lib/documents";
+import { docHref } from "@/lib/documents";
 import { cn } from "@/lib/cn";
 import { DOC_ACCEPT_ATTR, extensionOf, VIDEO_ACCEPT_ATTR, VIDEO_EXTENSIONS } from "@/lib/files";
 import { contentRoleOf, formatWhen, roleAtLeast, SECTION_LABEL, sectionPath } from "@/lib/format";
@@ -23,7 +23,7 @@ import { RowMenu } from "../ui/menu";
 import { Breadcrumb, Card, EmptyState, ErrorBanner, SkeletonRows } from "../ui/misc";
 import { Select } from "../ui/select";
 import { useToast } from "../ui/toast";
-import { CopyDialog, MoveDialog, NameDialog, TagsDialog } from "./node-dialogs";
+import { CopyDialog, MoveDialog, NameDialog, NewDocumentDialog, TagsDialog } from "./node-dialogs";
 import { NodeName, TagCell, TagChip } from "./node-name";
 import { ShareSheet } from "./share-sheet";
 
@@ -76,17 +76,7 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
   >(null);
 
   const router = useRouter();
-  const [creatingDoc, setCreatingDoc] = useState(false);
-  const newDocument = async () => {
-    setCreatingDoc(true);
-    try {
-      const doc = await createDocument(wsId, folderId);
-      router.push(`${docHref(wsId, doc.node.id)}?new=1`);
-    } catch (err) {
-      toast("error", describeError(err));
-      setCreatingDoc(false);
-    }
-  };
+  const [newDocOpen, setNewDocOpen] = useState(false);
 
   useEffect(() => {
     if (membership) rememberWorkspace(wsId);
@@ -228,7 +218,7 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
                 {canEdit ? (
                   <>
                     {isVideo ? null : (
-                      <Button icon={FilePlus2} loading={creatingDoc} onClick={() => void newDocument()}>
+                      <Button icon={FilePlus2} onClick={() => setNewDocOpen(true)}>
                         Tài liệu mới
                       </Button>
                     )}
@@ -295,7 +285,7 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
                             {isVideo ? "Tải video lên" : "Tải tệp lên"}
                           </Button>
                           {isVideo ? null : (
-                            <Button icon={FilePlus2} loading={creatingDoc} onClick={() => void newDocument()}>
+                            <Button icon={FilePlus2} onClick={() => setNewDocOpen(true)}>
                               Tạo tài liệu
                             </Button>
                           )}
@@ -378,6 +368,13 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
         )}
       </PageBody>
 
+      <NewDocumentDialog
+        open={newDocOpen}
+        onClose={() => setNewDocOpen(false)}
+        workspaceId={wsId}
+        parentId={folderId}
+        onCreated={(doc, named) => router.push(`${docHref(wsId, doc.node.id)}${named ? "" : "?new=1"}`)}
+      />
       <NameDialog
         open={dialog?.kind === "create"}
         onClose={() => setDialog(null)}

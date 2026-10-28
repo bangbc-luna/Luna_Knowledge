@@ -59,6 +59,7 @@ export interface NodeItem {
   childCount: number | null;
   size: number | null;
   mime: string | null;
+  documentFormat: "RICH" | "LATEX" | null;
 }
 
 export type PreviewKind = "pdf" | "image" | "text" | "none";

@@ -51,7 +51,7 @@ export async function loginAs(
   overrides: Partial<GoogleClaims> = {},
 ): Promise<LoggedIn> {
   const agent = request.agent(ctx.app.getHttpServer());
-  const start = await agent.get('/api/v1/auth/google').expect(302);
+  const start = await agent.get('/api/v1/auth/google').set('Host', 'localhost:4000').expect(302);
   const state = new URL(start.headers.location!).searchParams.get('state')!;
 
   ctx.google.nextClaims = companyClaims(email, overrides);

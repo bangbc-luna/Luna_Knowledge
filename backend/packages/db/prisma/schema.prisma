@@ -138,16 +138,16 @@ model RefreshToken {
 }
 
 model Workspace {
-  id          String    @id @default(uuid(7)) @db.Uuid
+  id          String        @id @default(uuid(7)) @db.Uuid
   name        String
-  slug        String    @unique
+  slug        String        @unique
   kind        WorkspaceKind @default(TEAM)
   description String?
   icon        String?
-  createdById String    @map("created_by") @db.Uuid
-  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
-  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
+  createdById String        @map("created_by") @db.Uuid
+  createdAt   DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt   DateTime?     @map("deleted_at") @db.Timestamptz(3)
 
   createdBy User              @relation(fields: [createdById], references: [id])
   members   WorkspaceMember[]
@@ -442,16 +442,22 @@ enum ThreadStatus {
   RESOLVED
 }
 
+enum DocumentFormat {
+  RICH
+  LATEX
+}
+
 model Document {
-  nodeId            String    @id @map("node_id") @db.Uuid
-  yjsState          Bytes?    @map("yjs_state")
-  contentJson       Json?     @map("content_json")
-  contentText       String?   @map("content_text")
-  wordCount         Int       @default(0) @map("word_count")
-  lastEditedAt      DateTime? @map("last_edited_at") @db.Timestamptz(3)
-  lastEditedBy      String?   @map("last_edited_by") @db.Uuid
-  lastVersionAt     DateTime? @map("last_version_at") @db.Timestamptz(3)
-  dirtySinceVersion Boolean   @default(false) @map("dirty_since_version")
+  nodeId            String         @id @map("node_id") @db.Uuid
+  format            DocumentFormat @default(RICH)
+  yjsState          Bytes?         @map("yjs_state")
+  contentJson       Json?          @map("content_json")
+  contentText       String?        @map("content_text")
+  wordCount         Int            @default(0) @map("word_count")
+  lastEditedAt      DateTime?      @map("last_edited_at") @db.Timestamptz(3)
+  lastEditedBy      String?        @map("last_edited_by") @db.Uuid
+  lastVersionAt     DateTime?      @map("last_version_at") @db.Timestamptz(3)
+  dirtySinceVersion Boolean        @default(false) @map("dirty_since_version")
 
   node Node @relation(fields: [nodeId], references: [id], onDelete: Cascade)
 

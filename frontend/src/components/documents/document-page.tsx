@@ -2,7 +2,7 @@
 
 import { type Editor, EditorContent, useEditor, useEditorState } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
-import { Activity, Bold, CircleAlert, Copy, Download, Eye, History, Italic, Link2, MessageSquare, MessageSquarePlus, Share2, Tag as TagIcon, WifiOff } from "lucide-react";
+import { Activity, Bold, CircleAlert, Copy, Download, Eye, History, Italic, Link2, MessageSquare, MessageSquarePlus, Share2, Sigma, Tag as TagIcon, WifiOff } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -10,6 +10,7 @@ import { ApiError, api, describeError, downloadFile } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import { type DocAsset, type DocThread, type DocumentDetail, uploadAsset } from "@/lib/documents";
+import { latexSource } from "@/lib/latex";
 import { formatWhen, roleAtLeast } from "@/lib/format";
 import type { Member, NodeItem, UserSummary } from "@/lib/types";
 import { useReportSection } from "@/lib/section";
@@ -30,10 +31,23 @@ import { EditorToolbar, ToolButton } from "./editor-toolbar";
 import { buildExtensions } from "./extensions";
 import { rememberAssets, setAssetDocument } from "./image-view";
 import { InlineTitle } from "./inline-title";
+import { LatexWorkspace } from "./latex-workspace";
 import { type CollabSession, type Peer, useCollab } from "./use-collab";
 
 const IMAGE_ACCEPT = "image/png,image/jpeg,image/webp,image/gif";
 const UUID = /^[0-9a-f-]{36}$/i;
+
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(false);
+  useEffect(() => {
+    const mq = matchMedia(query);
+    const update = () => setMatches(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, [query]);
+  return matches;
+}
 
 function Presence({ peers }: { peers: Peer[] }) {
   if (!peers.length) return null;
@@ -279,16 +293,9 @@ export function DocumentPage() {
   const [tagsOpen, setTagsOpen] = useState(false);
   const [copyOpen, setCopyOpen] = useState(false);
   useReportSection("DOCS");
-  const [wide, setWide] = useState(false);
+  const wide = useMediaQuery("(min-width: 80rem)");
+  const desktop = useMediaQuery("(min-width: 64rem)");
   const imageInput = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    const mq = matchMedia("(min-width: 80rem)");
-    const update = () => setWide(mq.matches);
-    update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
-  }, []);
 
   useEffect(() => {
     setAssetDocument(nodeId);
@@ -322,6 +329,7 @@ export function DocumentPage() {
 
   const d = detail.data;
   const node = d?.node;
+  const isLatex = d?.format === "LATEX";
   const session = collab.session;
   const readOnly = session?.readOnly ?? d?.readOnly ?? true;
   const editable = !readOnly && collab.status !== "denied";
@@ -402,7 +410,7 @@ export function DocumentPage() {
     }
   };
 
-  const exportAs = async (format: "html" | "md") => {
+  const exportAs = async (format: "html" | "md" | "tex") => {
     try {
       await downloadFile(`/documents/${nodeId}/export`, { format }, `${node?.name ?? "tai-lieu"}.${format}`);
     } catch (err) {
@@ -492,7 +500,7 @@ export function DocumentPage() {
         </div>
       ) : (
         <>
-          {editable && editor ? (
+          {editable && editor && !isLatex ? (
             <div className="sticky top-16 z-20 border-b border-border bg-surface px-2 py-1.5 sm:px-4">
               <div className="mx-auto max-w-[52rem]">
                 <EditorToolbar editor={editor} canComment onLink={() => setLinkOpen(true)} onImage={() => imageInput.current?.click()} onComment={startComment} />
@@ -501,7 +509,7 @@ export function DocumentPage() {
           ) : null}
 
           <div className="flex flex-1 justify-center gap-6 px-4 py-6 sm:px-6">
-            <main className="w-full max-w-[52rem] min-w-0">
+            <main className={cn("w-full min-w-0", isLatex && editable && desktop ? "max-w-none" : "max-w-[52rem]")}>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
                 <div className="min-w-0 flex-1">
                   <InlineTitle
@@ -516,6 +524,12 @@ export function DocumentPage() {
                     }}
                   />
                   <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted tabular-nums">
+                    {isLatex ? (
+                      <Badge small>
+                        <Sigma className="size-3" aria-hidden />
+                        LaTeX
+                      </Badge>
+                    ) : null}
                     {readOnly ? (
                       <Badge small>
                         <Eye className="size-3" aria-hidden />
@@ -536,10 +550,12 @@ export function DocumentPage() {
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <Presence peers={collab.peers} />
-                  <Button icon={MessageSquare} aria-expanded={commentsOpen} onClick={() => setCommentsOpen((v) => !v)} className={cn(commentsOpen && "bg-button-hover")}>
-                    Bình luận
-                    {openCount ? <span className="text-muted tabular-nums">{openCount}</span> : null}
-                  </Button>
+                  {isLatex ? null : (
+                    <Button icon={MessageSquare} aria-expanded={commentsOpen} onClick={() => setCommentsOpen((v) => !v)} className={cn(commentsOpen && "bg-button-hover")}>
+                      Bình luận
+                      {openCount ? <span className="text-muted tabular-nums">{openCount}</span> : null}
+                    </Button>
+                  )}
                   {canShare ? (
                     <Button icon={Share2} variant="primary" onClick={() => setShareOpen(true)}>
                       Chia sẻ
@@ -554,10 +570,12 @@ export function DocumentPage() {
                         { icon: TagIcon, label: "Gắn tag", onSelect: () => setTagsOpen(true), hidden: !membership || !roleAtLeast(node.myRole, "EDITOR") },
                         { icon: Copy, label: "Tạo bản sao", onSelect: () => setCopyOpen(true) },
                       ],
-                      [
-                        { icon: Download, label: "Tải về dạng HTML", onSelect: () => void exportAs("html") },
-                        { icon: Download, label: "Tải về dạng Markdown", onSelect: () => void exportAs("md") },
-                      ],
+                      isLatex
+                        ? [{ icon: Download, label: "Tải về tệp .tex", onSelect: () => void exportAs("tex") }]
+                        : [
+                            { icon: Download, label: "Tải về dạng HTML", onSelect: () => void exportAs("html") },
+                            { icon: Download, label: "Tải về dạng Markdown", onSelect: () => void exportAs("md") },
+                          ],
                     ]}
                   />
                 </div>
@@ -572,16 +590,20 @@ export function DocumentPage() {
                 </div>
               ) : null}
 
-              <Card className="mt-4 px-5 py-8 sm:px-12 sm:py-10">
-                {session ? (
-                  <DocEditor session={session} editable={editable} onReady={setEditor} onCommentClick={(id) => selectThread(id, false)} onAddComment={startComment} onLink={() => editable && setLinkOpen(true)} onImage={(f) => void insertImages(f)} />
-                ) : (
-                  <div className="h-[50vh] animate-pulse rounded-xl bg-foreground/5" aria-busy="true" aria-label="Đang tải" />
-                )}
-              </Card>
+              {isLatex ? (
+                <LatexWorkspace session={session} initialSource={latexSource(d.contentJson) ?? ""} editable={editable} wide={desktop} />
+              ) : (
+                <Card className="mt-4 px-5 py-8 sm:px-12 sm:py-10">
+                  {session ? (
+                    <DocEditor session={session} editable={editable} onReady={setEditor} onCommentClick={(id) => selectThread(id, false)} onAddComment={startComment} onLink={() => editable && setLinkOpen(true)} onImage={(f) => void insertImages(f)} />
+                  ) : (
+                    <div className="h-[50vh] animate-pulse rounded-xl bg-foreground/5" aria-busy="true" aria-label="Đang tải" />
+                  )}
+                </Card>
+              )}
             </main>
 
-            {commentsOpen && wide ? (
+            {commentsOpen && wide && !isLatex ? (
               <aside aria-label="Bình luận" className="sticky top-32 hidden max-h-[calc(100dvh-9rem)] w-80 shrink-0 self-start overflow-y-auto pb-6 xl:block">
                 <div className="mb-3 flex items-center justify-between">
                   <h2 className="text-sm font-semibold">Bình luận</h2>
@@ -594,7 +616,7 @@ export function DocumentPage() {
             ) : null}
           </div>
 
-          <Sheet open={commentsOpen && !wide} onClose={() => setCommentsOpen(false)} title="Bình luận" subtitle={<span className="block truncate">{node.name}</span>}>
+          <Sheet open={commentsOpen && !wide && !isLatex} onClose={() => setCommentsOpen(false)} title="Bình luận" subtitle={<span className="block truncate">{node.name}</span>}>
             <div className="px-4 py-4 sm:px-6">{panel}</div>
           </Sheet>
 

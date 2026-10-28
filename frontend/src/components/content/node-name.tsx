@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, Folder, LoaderCircle } from "lucide-react";
+import { FileText, Folder, LoaderCircle, Sigma } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/cn";
 import { fileKindLabel, formatBytes } from "@/lib/files";
@@ -28,7 +28,7 @@ export function NodeIcon({ node }: { node: NodeItem }) {
       {node.type === "FOLDER" ? (
         <Folder className="size-4" aria-hidden />
       ) : node.type === "DOCUMENT" ? (
-        <FileText className="size-4" aria-hidden />
+        node.documentFormat === "LATEX" ? <Sigma className="size-4" aria-hidden /> : <FileText className="size-4" aria-hidden />
       ) : (
         <FileTypeIcon name={node.name} mime={node.type === "VIDEO" ? "video/mp4" : node.mime} className="size-4" />
       )}
@@ -40,6 +40,7 @@ export function nodeMeta(node: NodeItem): string {
   if (node.type === "FOLDER") return `${TYPE_LABEL.FOLDER} · ${node.childCount ? `${node.childCount} mục` : "Trống"}`;
   if (node.type === "FILE") return node.size !== null ? `${fileKindLabel(node.name, node.mime)} · ${formatBytes(node.size)}` : fileKindLabel(node.name, node.mime);
   if (node.type === "VIDEO") return node.size !== null ? `Video · ${formatBytes(node.size)}` : "Video";
+  if (node.type === "DOCUMENT" && node.documentFormat === "LATEX") return "Tài liệu LaTeX";
   return TYPE_LABEL[node.type];
 }
 

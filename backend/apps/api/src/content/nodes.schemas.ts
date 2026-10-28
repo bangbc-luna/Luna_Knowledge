@@ -28,6 +28,10 @@ export const nodeSchema = z.object({
   childCount: z.number().int().nullable().describe('Số mục con (chỉ với FOLDER)'),
   size: z.number().int().nullable().describe('Kích thước phiên bản hiện tại (FILE/VIDEO)'),
   mime: z.string().nullable(),
+  documentFormat: z
+    .enum(['RICH', 'LATEX'])
+    .nullable()
+    .describe('Loại tài liệu (chỉ với DOCUMENT): RICH văn bản, LATEX mã nguồn LaTeX'),
 });
 
 export const listNodesQuery = z.object({

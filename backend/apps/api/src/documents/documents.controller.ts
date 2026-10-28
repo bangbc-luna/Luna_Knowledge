@@ -126,9 +126,9 @@ export class DocumentsController {
   }
 
   @Get('documents/:id/export')
-  @ApiOperation({ summary: 'Xuất tài liệu ra HTML hoặc Markdown (ghi nhật ký)' })
+  @ApiOperation({ summary: 'Xuất tài liệu ra HTML, Markdown hoặc .tex (ghi nhật ký)' })
   @ApiZodQuery(exportQuery)
-  @ApiProduces('text/html', 'text/markdown')
+  @ApiProduces('text/html', 'text/markdown', 'application/x-tex')
   async export(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', uuid()) id: string,

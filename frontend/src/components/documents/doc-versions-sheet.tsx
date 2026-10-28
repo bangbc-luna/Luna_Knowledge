@@ -6,12 +6,14 @@ import { api, describeError } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import type { DocDiff, DocVersion, DocVersionDetail } from "@/lib/documents";
 import { formatNumber, formatWhen } from "@/lib/format";
+import { latexSource } from "@/lib/latex";
 import { useApi } from "@/lib/use-api";
 import { Button } from "../ui/button";
 import { ConfirmDialog, Dialog, Sheet } from "../ui/dialog";
 import { Field, Input } from "../ui/input";
 import { EmptyState, ErrorBanner, SkeletonRows, Tabs } from "../ui/misc";
 import { useToast } from "../ui/toast";
+import { LatexPreview } from "./latex-workspace";
 
 function safeHtml(html: string) {
   if (typeof window === "undefined") return "";
@@ -83,7 +85,8 @@ function VersionDetail({ nodeId, version, canRestore, onBack, onRestored }: { no
   const [confirm, setConfirm] = useState(false);
   const detail = useApi(() => api<DocVersionDetail>(`/documents/${nodeId}/versions/${version.id}`), [nodeId, version.id], { enabled: tab === "content" });
   const diff = useApi(() => api<DocDiff>(`/documents/${nodeId}/versions/${version.id}/diff`, { query: { with: "current" } }), [nodeId, version.id], { enabled: tab === "diff" });
-  const html = useMemo(() => (detail.data ? safeHtml(detail.data.html) : ""), [detail.data]);
+  const latex = detail.data ? latexSource(detail.data.contentJson) : null;
+  const html = useMemo(() => (detail.data && latexSource(detail.data.contentJson) === null ? safeHtml(detail.data.html) : ""), [detail.data]);
 
   return (
     <div className="flex min-h-full flex-col">
@@ -125,7 +128,11 @@ function VersionDetail({ nodeId, version, canRestore, onBack, onRestored }: { no
           ) : !detail.data ? (
             <SkeletonRows rows={4} />
           ) : (
-            <div className="luna-prose" dangerouslySetInnerHTML={{ __html: html }} />
+            latex !== null ? (
+              <LatexPreview source={latex} />
+            ) : (
+              <div className="luna-prose" dangerouslySetInnerHTML={{ __html: html }} />
+            )
           )
         ) : diff.error ? (
           <ErrorBanner error={diff.error} what="so sánh" onRetry={() => void diff.reload()} />

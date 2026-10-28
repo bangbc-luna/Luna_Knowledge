@@ -3,7 +3,14 @@ import { fileURLToPath } from 'node:url';
 import { HocuspocusProvider } from '@hocuspocus/provider';
 import type { Server } from '@hocuspocus/server';
 import { createPrismaClient, type PrismaClient } from '@luna/db';
-import { emptyDoc, jsonToState, jsonToText, stateToJSON } from '@luna/editor';
+import {
+  emptyDoc,
+  jsonToState,
+  jsonToText,
+  LATEX_FIELD,
+  latexJSON,
+  stateToJSON,
+} from '@luna/editor';
 import { COLLAB_ACCESS_CHANNEL, COLLAB_TOKEN_AUDIENCE } from '@luna/shared';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redis';
@@ -235,6 +242,58 @@ describe('Collab server (e2e)', () => {
     expect(row.contentText).toBe(textOf(a.ydoc));
     expect(row.lastEditedBy).toBeTruthy();
     expect(row.dirtySinceVersion).toBe(true);
+  });
+
+  it('tài liệu LaTeX: hai người cùng gõ mã nguồn hội tụ, lưu mã và chữ tìm kiếm xuống DB; khôi phục giữ dạng LaTeX', async () => {
+    const json = latexJSON('\\section{Mở đầu}\n');
+    const nodeId = (
+      await prisma.node.create({
+        data: {
+          workspaceId,
+          parentId: folderId,
+          type: 'DOCUMENT',
+          name: 'Công thức',
+          nameNormalized: 'công thức',
+          createdById: users.editor,
+          document: {
+            create: {
+              format: 'LATEX',
+              yjsState: new Uint8Array(jsonToState(json)),
+              contentJson: json as object,
+              contentText: jsonToText(json),
+            },
+          },
+        },
+      })
+    ).id;
+    const a = await connect(users.editor, nodeId);
+    const b = await connect(users.editor2, nodeId);
+    a.ydoc
+      .getText(LATEX_FIELD)
+      .insert(a.ydoc.getText(LATEX_FIELD).length, 'Năng lượng $E=mc^2$.\n');
+    b.ydoc.getText(LATEX_FIELD).insert(0, '% ghi chú\n');
+    const expected = '% ghi chú\n\\section{Mở đầu}\nNăng lượng $E=mc^2$.\n';
+    await until(
+      () =>
+        a.ydoc.getText(LATEX_FIELD).toString() === expected &&
+        b.ydoc.getText(LATEX_FIELD).toString() === expected,
+    );
+    await until(
+      async () =>
+        (await prisma.document.findUniqueOrThrow({ where: { nodeId } })).contentText ===
+        'Mở đầu\nNăng lượng E=mc 2 .',
+    );
+    const row = await prisma.document.findUniqueOrThrow({ where: { nodeId } });
+    expect(row.contentJson).toEqual(latexJSON(expected));
+    expect(stateToJSON(new Uint8Array(row.yjsState!))).toEqual(latexJSON(expected));
+
+    const res = await fetch(`http://${base}/internal/documents/${nodeId}/replace`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-internal-secret': INTERNAL },
+      body: JSON.stringify({ json, actorId: users.editor, workspaceId }),
+    });
+    expect(res.status).toBe(200);
+    await until(() => b.ydoc.getText(LATEX_FIELD).toString() === json.source);
   });
 
   it('VIEWER kết nối chỉ đọc: thay đổi không tới người khác, không vào DB', async () => {

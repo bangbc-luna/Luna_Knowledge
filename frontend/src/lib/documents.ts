@@ -3,8 +3,11 @@ import type { NodeItem, UserSummary } from "./types";
 
 export type DocJSON = { type: string; attrs?: Record<string, unknown>; content?: DocJSON[]; marks?: Array<{ type: string; attrs?: Record<string, unknown> }>; text?: string };
 
+export type DocumentFormat = "RICH" | "LATEX";
+
 export interface DocumentDetail {
   node: NodeItem;
+  format: DocumentFormat;
   contentJson: DocJSON;
   wordCount: number;
   lastEditedAt: string | null;
@@ -121,12 +124,12 @@ function assetError(status: number, fallback: string) {
   return fallback;
 }
 
-export async function createDocument(wsId: string, parentId: string | null, name = UNTITLED): Promise<DocumentDetail> {
+export async function createDocument(wsId: string, parentId: string | null, name = UNTITLED, format: DocumentFormat = "RICH"): Promise<DocumentDetail> {
   try {
-    return await api<DocumentDetail>(`/workspaces/${wsId}/documents`, { method: "POST", body: { name, parentId } });
+    return await api<DocumentDetail>(`/workspaces/${wsId}/documents`, { method: "POST", body: { name, parentId, format } });
   } catch (err) {
     const suggestion = err instanceof ApiError && err.status === 409 ? (err.details as { suggestion?: string } | undefined)?.suggestion : undefined;
-    if (suggestion) return api<DocumentDetail>(`/workspaces/${wsId}/documents`, { method: "POST", body: { name: suggestion, parentId } });
+    if (suggestion) return api<DocumentDetail>(`/workspaces/${wsId}/documents`, { method: "POST", body: { name: suggestion, parentId, format } });
     throw err;
   }
 }

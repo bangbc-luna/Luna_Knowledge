@@ -1,7 +1,14 @@
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
-import { type DocJSON, jsonToState, jsonToText, stateToJSON } from '@luna/editor';
+import {
+  type DocJSON,
+  jsonToState,
+  jsonToText,
+  LATEX_TEMPLATE,
+  latexJSON,
+  stateToJSON,
+} from '@luna/editor';
 import { COLLAB_ACCESS_CHANNEL, COLLAB_TOKEN_AUDIENCE } from '@luna/shared';
 import { Redis } from 'ioredis';
 import { jwtVerify } from 'jose';
@@ -134,6 +141,80 @@ describe('Documents, versions, comments, notifications (e2e)', () => {
     await create(outsider, 'Không được').expect(404);
     const dup = await create(editor, 'biên bản họp').expect(409);
     expect(dup.body.error.details.suggestion).toBe('biên bản họp (1)');
+  });
+
+  it('tài liệu LaTeX: tạo có khung mẫu, xuất .tex, sao chép giữ loại, khôi phục phiên bản, chưa có bình luận', async () => {
+    const res = await http()
+      .post(`/api/v1/workspaces/${wsId}/documents`)
+      .set(editor.auth)
+      .send({ name: 'Công thức tài chính', format: 'LATEX' })
+      .expect(201);
+    const id = res.body.node.id as string;
+    expect(res.body.format).toBe('LATEX');
+    expect(res.body.contentJson).toEqual(latexJSON(LATEX_TEMPLATE));
+    expect(res.body.node.documentFormat).toBe('LATEX');
+    expect(res.body.wordCount).toBeGreaterThan(0);
+    await shareToViewer(owner, id);
+    await http()
+      .post(`/api/v1/workspaces/${wsId}/documents`)
+      .set(editor.auth)
+      .send({ name: 'Sai loại', format: 'PDF' })
+      .expect(400);
+
+    const source = String.raw`\section{Lãi kép}
+$A = P(1 + r)^n$`;
+    await setContent(id, latexJSON(source));
+    const tex = await http()
+      .get(`/api/v1/documents/${id}/export?format=tex`)
+      .set(viewer.auth)
+      .expect(200);
+    expect(tex.headers['content-type']).toContain('application/x-tex');
+    expect(tex.headers['content-disposition']).toContain('.tex');
+    expect(tex.text).toBe(source);
+    const rich = (await create(editor, 'Văn bản thường').expect(201)).body;
+    expect(rich.format).toBe('RICH');
+    expect(rich.node.documentFormat).toBe('RICH');
+    await http()
+      .get(`/api/v1/documents/${rich.node.id}/export?format=tex`)
+      .set(editor.auth)
+      .expect(400);
+
+    const v1 = await http()
+      .post(`/api/v1/documents/${id}/versions`)
+      .set(editor.auth)
+      .send({ name: 'Bản đầu' })
+      .expect(201);
+    await setContent(id, latexJSON('\\section{Đã sửa}'));
+    const shown = await http()
+      .get(`/api/v1/documents/${id}/versions/${v1.body.id}`)
+      .set(viewer.auth)
+      .expect(200);
+    expect(shown.body.contentJson).toEqual(latexJSON(source));
+    await http()
+      .post(`/api/v1/documents/${id}/versions/${v1.body.id}/restore`)
+      .set(editor.auth)
+      .expect(200);
+    const restored = await http().get(`/api/v1/documents/${id}`).set(editor.auth).expect(200);
+    expect(restored.body.contentJson).toEqual(latexJSON(source));
+
+    const copy = await http()
+      .post(`/api/v1/documents/${id}/copy`)
+      .set(editor.auth)
+      .send({})
+      .expect(201);
+    expect(copy.body.format).toBe('LATEX');
+    expect(copy.body.contentJson).toEqual(latexJSON(source));
+    const copyRow = await ctx.prisma.document.findUniqueOrThrow({
+      where: { nodeId: copy.body.node.id },
+    });
+    expect(stateToJSON(new Uint8Array(copyRow.yjsState!))).toEqual(latexJSON(source));
+    expect(copyRow.contentText).toBe('Lãi kép\nA = P(1 + r) n');
+
+    await http()
+      .post(`/api/v1/documents/${id}/threads`)
+      .set(editor.auth)
+      .send({ quotedText: 'Lãi kép', body: 'Kiểm tra lại', mentions: [] })
+      .expect(400);
   });
 
   it('tài liệu chỉ nằm ở khu DOCS: folder cha thuộc VIDEOS → 400', async () => {

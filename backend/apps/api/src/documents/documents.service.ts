@@ -5,10 +5,13 @@ import {
   type DocJSON,
   emptyDoc,
   htmlToJSON,
+  isLatexJSON,
   jsonToHTML,
   jsonToMarkdown,
   jsonToState,
   jsonToText,
+  LATEX_TEMPLATE,
+  latexJSON,
   stateToJSON,
   wordCount,
 } from '@luna/editor';
@@ -79,14 +82,20 @@ export class DocumentsService {
   ) {
     const parentId = body.parentId ?? null;
     await this.nodes.requireContainer(user, workspaceId, parentId, 'DOCS');
-    const nodeId = await this.createNode(user, workspaceId, parentId, body.name, emptyDoc());
+    const nodeId = await this.createNode(
+      user,
+      workspaceId,
+      parentId,
+      body.name,
+      body.format === 'LATEX' ? latexJSON(LATEX_TEMPLATE) : emptyDoc(),
+    );
     await this.audit.log({
       actorId: user.id,
       action: 'node.create',
       targetType: 'node',
       targetId: nodeId,
       workspaceId,
-      metadata: { type: 'DOCUMENT', name: body.name, parentId },
+      metadata: { type: 'DOCUMENT', format: body.format, name: body.name, parentId },
       ctx,
     });
     await this.search.node(nodeId);
@@ -110,7 +119,13 @@ export class DocumentsService {
       const base = `${source.name} (bản sao)`;
       name = taken.has(nameKey(base)) ? suggestName(base, taken) : base;
     }
-    const copyId = await this.createNode(user, workspaceId, parentId, name, emptyDoc());
+    const copyId = await this.createNode(
+      user,
+      workspaceId,
+      parentId,
+      name,
+      isLatexJSON(json) ? latexJSON('') : emptyDoc(),
+    );
     try {
       const assetIds = await this.copyAssets(user.id, source.id, copyId);
       await this.writeContent(copyId, remapAssets(json, assetIds));
@@ -172,7 +187,7 @@ export class DocumentsService {
   async export(
     user: AuthenticatedUser,
     nodeId: string,
-    format: 'html' | 'md',
+    format: 'html' | 'md' | 'tex',
     ctx: RequestContext,
   ) {
     const node = await this.requireDocument(user, nodeId, 'VIEWER');
@@ -190,7 +205,16 @@ export class DocumentsService {
       metadata: { name: node.name, format },
       ctx,
     });
-    const base = node.name.replace(/\.(md|html?)$/i, '');
+    const base = node.name.replace(/\.(md|html?|tex)$/i, '');
+    if (format === 'tex') {
+      if (!isLatexJSON(json))
+        throw AppError.validation('Only LaTeX documents can be exported as .tex');
+      return {
+        body: json.source,
+        mime: 'application/x-tex; charset=utf-8',
+        fileName: `${base}.tex`,
+      };
+    }
     if (format === 'md') {
       return {
         body: jsonToMarkdown(json),
@@ -321,6 +345,7 @@ export class DocumentsService {
       : null;
     return {
       node,
+      format: doc?.format ?? 'RICH',
       contentJson: await this.withFreshAssetUrls(
         nodeId,
         (doc?.contentJson as DocJSON | null) ?? emptyDoc(),
@@ -350,7 +375,9 @@ export class DocumentsService {
           nameNormalized: nameKey(name),
           createdById: user.id,
           updatedById: user.id,
-          document: { create: this.contentFields(json) },
+          document: {
+            create: { ...this.contentFields(json), format: isLatexJSON(json) ? 'LATEX' : 'RICH' },
+          },
         },
       });
       return node.id;

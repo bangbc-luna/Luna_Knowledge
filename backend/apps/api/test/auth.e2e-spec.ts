@@ -26,7 +26,7 @@ describe('Auth (e2e)', () => {
 
   async function startLogin() {
     const agent = request.agent(ctx.app.getHttpServer());
-    const res = await agent.get('/api/v1/auth/google').expect(302);
+    const res = await agent.get('/api/v1/auth/google').set('Host', 'localhost:4000').expect(302);
     return { agent, res, state: new URL(res.headers.location!).searchParams.get('state')! };
   }
 
@@ -41,6 +41,28 @@ describe('Auth (e2e)', () => {
   }
 
   describe('Google login', () => {
+    it('mở từ host khác host callback (127.0.0.1) → chuyển sang host callback trước khi đặt cookie state', async () => {
+      const viaProxy = await request(ctx.app.getHttpServer())
+        .get('/api/v1/auth/google')
+        .set('Host', 'localhost:4000')
+        .set('X-Forwarded-Host', '127.0.0.1:5173')
+        .expect(302);
+      expect(viaProxy.headers.location).toBe('http://localhost:4000/api/v1/auth/google');
+      expect(viaProxy.headers['set-cookie']).toBeUndefined();
+      const direct = await request(ctx.app.getHttpServer())
+        .get('/api/v1/auth/google')
+        .set('Host', '127.0.0.1:4000')
+        .expect(302);
+      expect(direct.headers.location).toBe('http://localhost:4000/api/v1/auth/google');
+      const same = await request(ctx.app.getHttpServer())
+        .get('/api/v1/auth/google')
+        .set('Host', 'localhost:4000')
+        .set('X-Forwarded-Host', 'localhost:5173')
+        .expect(302);
+      expect(same.headers.location).toContain('https://accounts.google.test/');
+      expect(String(same.headers['set-cookie'])).toContain('luna_oauth_state=');
+    });
+
     it('chuyển hướng sang Google và đặt cookie state (SameSite=Lax)', async () => {
       const { res, state } = await startLogin();
       expect(state).toBeTruthy();

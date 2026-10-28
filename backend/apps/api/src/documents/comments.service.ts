@@ -55,6 +55,13 @@ export class CommentsService {
     ctx: RequestContext,
   ) {
     const node = await this.documents.requireDocument(user, nodeId, 'VIEWER');
+    const doc = await this.prisma.client.document.findUnique({
+      where: { nodeId },
+      select: { format: true },
+    });
+    if (doc?.format === 'LATEX') {
+      throw AppError.validation('Comments are not available on LaTeX documents yet');
+    }
     const { allowed, ignored } = await this.filterMentions(body.mentions, nodeId, user.id);
     const thread = await this.prisma.client.commentThread.create({
       data: {

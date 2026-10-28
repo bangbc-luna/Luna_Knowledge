@@ -3,10 +3,15 @@ import { nodeNameSchema } from '../content/node-names.js';
 import { nodeSchema } from '../content/nodes.schemas.js';
 import { userSummarySchema } from '../users/users.schemas.js';
 
+export const documentFormatSchema = z.enum(['RICH', 'LATEX']);
+
 export const createDocumentBody = z
   .object({
     parentId: z.uuid().nullable().optional().describe('Bỏ trống = gốc workspace'),
     name: nodeNameSchema,
+    format: documentFormatSchema
+      .default('RICH')
+      .describe('RICH = văn bản (Tiptap), LATEX = mã nguồn LaTeX có xem trước'),
   })
   .strict();
 
@@ -31,7 +36,12 @@ export type CopyDocumentBody = z.output<typeof copyDocumentBody>;
 
 export const documentSchema = z.object({
   node: nodeSchema,
-  contentJson: z.unknown().describe('Tiptap JSON, để hiển thị nhanh khi chưa kết nối collab'),
+  format: documentFormatSchema,
+  contentJson: z
+    .unknown()
+    .describe(
+      'Tiptap JSON (RICH) hoặc `{type: "latex", source}` (LATEX), để hiển thị nhanh khi chưa kết nối collab',
+    ),
   wordCount: z.number().int(),
   lastEditedAt: z.date().nullable(),
   lastEditedBy: userSummarySchema.nullable(),
@@ -48,7 +58,12 @@ export const collabTokenSchema = z.object({
   user: z.object({ id: z.uuid(), name: z.string() }),
 });
 
-export const exportQuery = z.object({ format: z.enum(['html', 'md']).default('html') });
+export const exportQuery = z.object({
+  format: z
+    .enum(['html', 'md', 'tex'])
+    .default('html')
+    .describe('`tex` chỉ dùng cho tài liệu LaTeX'),
+});
 
 export const assetSchema = z.object({
   id: z.uuid(),

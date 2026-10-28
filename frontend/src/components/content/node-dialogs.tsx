@@ -1,10 +1,11 @@
 "use client";
 
-import { ChevronRight, Folder, House, Plus } from "lucide-react";
+import { ChevronRight, FileText, Folder, House, Plus, Sigma, type LucideIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api, ApiError, describeError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { createDocument, type DocumentDetail, type DocumentFormat, UNTITLED } from "@/lib/documents";
 import { SECTION_LABEL, WS_ROLE_LABEL } from "@/lib/format";
 import type { NodeItem, NodeSection, Page, Tag } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
@@ -98,6 +99,100 @@ export function NameDialog({
       >
         {(id) => <Input id={id} autoFocus value={name} invalid={!!error} maxLength={255} onChange={(e) => setName(e.target.value)} />}
       </Field>
+    </Dialog>
+  );
+}
+
+const DOCUMENT_FORMATS: Array<{ value: DocumentFormat; icon: LucideIcon; label: string; hint: string }> = [
+  { value: "RICH", icon: FileText, label: "Văn bản", hint: "Soạn như Word: tiêu đề, danh sách, bảng, ảnh, bình luận." },
+  { value: "LATEX", icon: Sigma, label: "LaTeX", hint: "Viết mã LaTeX cho tài liệu kỹ thuật có công thức toán, xem trước ngay bên cạnh." },
+];
+
+export function NewDocumentDialog({
+  open,
+  onClose,
+  workspaceId,
+  parentId,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  workspaceId: string;
+  parentId: string | null;
+  onCreated: (doc: DocumentDetail, named: boolean) => void;
+}) {
+  const [name, setName] = useState("");
+  const [format, setFormat] = useState<DocumentFormat>("RICH");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [lastOpen, setLastOpen] = useState(open);
+  if (open !== lastOpen) {
+    setLastOpen(open);
+    if (open) {
+      setName("");
+      setFormat("RICH");
+      setError(null);
+      setBusy(false);
+    }
+  }
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const doc = await createDocument(workspaceId, parentId, name.trim() || UNTITLED, format);
+      onCreated(doc, !!name.trim());
+    } catch (err) {
+      setError(describeError(err));
+      setBusy(false);
+    }
+  };
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Tài liệu mới"
+      onSubmit={() => void submit()}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} className="min-h-11 md:min-h-10">
+            Huỷ
+          </Button>
+          <Button type="submit" variant="primary" loading={busy} className="min-h-11 md:min-h-10">
+            Tạo
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-5">
+        <Field label="Tên" error={error ?? undefined}>
+          {(id) => <Input id={id} autoFocus value={name} maxLength={255} placeholder={UNTITLED} onChange={(e) => setName(e.target.value)} />}
+        </Field>
+        <fieldset className="space-y-3">
+          <legend className="mb-1.5 text-sm font-medium text-foreground">Loại tài liệu</legend>
+          {DOCUMENT_FORMATS.map((f) => (
+            <label
+              key={f.value}
+              className="flex cursor-pointer items-start gap-3 rounded-xl border border-border-strong bg-surface p-4 transition-colors hover:bg-surface-hover has-checked:border-focus has-checked:ring-2 has-checked:ring-focus"
+            >
+              <input
+                type="radio"
+                name="document-format"
+                value={f.value}
+                checked={format === f.value}
+                onChange={() => setFormat(f.value)}
+                className="mt-0.5 size-5 shrink-0 cursor-pointer appearance-none rounded-full border-[1.5px] border-border-strong bg-surface outline-hidden checked:border-[6px] checked:border-primary"
+              />
+              <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-lg bg-background text-foreground/70">
+                <f.icon className="size-5" aria-hidden />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-foreground">{f.label}</span>
+                <span className="mt-1 block text-sm text-pretty text-muted">{f.hint}</span>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+      </div>
     </Dialog>
   );
 }

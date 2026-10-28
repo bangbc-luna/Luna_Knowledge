@@ -25,6 +25,18 @@ import type { AuthenticatedRequest } from './decorators/current-user.decorator.j
 import { Public } from './decorators/public.decorator.js';
 import { googleRedirectUri } from './google/openid-google-identity.js';
 
+function requestHostname(req: Request): string | null {
+  const forwarded = req.headers['x-forwarded-host'];
+  const host =
+    (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(',')[0] ?? req.headers.host;
+  if (!host) return null;
+  try {
+    return new URL(`http://${host.trim()}`).hostname;
+  } catch {
+    return null;
+  }
+}
+
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
@@ -42,7 +54,13 @@ export class AuthController {
     description: 'Mở trong trình duyệt (không gọi bằng fetch). Chuyển hướng sang Google.',
   })
   @ApiFoundResponse({ description: 'Redirect tới accounts.google.com' })
-  async google(@Res() res: Response) {
+  async google(@Req() req: Request, @Res() res: Response) {
+    const callbackHost = new URL(googleRedirectUri(this.config)).hostname;
+    const requestHost = requestHostname(req);
+    if (requestHost && requestHost !== callbackHost) {
+      res.redirect(302, new URL('/api/v1/auth/google', this.config.API_PUBLIC_URL).toString());
+      return;
+    }
     const { url, state } = await this.auth.startGoogleLogin();
     res.cookie(OAUTH_STATE_COOKIE, state, oauthStateCookieOptions(this.config));
     res.redirect(302, url.toString());

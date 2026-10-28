@@ -168,6 +168,30 @@ summary:focus-visible,
 .luna-prose th, .luna-prose td { border: 1px solid var(--border-strong); padding: 0.4rem 0.6rem; vertical-align: top; min-width: 4rem; }
 .luna-prose th { background: var(--neutral-bg); font-weight: 600; text-align: left; }
 .luna-prose th > p, .luna-prose td > p { margin: 0; }
+.latex-preview h2, .latex-preview h3, .latex-preview h4 { display: flex; gap: 0.6em; }
+.latex-preview h4 { font-size: 1rem; line-height: 1.5rem; font-weight: 600; margin-top: 1.1em; }
+.latex-preview .latex-number { color: var(--muted); font-variant-numeric: tabular-nums; }
+.latex-preview .latex-title { text-align: center; margin-bottom: 1.5em; }
+.latex-preview .latex-title h1 { margin: 0; }
+.latex-preview .latex-title p { margin: 0.25em 0 0; color: var(--muted); }
+.latex-preview .latex-display { overflow-x: auto; overflow-y: hidden; padding: 0.25em 0; }
+.latex-preview .katex-display { margin: 0; }
+.latex-preview .latex-center { text-align: center; }
+.latex-preview .latex-center table { margin-inline: auto; width: auto; }
+.latex-preview .latex-caption { text-align: center; font-size: 0.875rem; color: var(--muted); }
+.latex-preview .latex-figure { margin: 1em 0; }
+.latex-preview .latex-abstract { padding: 0 2em; font-size: 0.9375rem; }
+.latex-preview .latex-abstract-title { text-align: center; font-weight: 600; }
+.latex-preview .latex-theorem > * + * { margin-top: 0.5em; }
+.latex-preview .latex-description dt { font-weight: 600; }
+.latex-preview .latex-description dd { margin-left: 1.5em; }
+.latex-preview .latex-item-label { margin-right: 0.25em; }
+.latex-preview li.latex-labelled { list-style: none; margin-left: -1.25em; }
+.latex-preview li > p:first-child { display: inline; }
+.latex-preview .latex-ref, .latex-preview .latex-footnote { color: var(--muted); }
+.latex-preview .latex-math-error { color: var(--error-text); background: var(--error-bg); }
+.latex-preview pre.latex-math-error { color: var(--error-text); }
+.latex-preview table { table-layout: auto; }
 .luna-prose .selectedCell { background: color-mix(in srgb, var(--primary) 8%, transparent); }
 .luna-prose p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: var(--muted); float: left; height: 0; pointer-events: none; }
 .luna-prose .ProseMirror-selectednode { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 0.5rem; }

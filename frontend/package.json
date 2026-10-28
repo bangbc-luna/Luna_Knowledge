@@ -10,8 +10,14 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@codemirror/commands": "6.11.1",
+    "@codemirror/language": "6.13.1",
+    "@codemirror/legacy-modes": "6.5.5",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.14",
     "@floating-ui/dom": "^1.8.0",
     "@hocuspocus/provider": "4.7.1",
+    "@lezer/highlight": "1.2.5",
     "@tiptap/core": "3.31.4",
     "@tiptap/extension-collaboration": "3.31.4",
     "@tiptap/extension-collaboration-caret": "3.31.4",
@@ -25,12 +31,16 @@
     "@tiptap/react": "3.31.4",
     "@tiptap/starter-kit": "3.31.4",
     "@tiptap/y-tiptap": "3.0.9",
+    "@unified-latex/unified-latex-types": "1.8.4",
+    "@unified-latex/unified-latex-util-parse": "1.8.4",
     "hls.js": "1.7.2",
+    "katex": "0.19.0",
     "lucide-react": "^1.59.0",
     "next": "16.4.2",
     "pdfjs-dist": "6.4.299",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "y-codemirror.next": "0.3.6",
     "yjs": "13.6.33"
   },
   "devDependencies": {

@@ -26,6 +26,7 @@ export class NodeDtoService {
           tags: { include: { tag: { select: { id: true, name: true, color: true } } } },
           favorites: { where: { userId }, select: { userId: true } },
           _count: { select: { children: { where: { deletedAt: null } } } },
+          document: { select: { format: true } },
           file: {
             select: {
               currentVersion: { select: { original: { select: { sizeBytes: true, mime: true } } } },
@@ -59,6 +60,7 @@ export class NodeDtoService {
           childCount: n.type === 'FOLDER' ? n._count.children : null,
           size: n.file?.currentVersion ? Number(n.file.currentVersion.original.sizeBytes) : null,
           mime: n.file?.currentVersion?.original.mime ?? null,
+          documentFormat: n.document?.format ?? null,
         },
       ];
     });
