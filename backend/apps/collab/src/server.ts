@@ -30,6 +30,7 @@ import { pino } from 'pino';
 import * as Y from 'yjs';
 import { verifyCollabToken } from './auth.js';
 import type { CollabConfig } from './config.js';
+import { enqueueIndexNode } from './index-queue.js';
 
 export interface CollabContext {
   userId: string;
@@ -314,9 +315,9 @@ export function createCollabServer(
         data: { updatedById: editor ?? undefined },
         select: { createdAt: true },
       });
-      await searchQueue
-        .add('index-node', { nodeId }, { removeOnComplete: true, removeOnFail: 100 })
-        .catch(() => undefined);
+      await enqueueIndexNode(searchQueue, nodeId, config.COLLAB_INDEX_DELAY_MS).catch(
+        () => undefined,
+      );
       const since = row.lastVersionAt ?? node.createdAt;
       const due = now.getTime() - since.getTime() >= config.COLLAB_AUTO_VERSION_MIN * 60_000;
       if (due && !lastContext?.internal) await autoVersion(nodeId, editor);
