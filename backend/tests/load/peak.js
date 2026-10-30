@@ -14,6 +14,15 @@ const SEGMENTS = Number(__ENV.SEGMENTS ?? 50);
 const HOLD = __ENV.HOLD ?? '6m';
 
 const seed = JSON.parse(open('/load/.seed.json'));
+if (!seed.lead || !seed.wsId) throw new Error('seed has no lead token or wsId');
+if (!Array.isArray(seed.viewers) || seed.viewers.length < VIEWERS_LAN + VIEWERS_TUNNEL) {
+  throw new Error(
+    `seed has ${seed.viewers ? seed.viewers.length : 0} viewers, need VIEWERS_LAN + VIEWERS_TUNNEL = ${VIEWERS_LAN + VIEWERS_TUNNEL}`,
+  );
+}
+if (!Array.isArray(seed.editors) || seed.editors.length < EDITORS) {
+  throw new Error(`seed has ${seed.editors ? seed.editors.length : 0} editors, need EDITORS = ${EDITORS}`);
+}
 const badStatus = new Counter('bad_status');
 const TERMS = ['nghi phep', 'noi quy', 'so tay', 'bao cao', 'quy trinh', 'hop dong'];
 
@@ -54,6 +63,7 @@ export const options = {
 
 function durationMinutes(text) {
   const m = /^(\d+)(s|m|h)$/.exec(text);
+  if (!m) throw new Error(`HOLD must look like 30s, 6m or 1h, got "${text}"`);
   const n = Number(m[1]);
   if (m[2] === 'h') return n * 60;
   if (m[2] === 'm') return n;
