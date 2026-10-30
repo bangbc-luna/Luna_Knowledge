@@ -173,7 +173,7 @@ Nên chạy backup ngay trước khi nâng cấp. Nếu bản mới lỗi: `git 
 
 ### Giám sát bằng Grafana (profile `monitoring`)
 
-Bật: điền `GRAFANA_ADMIN_PASSWORD` và `METRICS_TOKEN` trong `.env.prod`, rồi `luna --profile monitoring up -d`. Gồm Prometheus (giữ số liệu 30 ngày), Grafana, node-exporter (số liệu máy chủ, chỉ nghe trên cầu nối Docker `EDGE_GATEWAY`, không lộ ra LAN) và cAdvisor (CPU/RAM theo container). Không dịch vụ nào mở cổng ra ngoài trừ Grafana ở `127.0.0.1:3001`.
+Bật: bắt buộc điền `GRAFANA_ADMIN_PASSWORD` và `METRICS_TOKEN` trong `.env.prod` (để trống thì Grafana, Prometheus từ chối khởi động và in lý do trong `luna logs grafana`), rồi `luna --profile monitoring up -d`. Gồm Prometheus (giữ số liệu 30 ngày), Grafana, node-exporter (số liệu máy chủ, chỉ nghe trên cầu nối Docker `EDGE_GATEWAY`, không lộ ra LAN) và cAdvisor (CPU/RAM theo container). Không dịch vụ nào mở cổng ra ngoài trừ Grafana ở `127.0.0.1:3001`.
 
 Vào Grafana qua SSH tunnel: `ssh -L 3001:127.0.0.1:3001 <server>` rồi mở `http://127.0.0.1:3001` (tài khoản `admin`, mật khẩu `GRAFANA_ADMIN_PASSWORD`), dashboard "Luna overview". Danh sách cảnh báo nằm ở panel "Alerts" của dashboard và ở trang `/alerts` của Prometheus (chạy `luna exec prometheus wget -qO- http://127.0.0.1:9090/api/v1/alerts`).
 
@@ -187,6 +187,8 @@ Vào Grafana qua SSH tunnel: `ssh -L 3001:127.0.0.1:3001 <server>` rồi mở `h
 | `HostMemoryLow` | RAM khả dụng < 10% trong 5 phút | Nguy cơ OOM |
 | `HostNetworkSaturated` | tốc độ gửi của một NIC > 0,8 Gbit/s trong 5 phút | Gần chạm băng thông 1 Gbit/s |
 | `TargetDown` | một nguồn số liệu mất kết nối quá 2 phút | Dịch vụ hoặc exporter chết |
+
+Hai panel CPU/RAM theo container cần nhãn `name` từ cAdvisor; nhãn này phụ thuộc storage driver của Docker (với containerd image store, cAdvisor có thể không gắn nhãn và hai panel này trống).
 
 Lưu ý: cảnh báo hiện chỉ hiển thị trên Grafana và Prometheus, chưa gửi đi đâu (chưa có Alertmanager, email hay chat).
 
