@@ -215,6 +215,69 @@ services:
     mem_limit: 1g
     networks: [internal]
 
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    profiles: [monitoring]
+    restart: unless-stopped
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        printf %s "$$METRICS_TOKEN" > /prometheus/metrics_token
+        printf '[{"targets":["%s:9100"]}]' "$$EDGE_GATEWAY" > /prometheus/node_targets.json
+        exec /bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus --storage.tsdb.retention.time=30d
+    environment:
+      METRICS_TOKEN: ${METRICS_TOKEN}
+      EDGE_GATEWAY: ${EDGE_GATEWAY:-172.30.0.1}
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    networks: [internal, edge]
+
+  grafana:
+    image: grafana/grafana:12.1.0
+    profiles: [monitoring]
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    ports:
+      - '127.0.0.1:3001:3000'
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks: [internal]
+
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    profiles: [monitoring]
+    restart: unless-stopped
+    depends_on: [traefik]
+    network_mode: host
+    pid: host
+    command:
+      - --path.rootfs=/host
+      - --web.listen-address=${EDGE_GATEWAY:-172.30.0.1}:9100
+    volumes:
+      - /:/host:ro,rslave
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.52.1
+    profiles: [monitoring]
+    restart: unless-stopped
+    privileged: true
+    devices:
+      - /dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks: [internal]
+
   cloudflared:
     image: cloudflare/cloudflared:2026.8.0
     profiles: [remote]
@@ -243,3 +306,5 @@ volumes:
   minio-data:
   meili-data:
   worker-tmp:
+  prometheus-data:
+  grafana-data:

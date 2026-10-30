@@ -171,6 +171,25 @@ Nên chạy backup ngay trước khi nâng cấp. Nếu bản mới lỗi: `git 
 | Dung lượng ổ | `df -h /srv/luna /var/lib/docker` |
 | Dựng lại chỉ mục tìm kiếm | Đăng nhập bằng System Admin rồi gọi `POST /api/v1/admin/search/reindex`; tự chạy lúc 03:30 hằng đêm |
 
+### Giám sát bằng Grafana (profile `monitoring`)
+
+Bật: điền `GRAFANA_ADMIN_PASSWORD` và `METRICS_TOKEN` trong `.env.prod`, rồi `luna --profile monitoring up -d`. Gồm Prometheus (giữ số liệu 30 ngày), Grafana, node-exporter (số liệu máy chủ, chỉ nghe trên cầu nối Docker `EDGE_GATEWAY`, không lộ ra LAN) và cAdvisor (CPU/RAM theo container). Không dịch vụ nào mở cổng ra ngoài trừ Grafana ở `127.0.0.1:3001`.
+
+Vào Grafana qua SSH tunnel: `ssh -L 3001:127.0.0.1:3001 <server>` rồi mở `http://127.0.0.1:3001` (tài khoản `admin`, mật khẩu `GRAFANA_ADMIN_PASSWORD`), dashboard "Luna overview". Danh sách cảnh báo nằm ở panel "Alerts" của dashboard và ở trang `/alerts` của Prometheus (chạy `luna exec prometheus wget -qO- http://127.0.0.1:9090/api/v1/alerts`).
+
+| Cảnh báo | Điều kiện | Ý nghĩa |
+|---|---|---|
+| `ApiLatencyP95High` | p95 độ trễ API > 0,3 s trong 5 phút | API chậm, kiểm tra DB, event loop, CPU |
+| `Http429Or5xxRatio` | hơn 1% request trả 429 hoặc 5xx trong 5 phút | Quá giới hạn tốc độ hoặc lỗi server |
+| `EventLoopLagHigh` | event-loop lag p99 > 0,2 s trong 2 phút | Tiến trình Node bị nghẽn CPU |
+| `QueueBacklog` | hơn 100 job `waiting` một hàng đợi trong 10 phút | Worker không theo kịp |
+| `HostCpuHigh` | CPU máy chủ > 90% trong 10 phút | Máy chủ quá tải |
+| `HostMemoryLow` | RAM khả dụng < 10% trong 5 phút | Nguy cơ OOM |
+| `HostNetworkSaturated` | tốc độ gửi của một NIC > 0,8 Gbit/s trong 5 phút | Gần chạm băng thông 1 Gbit/s |
+| `TargetDown` | một nguồn số liệu mất kết nối quá 2 phút | Dịch vụ hoặc exporter chết |
+
+Lưu ý: cảnh báo hiện chỉ hiển thị trên Grafana và Prometheus, chưa gửi đi đâu (chưa có Alertmanager, email hay chat).
+
 Sự cố thường gặp:
 
 - **Trình duyệt báo lỗi chứng chỉ**: `luna logs traefik | grep -i acme`. Thường do `CF_DNS_API_TOKEN` sai quyền hoặc DNS chưa đúng.
