@@ -189,6 +189,7 @@ export interface Playback {
   watermark: { name: string; email: string };
   resumeAt: number | null;
   durationSec: number;
+  maxHeight: number | null;
 }
 
 export interface AdminVideo {

@@ -90,9 +90,15 @@ export function VideoPlayer({ nodeId, title }: { nodeId: string; title: string }
         const { default: Hls } = await import("hls.js");
         if (!alive) return;
         if (Hls.isSupported()) {
-          instance = new Hls({ startPosition: resumeFrom ?? -1 });
+          instance = new Hls({ startPosition: resumeFrom ?? -1, capLevelToPlayerSize: true });
           hls.current = instance;
           instance.on(Hls.Events.MANIFEST_PARSED, (_e, data) => {
+            if (pb.maxHeight !== null && instance) {
+              const max = pb.maxHeight;
+              const byHeight = data.levels.map((l, index) => ({ index, height: l.height })).sort((x, y) => x.height - y.height);
+              const allowed = byHeight.filter((l) => l.height <= max);
+              instance.autoLevelCapping = (allowed.length ? allowed[allowed.length - 1] : byHeight[0]).index;
+            }
             setLevels(data.levels.map((l, index) => ({ index, height: l.height })).sort((a, b) => b.height - a.height));
           });
           instance.on(Hls.Events.LEVEL_SWITCHED, (_e, data) => setAutoHeight(instance?.levels[data.level]?.height ?? null));
