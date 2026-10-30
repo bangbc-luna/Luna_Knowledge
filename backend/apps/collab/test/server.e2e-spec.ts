@@ -171,6 +171,7 @@ describe('Collab server (e2e)', () => {
       COLLAB_INTERNAL_SECRET: INTERNAL,
       COLLAB_AUTO_VERSION_MIN: 30,
       COLLAB_INDEX_DELAY_MS: 20_000,
+      HTTP_KEEP_ALIVE_TIMEOUT_MS: 95_000,
     };
     queue = new Queue(QUEUES.SEARCH_INDEX, {
       connection: redisConnection(config.REDIS_URL),
@@ -220,6 +221,11 @@ describe('Collab server (e2e)', () => {
     expect(
       (await queue.getJobs(['delayed', 'waiting'])).filter((j) => j.data.nodeId === nodeId),
     ).toHaveLength(1);
+  });
+
+  it('giữ kết nối keep-alive lâu hơn thời gian Traefik giữ kết nối rảnh', () => {
+    expect(server.httpServer.keepAliveTimeout).toBe(95_000);
+    expect(server.httpServer.headersTimeout).toBe(96_000);
   });
 
   it('GET /health trả ok', async () => {

@@ -3,6 +3,7 @@ import {
   collabSecretsSchema,
   observabilityEnvSchema,
   databaseEnvSchema,
+  httpServerEnvSchema,
   loadEnv,
   redisEnvSchema,
 } from '@luna/shared';
@@ -13,6 +14,7 @@ export const collabEnvSchema = baseEnvSchema
   .extend(redisEnvSchema.shape)
   .extend(collabSecretsSchema.shape)
   .extend(observabilityEnvSchema.shape)
+  .extend(httpServerEnvSchema.shape)
   .extend({
     COLLAB_PORT: z.coerce.number().int().nonnegative().default(4001),
     COLLAB_AUTO_VERSION_MIN: z.coerce.number().int().positive().default(30),

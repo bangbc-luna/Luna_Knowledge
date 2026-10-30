@@ -354,5 +354,7 @@ export function createCollabServer(
       if (!deps.prisma) await prisma.$disconnect();
     },
   });
+  server.httpServer.keepAliveTimeout = config.HTTP_KEEP_ALIVE_TIMEOUT_MS;
+  server.httpServer.headersTimeout = config.HTTP_KEEP_ALIVE_TIMEOUT_MS + 1000;
   return server;
 }

@@ -23,6 +23,10 @@ export const databaseEnvSchema = z.object({
   DB_IDLE_TX_TIMEOUT_MS: optionalEnv(z.coerce.number().int().min(0)),
 });
 
+export const httpServerEnvSchema = z.object({
+  HTTP_KEEP_ALIVE_TIMEOUT_MS: z.coerce.number().int().positive().default(95_000),
+});
+
 export const redisEnvSchema = z.object({
   REDIS_URL: z.url(),
 });
