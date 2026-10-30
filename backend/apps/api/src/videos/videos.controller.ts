@@ -14,6 +14,7 @@ import {
   Req,
   Res,
 } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import {
   ApiBearerAuth,
   ApiFoundResponse,
@@ -93,6 +94,7 @@ export class VideosController {
   }
 
   @Public()
+  @SkipThrottle()
   @Get(':id/hls/master.m3u8')
   @Header('Content-Type', M3U8)
   @Header('Cache-Control', 'private, no-store')
@@ -103,6 +105,7 @@ export class VideosController {
   }
 
   @Public()
+  @SkipThrottle()
   @Get(':id/hls/:rendition/index.m3u8')
   @Header('Content-Type', M3U8)
   @Header('Cache-Control', 'private, no-store')
@@ -117,6 +120,7 @@ export class VideosController {
   }
 
   @Public()
+  @SkipThrottle()
   @Get(':id/hls/:rendition/:segment')
   @ApiOperation({ summary: 'Segment: chuyển hướng tới URL ký sẵn sống 2 phút (theo phiên xem)' })
   @ApiZodQuery(sessionQuery)
@@ -133,6 +137,7 @@ export class VideosController {
   }
 
   @Public()
+  @SkipThrottle()
   @Get(':id/key')
   @ApiOperation({ summary: 'Khoá AES-128 (16 byte) cho phiên xem, có giới hạn số lần' })
   @ApiZodQuery(sessionQuery)
