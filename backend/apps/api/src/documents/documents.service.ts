@@ -33,6 +33,11 @@ import { StorageService } from '../files/storage.service.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { BUCKETS, type Buckets, S3 } from '../infra/s3/s3.module.js';
 import { CollabClient } from './collab-client.service.js';
+import {
+  DOCX_IMPORT_MAX_BYTES,
+  DOCX_UNZIPPED_MAX_BYTES,
+  zipUncompressedBytes,
+} from './docx-limits.js';
 import type { CopyDocumentBody, CreateDocumentBody } from './documents.schemas.js';
 
 const userSummary = { id: true, email: true, name: true, avatarUrl: true } as const;
@@ -269,10 +274,36 @@ export class DocumentsService {
     if (!original || original.mime !== DOCX_MIME) {
       throw AppError.unsupportedType('Only Word documents (.docx) can be converted');
     }
+    const tooLarge = () =>
+      AppError.tooLarge('Word documents larger than 20 MB cannot be converted', {
+        maxBytes: DOCX_IMPORT_MAX_BYTES,
+      });
+    if (original.sizeBytes > BigInt(DOCX_IMPORT_MAX_BYTES)) throw tooLarge();
     const { body } = await this.storage.forRef(original).getStream(original);
     const chunks: Buffer[] = [];
-    for await (const c of body) chunks.push(Buffer.from(c as Buffer));
+    let received = 0;
+    for await (const c of body) {
+      const chunk = Buffer.from(c as Buffer);
+      received += chunk.length;
+      if (received > DOCX_IMPORT_MAX_BYTES) {
+        (body as { destroy?: () => void }).destroy?.();
+        throw tooLarge();
+      }
+      chunks.push(chunk);
+    }
     const buffer = Buffer.concat(chunks);
+    const unzipped = zipUncompressedBytes(buffer);
+    if (unzipped === null) {
+      throw AppError.unsupportedType('This Word document could not be converted');
+    }
+    if (unzipped > DOCX_UNZIPPED_MAX_BYTES) {
+      throw AppError.tooLarge(
+        'This Word document expands to more than 100 MB and cannot be converted',
+        {
+          maxUnzippedBytes: DOCX_UNZIPPED_MAX_BYTES,
+        },
+      );
+    }
 
     const taken = await this.nodes.siblingKeys(file.workspaceId, file.parentId);
     const base = file.name.replace(/\.docx$/i, '') || 'Tài liệu';

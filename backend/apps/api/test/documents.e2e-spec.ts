@@ -12,6 +12,7 @@ import {
 import { COLLAB_ACCESS_CHANNEL, COLLAB_TOKEN_AUDIENCE } from '@luna/shared';
 import { Redis } from 'ioredis';
 import { jwtVerify } from 'jose';
+import JSZip from 'jszip';
 import request from 'supertest';
 import { CollabClient } from '../src/documents/collab-client.service.js';
 import { PrismaService } from '../src/infra/prisma/prisma.service.js';
@@ -522,26 +523,22 @@ $A = P(1 + r)^n$`;
     await http().get(`/api/v1/documents/${id}`).set(outsider.auth).expect(200);
   });
 
-  it('import .docx thành tài liệu soạn thảo được, cùng thư mục', async () => {
-    const folder = (
-      await http()
-        .post(`/api/v1/workspaces/${wsId}/folders`)
-        .set(editor.auth)
-        .send({ name: 'Nhập' })
-        .expect(201)
-    ).body.id;
-    await shareToViewer(owner, folder);
+  async function seedDocx(
+    folderId: string,
+    name: string,
+    body: Buffer,
+    sizeBytes = body.length,
+  ): Promise<string> {
     const node = await ctx.prisma.node.create({
       data: {
         workspaceId: wsId,
-        parentId: folder,
+        parentId: folderId,
         type: 'FILE',
-        name: 'Onboarding.docx',
-        nameNormalized: 'onboarding.docx',
+        name,
+        nameNormalized: name.toLowerCase(),
         createdById: editor.userId,
       },
     });
-    const body = await readFile(`${FIXTURES}sample.docx`);
     const key = `ws/${wsId}/${node.id}/v1`;
     await s3.send(new PutObjectCommand({ Bucket: buckets.originals, Key: key, Body: body }));
     const blob = await ctx.prisma.blob.create({
@@ -551,7 +548,7 @@ $A = P(1 + r)^n$`;
         provider: 'S3',
         container: buckets.originals,
         key,
-        sizeBytes: BigInt(body.length),
+        sizeBytes: BigInt(sizeBytes),
         mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       },
     });
@@ -559,12 +556,26 @@ $A = P(1 + r)^n$`;
       data: {
         nodeId: node.id,
         versionNo: 1,
-        fileName: 'Onboarding.docx',
+        fileName: name,
         originalBlobId: blob.id,
         uploadedById: editor.userId,
       },
     });
     await ctx.prisma.fileInfo.create({ data: { nodeId: node.id, currentVersionId: v.id } });
+    return node.id;
+  }
+
+  it('import .docx thành tài liệu soạn thảo được, cùng thư mục', async () => {
+    const folder = (
+      await http()
+        .post(`/api/v1/workspaces/${wsId}/folders`)
+        .set(editor.auth)
+        .send({ name: 'Nhập' })
+        .expect(201)
+    ).body.id;
+    await shareToViewer(owner, folder);
+    const body = await readFile(`${FIXTURES}sample.docx`);
+    const node = { id: await seedDocx(folder, 'Onboarding.docx', body) };
 
     await http().post(`/api/v1/files/${node.id}/convert-to-document`).set(viewer.auth).expect(403);
     const res = await http()
@@ -596,6 +607,41 @@ $A = P(1 + r)^n$`;
     });
     await http().post(`/api/v1/files/${pdf.id}/convert-to-document`).set(editor.auth).expect(415);
   });
+
+  it(
+    'import .docx: quá 20 MB hoặc nở quá 100 MB bị từ chối rõ ràng, không để lại tài liệu rỗng',
+    { timeout: 60_000 },
+    async () => {
+      const folder = (
+        await http()
+          .post(`/api/v1/workspaces/${wsId}/folders`)
+          .set(editor.auth)
+          .send({ name: 'Giới hạn' })
+          .expect(201)
+      ).body.id;
+      const sample = await readFile(`${FIXTURES}sample.docx`);
+      const exact = await seedDocx(folder, 'Vừa.docx', sample, 20 * 1024 * 1024);
+      await http().post(`/api/v1/files/${exact}/convert-to-document`).set(editor.auth).expect(201);
+      const big = await seedDocx(folder, 'To.docx', sample, 20 * 1024 * 1024 + 1);
+      const r1 = await http()
+        .post(`/api/v1/files/${big}/convert-to-document`)
+        .set(editor.auth)
+        .expect(413);
+      expect(r1.body.error.code).toBe('TOO_LARGE');
+      expect(r1.body.error.details).toEqual({ maxBytes: 20 * 1024 * 1024 });
+      const zip = new JSZip();
+      zip.file('word/document.xml', Buffer.alloc(101 * 1024 * 1024));
+      const bomb = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+      const bombId = await seedDocx(folder, 'Bom.docx', bomb);
+      const r2 = await http()
+        .post(`/api/v1/files/${bombId}/convert-to-document`)
+        .set(editor.auth)
+        .expect(413);
+      expect(r2.body.error.details).toEqual({ maxUnzippedBytes: 100 * 1024 * 1024 });
+      const docs = await ctx.prisma.node.count({ where: { parentId: folder, type: 'DOCUMENT' } });
+      expect(docs).toBe(1);
+    },
+  );
 
   it('sao chép tài liệu: nội dung mới nhất và ảnh nhúng, không chép phiên bản; sang workspace khác; quyền', async () => {
     const id = await createShared(editor, 'Mẫu hợp đồng');

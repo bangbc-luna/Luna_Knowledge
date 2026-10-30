@@ -156,6 +156,9 @@ importers:
       '@vitest/coverage-v8':
         specifier: 4.1.11
         version: 4.1.11(vitest@4.1.11)
+      jszip:
+        specifier: 3.10.2
+        version: 3.10.2
       pino-pretty:
         specifier: ^13
         version: 13.2.0
