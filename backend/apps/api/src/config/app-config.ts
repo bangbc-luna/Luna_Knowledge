@@ -5,6 +5,7 @@ import {
   redisEnvSchema,
   s3EnvSchema,
   observabilityEnvSchema,
+  optionalEnv,
   searchEnvSchema,
   uploadEnvSchema,
   videoEnvSchema,
@@ -49,7 +50,7 @@ export const apiEnvSchema = baseEnvSchema
     ACCESS_TOKEN_TTL_SEC: z.coerce.number().int().positive().default(900),
     SESSION_IDLE_TIMEOUT_MIN: z.coerce.number().int().positive().default(60),
     SESSION_ABSOLUTE_TIMEOUT_HOURS: z.coerce.number().int().positive().default(12),
-    AUTH_REDIRECT_URL: z.url().optional(),
+    AUTH_REDIRECT_URL: optionalEnv(z.url()),
     COOKIE_SECURE: z
       .enum(['true', 'false'])
       .transform((v) => v === 'true')

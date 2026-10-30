@@ -6,6 +6,7 @@ import {
   redisEnvSchema,
   s3EnvSchema,
   observabilityEnvSchema,
+  optionalEnv,
   searchEnvSchema,
   uploadEnvSchema,
   videoEnvSchema,
@@ -23,7 +24,7 @@ export const workerEnvSchema = baseEnvSchema
   .extend(observabilityEnvSchema.shape)
   .extend({
     FILE_PROCESS_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
-    WORKER_TMP_DIR: z.string().optional(),
+    WORKER_TMP_DIR: optionalEnv(z.string()),
     WORKER_METRICS_PORT: z.coerce.number().int().min(0).default(9464),
   });
 

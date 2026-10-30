@@ -2,11 +2,12 @@ import { timingSafeEqual } from 'node:crypto';
 import * as Sentry from '@sentry/node';
 import { collectDefaultMetrics, Registry } from 'prom-client';
 import { z } from 'zod';
+import { optionalEnv } from './env.js';
 
 export const observabilityEnvSchema = z.object({
   METRICS_TOKEN: z.string().min(16).optional(),
-  SENTRY_DSN: z.url().optional(),
-  SENTRY_ENVIRONMENT: z.string().optional(),
+  SENTRY_DSN: optionalEnv(z.url()),
+  SENTRY_ENVIRONMENT: optionalEnv(z.string()),
 });
 
 export function createMetricsRegistry(service: string) {
