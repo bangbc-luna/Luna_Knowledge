@@ -65,6 +65,8 @@ export const videoEnvSchema = z.object({
   VIDEO_TRANSCODE_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(1),
   FFMPEG_PATH: z.string().default('ffmpeg'),
   FFPROBE_PATH: z.string().default('ffprobe'),
+  FFMPEG_THREADS: z.coerce.number().int().min(0).default(0),
+  FFMPEG_NICE: z.coerce.number().int().min(0).max(19).default(10),
 });
 
 export const collabSecretsSchema = z.object({

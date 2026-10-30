@@ -64,6 +64,8 @@ export class VideoTranscodeProcessor extends WorkerHost implements OnApplication
       ffmpeg: config.FFMPEG_PATH,
       ffprobe: config.FFPROBE_PATH,
       encoder: config.VIDEO_ENCODER,
+      threads: config.FFMPEG_THREADS,
+      nice: config.FFMPEG_NICE,
     };
   }
 

@@ -46,6 +46,7 @@ USER root
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 USER node
 COPY --from=build --chown=node:node /out/worker /app
+HEALTHCHECK --interval=15s --timeout=5s CMD node -e "fetch('http://127.0.0.1:'+(process.env.WORKER_METRICS_PORT||9464)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "dist/main.js"]
 
 FROM runtime AS collab

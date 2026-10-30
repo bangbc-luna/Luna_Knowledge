@@ -16,7 +16,7 @@ describe('Worker system queue (e2e)', () => {
     redis = await new RedisContainer('redis:7-alpine').start();
     Object.assign(process.env, {
       NODE_ENV: 'test',
-      WORKER_METRICS_PORT: '0',
+      WORKER_METRICS_PORT: '19464',
       LOG_LEVEL: 'warn',
       REDIS_URL: redis.getConnectionUrl(),
       DATABASE_URL: 'postgresql://unused:unused@localhost:1/unused',
@@ -57,6 +57,12 @@ describe('Worker system queue (e2e)', () => {
     const result = (await job.waitUntilFinished(events, 10_000)) as PingResult;
     expect(result.pong).toBe(true);
     expect(result.workerPid).toBe(process.pid);
+  });
+
+  it('GET /health trả ok không cần token', async () => {
+    const res = await fetch('http://127.0.0.1:19464/health');
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('ok');
   });
 
   it('job không xác định bị đánh dấu failed', async () => {
