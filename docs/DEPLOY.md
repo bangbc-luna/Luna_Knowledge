@@ -37,6 +37,19 @@ sudo usermod -aG docker $USER   # đăng xuất rồi đăng nhập lại
 docker compose version          # phải ra v2.x
 ```
 
+Giới hạn tài nguyên trong `docker-compose.prod.yml` (giả định server 8 core / 32 GB, chỉnh lại khi có server thật):
+
+| Dịch vụ | CPU | RAM | Ghi chú |
+|---|---|---|---|
+| worker | 4 | 6 GB | ffmpeg chạy `nice 10`, 4 luồng (`FFMPEG_THREADS`, `FFMPEG_NICE`); `DB_STATEMENT_TIMEOUT_MS=300000`; dừng êm tối đa 60 giây |
+| tika | 1 | 1,5 GB | JVM `-Xmx1g` |
+| gotenberg | 1 | 1 GB | |
+| meilisearch | 1 | 2 GB | lập chỉ mục tối đa 1 GB RAM, 1 luồng |
+| redis | 0,5 | 1 GB | `maxmemory 768mb`, giữ `noeviction` vì hàng đợi BullMQ cần |
+| api, collab, frontend | không giới hạn | không giới hạn | api, collab dừng êm tối đa 30 giây |
+
+Mạng: card mạng của server từ 2,5 GbE trở lên (200 người xem 1080p cùng lúc trong LAN khoảng 1 Gbps); switch LAN tối thiểu 1 GbE tới từng máy.
+
 GPU NVIDIA (tuỳ chọn, transcode nhanh hơn): cài NVIDIA Container Toolkit, đặt `VIDEO_ENCODER=h264_nvenc`.
 
 ## 3. Tên miền, HTTPS, đăng nhập Google
@@ -102,7 +115,13 @@ Seed tạo thêm hai workspace demo (Marketing, Engineering); xoá trong trang `
 3. `luna --profile remote up -d cloudflared`
 4. (Khuyến nghị) Cloudflare Access giới hạn chỉ email `@lunatech.vn`.
 
+Mạng `luna_edge` có subnet cố định (`EDGE_SUBNET`, mặc định `172.30.0.0/24`, gateway `EDGE_GATEWAY`) và container cloudflared có IP cố định `CLOUDFLARED_IP` (mặc định `172.30.0.250`). Traefik chỉ tin header `X-Forwarded-For` từ `CLOUDFLARED_IP`, nên giới hạn tốc độ tính theo IP thật của người dùng từ xa. Đổi ba biến này nếu dải mạng trùng với mạng khác trên server.
+
+Người xem qua tunnel mặc định bị chặn trần 720p (khoảng 3 Mbps mỗi người, `REMOTE_VIDEO_MAX_HEIGHT=720`), vẫn chọn tay được 1080p.
+
 **Băng thông khi xem video từ xa**: mọi luồng video từ xa đi qua đường **upload** của văn phòng. Mức bitrate: 360p ~0,9 Mbps, 720p ~3 Mbps, 1080p ~5,2 Mbps; trình phát tự hạ chất lượng khi mạng chậm. Đo upload thực tế bằng `speedtest` (hoặc speedtest.net từ một máy trong LAN): ví dụ upload 50 Mbps thì khoảng 8 người xem 1080p cùng lúc từ xa, hoặc 15 người 720p. Người xem trong LAN không tốn băng thông Internet.
+
+Công thức: số người xem từ xa cùng lúc ≈ upload (Mbps) / 3. Ví dụ 10 người cần upload tối thiểu 30 Mbps, 30 người cần 100 Mbps; chọn đường truyền theo số người xem từ xa dự kiến.
 
 ## 7. Backup hằng đêm và thử khôi phục
 
@@ -137,6 +156,8 @@ luna up -d            # migrate chạy trước, rồi các dịch vụ khởi �
 luna ps
 ```
 
+Lần đầu nâng cấp lên bản có mạng `edge` subnet cố định phải chạy `luna down && luna up -d` một lần, vì Compose báo mạng `luna_edge` cần tạo lại (subnet đổi). Dịch vụ gián đoạn trong lúc đó.
+
 Nên chạy backup ngay trước khi nâng cấp. Nếu bản mới lỗi: `git checkout <commit cũ>`, `luna build && luna up -d`; nếu migration đã đổi DB thì khôi phục từ bản backup vừa chạy.
 
 ## 9. Theo dõi và xử lý sự cố
@@ -156,6 +177,6 @@ Sự cố thường gặp:
 - **Đăng nhập Google báo redirect_uri_mismatch**: redirect URI trong Google Console phải khớp tuyệt đối mục 3.
 - **Tải file / xem video không được nhưng trang vẫn mở**: kiểm tra `media.knowledge.lunatech.vn` phân giải được và `S3_PUBLIC_ENDPOINT` đúng.
 - **Video đứng ở "Đang xử lý"**: `luna logs worker`; worker transcode lần lượt từng video (`VIDEO_TRANSCODE_CONCURRENCY`).
-- **Báo lỗi 429 "Too many requests"**: một người dùng vượt `RATE_LIMIT_USER_PER_MIN` (mặc định 600 request/phút); tăng nếu cần rồi `luna up -d api`.
+- **Báo lỗi 429 "Too many requests"**: route xem video không bị giới hạn. Nếu người dùng từ xa gặp 429, kiểm tra `CLOUDFLARED_IP` khớp IP thật của container cloudflared (`docker inspect` container cloudflared); nếu sai, mọi người từ xa bị tính chung một IP. Với người dùng trong LAN, có thể một người vượt `RATE_LIMIT_USER_PER_MIN` (mặc định 600 request/phút); tăng nếu cần rồi `luna up -d api`.
 - **Nhật ký hoạt động không sửa/xoá được**: bảng `audit_logs` có trigger chỉ cho ghi thêm, chỉ xoá được bản ghi cũ hơn 1 năm. Đây là chủ đích, không phải lỗi.
 - **Mất điện xong máy lên lại**: các dịch vụ có `restart: unless-stopped` nên tự chạy; kiểm tra `luna ps` và log Postgres.

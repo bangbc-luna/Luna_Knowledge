@@ -22,6 +22,10 @@ services:
       - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
       - --certificatesresolvers.le.acme.dnschallenge=true
       - --certificatesresolvers.le.acme.dnschallenge.provider=cloudflare
+      - --entrypoints.websecure.forwardedHeaders.trustedIPs=${CLOUDFLARED_IP:-172.30.0.250}/32
+      - --entrypoints.websecure.transport.respondingTimeouts.readTimeout=600s
+      - --entrypoints.websecure.transport.respondingTimeouts.idleTimeout=180s
+      - --serversTransport.forwardingTimeouts.idleConnTimeout=90s
       - --accesslog=true
     environment:
       CF_DNS_API_TOKEN: ${CF_DNS_API_TOKEN}
@@ -41,6 +45,8 @@ services:
     image: luna-frontend:${LUNA_VERSION:-latest}
     restart: unless-stopped
     depends_on: [api]
+    environment:
+      KEEP_ALIVE_TIMEOUT: '95000'
     networks: [edge, internal]
     labels:
       - traefik.enable=true
@@ -57,6 +63,7 @@ services:
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
       meilisearch: { condition: service_healthy }
+    stop_grace_period: 30s
     networks: [edge, internal]
     labels:
       - traefik.enable=true
@@ -71,6 +78,7 @@ services:
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
+    stop_grace_period: 30s
     networks: [edge, internal]
     labels:
       - traefik.enable=true
@@ -88,10 +96,22 @@ services:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
+    cpus: '4'
+    mem_limit: 6g
+    stop_grace_period: 60s
     volumes:
       - worker-tmp:/var/tmp/luna
     environment:
       WORKER_TMP_DIR: /var/tmp/luna
+      FFMPEG_THREADS: '4'
+      FFMPEG_NICE: '10'
+      DB_STATEMENT_TIMEOUT_MS: '300000'
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:'+(process.env.WORKER_METRICS_PORT||9464)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   migrate:
     <<: *app-env
@@ -124,7 +144,9 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ['redis-server', '--appendonly', 'yes', '--maxmemory-policy', 'noeviction']
+    command: ['redis-server', '--appendonly', 'yes', '--maxmemory', '768mb', '--maxmemory-policy', 'noeviction']
+    cpus: '0.5'
+    mem_limit: 1g
     volumes:
       - redis-data:/data
     networks: [internal]
@@ -164,6 +186,10 @@ services:
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
       MEILI_ENV: production
       MEILI_NO_ANALYTICS: 'true'
+      MEILI_MAX_INDEXING_MEMORY: 1Gb
+      MEILI_MAX_INDEXING_THREADS: '1'
+    cpus: '1'
+    mem_limit: 2g
     volumes:
       - meili-data:/meili_data
     networks: [internal]
@@ -174,13 +200,19 @@ services:
       retries: 30
 
   tika:
-    image: apache/tika:latest-full
+    image: apache/tika:4.1.0-full
     restart: unless-stopped
+    cpus: '1'
+    mem_limit: 1536m
+    environment:
+      JAVA_TOOL_OPTIONS: -Xmx1g
     networks: [internal]
 
   gotenberg:
     image: gotenberg/gotenberg:8
     restart: unless-stopped
+    cpus: '1'
+    mem_limit: 1g
     networks: [internal]
 
   cloudflared:
@@ -190,11 +222,17 @@ services:
     command: ['tunnel', '--no-autoupdate', 'run']
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
-    networks: [edge]
+    networks:
+      edge:
+        ipv4_address: ${CLOUDFLARED_IP:-172.30.0.250}
 
 networks:
   edge:
     name: luna_edge
+    ipam:
+      config:
+        - subnet: ${EDGE_SUBNET:-172.30.0.0/24}
+          gateway: ${EDGE_GATEWAY:-172.30.0.1}
   internal:
     name: luna_internal
 
