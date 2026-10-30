@@ -3,6 +3,7 @@
 import { type Editor, EditorContent, useEditor, useEditorState } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import { Activity, Bold, CircleAlert, Copy, Download, Eye, History, Italic, Link2, MessageSquare, MessageSquarePlus, Share2, Sigma, Tag as TagIcon, WifiOff } from "lucide-react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -31,8 +32,13 @@ import { EditorToolbar, ToolButton } from "./editor-toolbar";
 import { buildExtensions } from "./extensions";
 import { rememberAssets, setAssetDocument } from "./image-view";
 import { InlineTitle } from "./inline-title";
-import { LatexWorkspace } from "./latex-workspace";
 import { type CollabSession, type Peer, useCollab } from "./use-collab";
+
+function LatexLoading() {
+  return <div className="mt-4 h-[calc(100dvh-13rem)] min-h-[28rem] animate-pulse rounded-xl bg-foreground/5" aria-busy="true" aria-label="Đang tải" />;
+}
+
+const LatexWorkspace = dynamic(() => import("./latex-workspace").then((m) => m.LatexWorkspace), { ssr: false, loading: () => <LatexLoading /> });
 
 const IMAGE_ACCEPT = "image/png,image/jpeg,image/webp,image/gif";
 const UUID = /^[0-9a-f-]{36}$/i;

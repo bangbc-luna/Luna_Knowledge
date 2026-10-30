@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowLeft, Bookmark, History } from "lucide-react";
+import dynamic from "next/dynamic";
 import { useMemo, useState } from "react";
 import { api, describeError } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -13,7 +14,8 @@ import { ConfirmDialog, Dialog, Sheet } from "../ui/dialog";
 import { Field, Input } from "../ui/input";
 import { EmptyState, ErrorBanner, SkeletonRows, Tabs } from "../ui/misc";
 import { useToast } from "../ui/toast";
-import { LatexPreview } from "./latex-workspace";
+
+const LatexPreview = dynamic(() => import("./latex-workspace").then((m) => m.LatexPreview), { ssr: false });
 
 function safeHtml(html: string) {
   if (typeof window === "undefined") return "";
