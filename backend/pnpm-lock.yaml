@@ -472,6 +472,9 @@ importers:
       '@luna/shared':
         specifier: workspace:*
         version: link:../packages/shared
+      jose:
+        specifier: ^6.2.12
+        version: 6.2.12
       zod:
         specifier: ^4.6.7
         version: 4.6.7

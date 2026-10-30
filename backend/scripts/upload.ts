@@ -11,6 +11,7 @@ const { values, positionals } = parseArgs({
     replace: { type: 'string' },
     title: { type: 'string' },
     description: { type: 'string' },
+    token: { type: 'string' },
     email: { type: 'string', default: 'qa.creator@lunatech.vn' },
     api: { type: 'string', default: 'http://localhost:4000' },
   },
@@ -18,7 +19,7 @@ const { values, positionals } = parseArgs({
 const path = positionals[0];
 if (!path) {
   console.error(
-    'Usage: pnpm upload <file> [--ws id|slug] [--parent folderId] [--replace nodeId] [--title t --description d]',
+    'Usage: pnpm upload <file> [--ws id|slug] [--token accessToken] [--parent folderId] [--replace nodeId] [--title t --description d]',
   );
   process.exit(1);
 }
@@ -40,14 +41,13 @@ async function call<T>(method: string, url: string, token?: string, body?: unkno
   return json as T;
 }
 
-const { accessToken: token } = await call<{ accessToken: string }>(
-  'POST',
-  '/dev/token',
-  undefined,
-  {
-    email: values.email,
-  },
-);
+const token =
+  values.token ??
+  (
+    await call<{ accessToken: string }>('POST', '/dev/token', undefined, {
+      email: values.email,
+    })
+  ).accessToken;
 const me = await call<{ workspaces: { id: string; slug: string; name: string; role: string }[] }>(
   'GET',
   '/me',
