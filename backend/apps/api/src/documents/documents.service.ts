@@ -36,7 +36,7 @@ import { CollabClient } from './collab-client.service.js';
 import {
   DOCX_IMPORT_MAX_BYTES,
   DOCX_UNZIPPED_MAX_BYTES,
-  zipUncompressedBytes,
+  measureUnzippedBytes,
 } from './docx-limits.js';
 import type { CopyDocumentBody, CreateDocumentBody } from './documents.schemas.js';
 
@@ -292,7 +292,7 @@ export class DocumentsService {
       chunks.push(chunk);
     }
     const buffer = Buffer.concat(chunks);
-    const unzipped = zipUncompressedBytes(buffer);
+    const unzipped = measureUnzippedBytes(buffer, DOCX_UNZIPPED_MAX_BYTES);
     if (unzipped === null) {
       throw AppError.unsupportedType('This Word document could not be converted');
     }
