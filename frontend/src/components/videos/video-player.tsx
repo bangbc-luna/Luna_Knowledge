@@ -90,15 +90,30 @@ export function VideoPlayer({ nodeId, title }: { nodeId: string; title: string }
         const { default: Hls } = await import("hls.js");
         if (!alive) return;
         if (Hls.isSupported()) {
-          instance = new Hls({ startPosition: resumeFrom ?? -1, capLevelToPlayerSize: true });
+          const ceiling = pb.maxHeight;
+          const Base = Hls.DefaultConfig.capLevelController!;
+          class CeilingCapController extends Base {
+            private readonly owner: InstanceType<typeof Hls>;
+            constructor(owner: InstanceType<typeof Hls>) {
+              super(owner);
+              this.owner = owner;
+            }
+            getMaxLevel(capLevelIndex: number): number {
+              const sized = super.getMaxLevel(capLevelIndex);
+              if (ceiling === null || sized < 0) return sized;
+              const levels = this.owner.levels;
+              let best = -1;
+              let lowest = 0;
+              levels.forEach((l, i) => {
+                if (l.height < levels[lowest].height) lowest = i;
+                if (l.height <= ceiling && (best < 0 || l.height > levels[best].height)) best = i;
+              });
+              return Math.min(sized, best < 0 ? lowest : best);
+            }
+          }
+          instance = new Hls({ startPosition: resumeFrom ?? -1, capLevelToPlayerSize: true, capLevelController: CeilingCapController });
           hls.current = instance;
           instance.on(Hls.Events.MANIFEST_PARSED, (_e, data) => {
-            if (pb.maxHeight !== null && instance) {
-              const max = pb.maxHeight;
-              const byHeight = data.levels.map((l, index) => ({ index, height: l.height })).sort((x, y) => x.height - y.height);
-              const allowed = byHeight.filter((l) => l.height <= max);
-              instance.autoLevelCapping = (allowed.length ? allowed[allowed.length - 1] : byHeight[0]).index;
-            }
             setLevels(data.levels.map((l, index) => ({ index, height: l.height })).sort((a, b) => b.height - a.height));
           });
           instance.on(Hls.Events.LEVEL_SWITCHED, (_e, data) => setAutoHeight(instance?.levels[data.level]?.height ?? null));
