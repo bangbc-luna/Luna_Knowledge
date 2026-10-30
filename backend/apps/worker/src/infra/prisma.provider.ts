@@ -7,7 +7,13 @@ export class PrismaService implements OnModuleDestroy {
   readonly client: PrismaClient;
 
   constructor(@Inject(WORKER_CONFIG) config: WorkerConfig) {
-    this.client = createPrismaClient({ connectionString: config.DATABASE_URL, max: 5 });
+    this.client = createPrismaClient({
+      connectionString: config.DATABASE_URL,
+      max: 5,
+      connectTimeoutMs: config.DB_CONNECT_TIMEOUT_MS,
+      statementTimeoutMs: config.DB_STATEMENT_TIMEOUT_MS,
+      idleInTransactionTimeoutMs: config.DB_IDLE_TX_TIMEOUT_MS,
+    });
   }
 
   async onModuleDestroy() {

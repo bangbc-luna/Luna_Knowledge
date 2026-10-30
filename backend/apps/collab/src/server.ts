@@ -79,7 +79,14 @@ export function createCollabServer(
   deps: { prisma?: PrismaClient } = {},
 ) {
   const prisma =
-    deps.prisma ?? createPrismaClient({ connectionString: config.DATABASE_URL, max: 5 });
+    deps.prisma ??
+    createPrismaClient({
+      connectionString: config.DATABASE_URL,
+      max: 5,
+      connectTimeoutMs: config.DB_CONNECT_TIMEOUT_MS,
+      statementTimeoutMs: config.DB_STATEMENT_TIMEOUT_MS,
+      idleInTransactionTimeoutMs: config.DB_IDLE_TX_TIMEOUT_MS,
+    });
   const searchQueue = new Queue(QUEUES.SEARCH_INDEX, {
     connection: redisConnection(config.REDIS_URL),
     prefix: 'luna',

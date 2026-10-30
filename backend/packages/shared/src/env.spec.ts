@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { baseEnvSchema, loadEnv, s3EnvSchema } from './env.js';
+import { baseEnvSchema, databaseEnvSchema, loadEnv, s3EnvSchema } from './env.js';
 
 describe('loadEnv', () => {
   it('áp dụng giá trị mặc định', () => {
@@ -25,5 +25,16 @@ describe('loadEnv', () => {
       S3_BUCKET_ORIGINALS: 'originals',
     });
     expect(env.S3_FORCE_PATH_STYLE).toBe(false);
+  });
+});
+
+describe('databaseEnvSchema', () => {
+  it('đọc DB_STATEMENT_TIMEOUT_MS và để trống thì undefined', () => {
+    const url = 'postgresql://a@b/c';
+    expect(
+      databaseEnvSchema.parse({ DATABASE_URL: url, DB_STATEMENT_TIMEOUT_MS: '1500' })
+        .DB_STATEMENT_TIMEOUT_MS,
+    ).toBe(1500);
+    expect(databaseEnvSchema.parse({ DATABASE_URL: url }).DB_STATEMENT_TIMEOUT_MS).toBeUndefined();
   });
 });

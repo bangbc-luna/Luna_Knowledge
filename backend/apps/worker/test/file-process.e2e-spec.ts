@@ -66,6 +66,7 @@ describe('Worker file-process (e2e)', () => {
       WORKER_METRICS_PORT: '0',
       LOG_LEVEL: 'warn',
       DATABASE_URL: pg.getConnectionUri(),
+      DB_STATEMENT_TIMEOUT_MS: '300000',
       REDIS_URL: redis.getConnectionUrl(),
       S3_ENDPOINT: url(minio, 9000),
       S3_ACCESS_KEY: 'w_minio',
@@ -222,6 +223,13 @@ describe('Worker file-process (e2e)', () => {
     expect((await versionOf(txt.uploadId)).previewKind).toBe('text');
     expect(t.file?.extractedText).toContain('Ghi chú họp tuần');
   }, 60_000);
+
+  it('worker dùng statement_timeout riêng cho việc dài', async () => {
+    const [row] = await prisma.$queryRawUnsafe<Array<{ statement_timeout: string }>>(
+      'SHOW statement_timeout',
+    );
+    expect(row.statement_timeout).toBe('5min');
+  });
 
   it('.exe đổi đuôi thành .pdf bị từ chối vĩnh viễn, mục báo FAILED', async () => {
     const { uploadId, nodeId, tmpKey } = await completedUpload('fake-exe.pdf', {

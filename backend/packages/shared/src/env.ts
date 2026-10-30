@@ -15,6 +15,9 @@ export const baseEnvSchema = z.object({
 export const databaseEnvSchema = z.object({
   DATABASE_URL: z.url(),
   DB_POOL_MAX: z.coerce.number().int().min(1).max(200).optional(),
+  DB_CONNECT_TIMEOUT_MS: z.coerce.number().int().min(0).optional(),
+  DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().min(0).optional(),
+  DB_IDLE_TX_TIMEOUT_MS: z.coerce.number().int().min(0).optional(),
 });
 
 export const redisEnvSchema = z.object({
