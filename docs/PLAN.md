@@ -210,6 +210,7 @@ Nguyên tắc làm việc:
   - k6 `pnpm load:api`, 200 người dùng: CRUD p95 **49 ms**, tìm kiếm p95 **62 ms**, 0 lỗi. Lần đầu p95 1,4 giây vì pool DB của API chỉ 10 kết nối; nâng mặc định lên 30 (`DB_POOL_MAX`).
   - `pnpm load:collab`, 20 người cùng gõ 60 giây: 2 398 lần sửa tới đủ 19 người còn lại, hội tụ, độ trễ p95 **2 ms** (tối đa 16 ms).
   - Video 50 người xem cùng lúc: đã đo ở Phase 4.
+  - Các số trên đo trước khi có rate limit và chạy trên stack dev. Bài đo giờ cao điểm hiện hành (prod compose, qua Traefik, xem + soạn + transcode cùng lúc): xem mục **Gia cố đợt 1 — ổn định giờ cao điểm (2026-10-30)** bên dưới.
 - [x] Test IDOR bằng ma trận quyền tự động: 30 endpoint × 4 vai trò (quản trị, thành viên, share chỉ xem, người ngoài) + luồng xoá/khôi phục (`permissions-matrix.e2e-spec.ts`).
 - [ ] Rà OWASP checklist còn lại (sau khi có bản deploy).
 - [x] `backend/docker/docker-compose.prod.yml`: Traefik 3.6 (HTTPS Let's Encrypt DNS-01 qua Cloudflare, route frontend, `/api`, `/collab` WebSocket, `media.*` cho MinIO), bước `migrate` chạy migration và tạo bucket trước khi app lên, Postgres/MinIO chỉ mở `127.0.0.1` cho backup, `cloudflared` profile `remote`. Image: `backend/Dockerfile` (api, worker có ffmpeg, collab, migrate) và `frontend/Dockerfile` (Next standalone). Đã chạy thử nguyên stack trên máy dev: mọi dịch vụ healthy, frontend 200, API 401, MinIO 200, WebSocket collab 101, worker dựng chỉ mục. Hướng dẫn từng bước cho người trực: `docs/DEPLOY.md` (chuẩn bị server, split DNS, Google OAuth, secret, khởi chạy, tunnel, băng thông video từ xa, backup + thử khôi phục, nâng cấp, xử lý sự cố).
@@ -231,6 +232,48 @@ Dựng bằng Next.js 16 trong `frontend/`, giao diện theo skill `evon:ui-ux` 
 - [x] Responsive: desktop, iPad ngang (1024), iPad dọc (768), điện thoại (375). Kịch bản Playwright chạy app thật qua mọi luồng chính, không lỗi console, không cuộn ngang; `next build` sạch.
 
 Còn lại cho frontend (làm cùng các phase sau): tìm kiếm (Phase 6).
+
+---
+
+## Gia cố đợt 1 — ổn định giờ cao điểm (2026-10-30)
+
+Theo [spec gia cố](superpowers/specs/2026-10-30-hardening-design.md) mục 4 và [kế hoạch](superpowers/plans/2026-10-30-hardening-wave1-peak-stability.md).
+
+- [x] 1.1 HLS (playlist, segment, key) không còn tính vào rate limit ẩn danh; Traefik chỉ tin `X-Forwarded-For` từ IP của cloudflared.
+- [x] 1.2 `cpus`/`mem_limit` cho worker, tika, gotenberg, meilisearch, redis; ffmpeg `-threads` + `nice`; Tika `-Xmx`; Meilisearch giới hạn RAM/luồng index; Redis `maxmemory`.
+- [x] 1.3 Timeout pool DB (`connectionTimeoutMillis`, `statement_timeout`, `idle_in_transaction_session_timeout`; worker 300 s), keep-alive HTTP lớn hơn idle timeout của Traefik, Traefik `readTimeout` 600 s.
+- [x] 1.4 Import .docx giới hạn kích thước đầu vào và tổng dung lượng giải nén (đo thật từng mục, tối đa 100 MiB).
+- [x] 1.5 Collab đẩy job index có `jobId` theo node + delay để gộp.
+- [x] 1.6 Tài liệu rich-text không tải CodeMirror + KaTeX (`next/dynamic`).
+- [x] 1.7 Profile `monitoring`: Prometheus, Grafana (dashboard `luna-overview`), node-exporter, cAdvisor, 8 luật cảnh báo; healthcheck worker, `stop_grace_period`.
+- [x] 1.8 hls.js `capLevelToPlayerSize`; người xem qua cloudflared mặc định trần 720p; khuyến nghị NIC và uplink trong DEPLOY.md.
+- [x] 1.9 Kịch bản k6 hỗn hợp `tests/load/peak.js` (`pnpm load:peak`) + `load-collab` dùng chung seed (`load:seed`), chạy qua Traefik trên prod compose.
+
+**Đo trên máy dev với prod compose, giả định server 8 core / 32 GB — chỉ để tham khảo.**
+
+Cách chạy: prod compose + `--profile monitoring` trên máy dev (subnet edge riêng vì dải mặc định đã bị dự án khác chiếm), chứng chỉ tự ký; seed 150 người xem + 30 người soạn; k6 (`pnpm load:peak`) và `load-collab` (`CLIENTS=30 DOCS=6 SECONDS=360 P95_MAX_MS=50`) chạy cùng lúc trên chính máy đó; `setup()` của k6 transcode lại video 20 phút nên hàng đợi `video-transcode` có 1 job active suốt bài. Hai video là **video tổng hợp** sinh bằng ffmpeg lavfi (`testsrc2` 1920×1080 30 fps phủ `noise=alls=20:allf=t`, 8 Mbit/s, kèm âm sine; đoạn 60 giây lặp lại): 6 phút (người xem) và 20 phút 30 giây (transcode) — không phải video quay thật, thời gian transcode với video thật có thể khác.
+
+| Mục | Kết quả |
+|---|---|
+| Máy dev | i7-11800H 8 nhân / 16 luồng, RAM 31 GB, swap 31 GB (`lscpu`, `free -g`). Máy đang chạy cả container và tiến trình của dự án khác: lúc bắt đầu RAM còn trống khoảng 10 GB, swap đã dùng 21 GB, load average 21–35 |
+| Số VU | 100 người xem LAN + 50 người xem qua tunnel (header cloudflared, trần 720p) + 30 người soạn (k6) + 30 client collab trên 6 tài liệu + 1 transcode |
+| Tổng request k6 | 24 030 trong 6 phút 04 giây (16 679 check, 100% đạt); 26 GB dữ liệu nhận |
+| `bad_status` (429/5xx) | **0** |
+| API p95 | **234 ms** (ngưỡng 300 ms; trung vị 23 ms, tối đa 5,25 giây) |
+| Segment p95 | **46 ms** (ngưỡng 300 ms; tối đa 199 ms) |
+| Collab | 30 client, 21 539 lần sửa, 86 156 lần nhận, hội tụ; p95 **29 ms** (ngưỡng 50 ms), p99 107 ms, tối đa 280 ms |
+| Transcode trong bài | `queue_jobs{queue="video-transcode",state="active"}` = 1 suốt bài; video 20 phút 30 giây transcode lại xong sau 26 phút 03 giây (1,27× thời lượng, đạt NFR-2 ≤ 1,5×; worker giới hạn 4 CPU, `FFMPEG_THREADS=4`, `nice 10`). Lần transcode đầu, không có tải k6 nhưng máy bận hơn (load average 35–45), mất khoảng 37 phút |
+| CPU host đỉnh | 89,7% (trung bình 1 phút trên 16 luồng, gồm cả tiến trình của dự án khác); load average cao nhất 28,7 |
+| CPU từng dịch vụ đỉnh (`docker stats`) | worker 425% (ffmpeg), api 85%, traefik 83%, collab 76%, minio 28%; event-loop lag p99 cao nhất: api 55 ms, collab 77 ms, worker 56 ms |
+| RAM host đỉnh | 21,9 GB đã dùng (RAM trống thấp nhất 9,2 GB); swap 20,8–22,8 GB đã dùng (có sẵn từ trước bài đo); không container nào bị OOM hay khởi động lại |
+| Băng thông đỉnh | khoảng 750 Mbit/s (Traefik → k6 qua loopback, trung bình 30 giây); trung bình cả bài 70 MB/s |
+
+Ghi chú: k6 và collab chạy trên cùng máy với stack nên tranh CPU với server; đường "tunnel" chỉ giả lập header của cloudflared (Traefik không tin `X-Forwarded-For` từ máy chạy k6), không đi qua Cloudflare thật. cAdvisor không gắn được nhãn `name` cho container trên máy dev (containerd snapshotter) nên hai panel theo container trong Grafana trống; số CPU từng dịch vụ lấy từ `docker stats`.
+
+**Còn mở**
+
+- [ ] Chạy lại kịch bản peak (tests/load/peak.js + load-collab) trên server thật, k6 chạy từ một máy khác trong LAN; chỉnh cpus/mem_limit trong docker-compose.prod.yml và DEPLOY.md theo cấu hình thật.
+- [ ] Chọn kênh gửi cảnh báo (Alertmanager/Telegram/email) cho các luật trong docker/monitoring/alerts.yml.
 
 ---
 
