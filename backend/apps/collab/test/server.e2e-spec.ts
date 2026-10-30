@@ -170,7 +170,7 @@ describe('Collab server (e2e)', () => {
       COLLAB_TOKEN_SECRET: SECRET,
       COLLAB_INTERNAL_SECRET: INTERNAL,
       COLLAB_AUTO_VERSION_MIN: 30,
-      COLLAB_INDEX_DELAY_MS: 1500,
+      COLLAB_INDEX_DELAY_MS: 20_000,
     };
     queue = new Queue(QUEUES.SEARCH_INDEX, {
       connection: redisConnection(config.REDIS_URL),
@@ -210,10 +210,13 @@ describe('Collab server (e2e)', () => {
     await until(async () =>
       (await queue.getJobs(['delayed', 'waiting'])).some((j) => j.data.nodeId === nodeId),
     );
-    type(a.ydoc, 'hai');
-    await sleep(300);
-    type(a.ydoc, 'ba');
-    await sleep(300);
+    const editedAt = async () =>
+      (await prisma.document.findUniqueOrThrow({ where: { nodeId } })).lastEditedAt?.getTime() ?? 0;
+    for (const text of ['hai', 'ba']) {
+      const before = await editedAt();
+      type(a.ydoc, text);
+      await until(async () => (await editedAt()) > before);
+    }
     expect(
       (await queue.getJobs(['delayed', 'waiting'])).filter((j) => j.data.nodeId === nodeId),
     ).toHaveLength(1);
