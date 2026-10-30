@@ -119,6 +119,8 @@ Mạng `luna_edge` có subnet cố định (`EDGE_SUBNET`, mặc định `172.30
 
 Người xem qua tunnel mặc định bị chặn trần 720p (khoảng 3 Mbps mỗi người, `REMOTE_VIDEO_MAX_HEIGHT=720`), vẫn chọn tay được 1080p.
 
+Trần 720p không áp dụng khi trình duyệt phát bằng HLS gốc (Safari trên iPhone, iPad): trình phát gốc của Apple bỏ qua `maxHeight` và tự chọn chất lượng theo mạng, có thể lên 1080p. Người xem từ xa bằng iPhone/iPad vì vậy có thể tốn tới ~5,2 Mbps upload mỗi người; tính dư khi ước lượng băng thông bên dưới.
+
 **Băng thông khi xem video từ xa**: mọi luồng video từ xa đi qua đường **upload** của văn phòng. Mức bitrate: 360p ~0,9 Mbps, 720p ~3 Mbps, 1080p ~5,2 Mbps; trình phát tự hạ chất lượng khi mạng chậm. Đo upload thực tế bằng `speedtest` (hoặc speedtest.net từ một máy trong LAN): ví dụ upload 50 Mbps thì khoảng 8 người xem 1080p cùng lúc từ xa, hoặc 15 người 720p. Người xem trong LAN không tốn băng thông Internet.
 
 Công thức: số người xem từ xa cùng lúc ≈ upload (Mbps) / 3. Ví dụ 10 người cần upload tối thiểu 30 Mbps, 30 người cần 100 Mbps; chọn đường truyền theo số người xem từ xa dự kiến.
@@ -156,7 +158,17 @@ luna up -d            # migrate chạy trước, rồi các dịch vụ khởi �
 luna ps
 ```
 
-Lần đầu nâng cấp lên bản có mạng `edge` subnet cố định phải chạy `luna down && luna up -d` một lần, vì Compose báo mạng `luna_edge` cần tạo lại (subnet đổi). Dịch vụ gián đoạn trong lúc đó.
+Lần đầu nâng cấp lên bản có mạng `edge` subnet cố định phải tắt hết rồi bật lại một lần, vì Compose báo mạng `luna_edge` cần tạo lại (subnet đổi). Phải kèm đủ profile: `luna down` không có `--profile` chỉ tắt dịch vụ lõi, cloudflared (`remote`) và nhóm `monitoring` vẫn chạy, giữ mạng `luna_edge` nên không xoá được.
+
+```bash
+luna --profile remote --profile monitoring down
+luna up -d
+luna --profile remote up -d cloudflared       # nếu dùng truy cập từ xa (mục 6)
+luna --profile monitoring up -d               # nếu dùng giám sát (mục 9)
+luna --profile remote --profile monitoring ps
+```
+
+Dịch vụ gián đoạn trong lúc đó.
 
 Nên chạy backup ngay trước khi nâng cấp. Nếu bản mới lỗi: `git checkout <commit cũ>`, `luna build && luna up -d`; nếu migration đã đổi DB thì khôi phục từ bản backup vừa chạy.
 
@@ -173,7 +185,9 @@ Nên chạy backup ngay trước khi nâng cấp. Nếu bản mới lỗi: `git 
 
 ### Giám sát bằng Grafana (profile `monitoring`)
 
-Bật: bắt buộc điền `GRAFANA_ADMIN_PASSWORD` và `METRICS_TOKEN` trong `.env.prod` (để trống thì Grafana, Prometheus từ chối khởi động và in lý do trong `luna logs grafana`), rồi `luna --profile monitoring up -d`. Gồm Prometheus (giữ số liệu 30 ngày), Grafana, node-exporter (số liệu máy chủ, chỉ nghe trên cầu nối Docker `EDGE_GATEWAY`, không lộ ra LAN) và cAdvisor (CPU/RAM theo container). Không dịch vụ nào mở cổng ra ngoài trừ Grafana ở `127.0.0.1:3001`.
+Bật: bắt buộc điền `GRAFANA_ADMIN_PASSWORD` và `METRICS_TOKEN` trong `.env.prod` (để trống thì Grafana, Prometheus từ chối khởi động và in lý do trong `luna logs grafana` hoặc `luna logs prometheus`), rồi `luna --profile monitoring up -d`. Gồm Prometheus (giữ số liệu 30 ngày), Grafana, node-exporter (số liệu máy chủ, chỉ nghe trên cầu nối Docker `EDGE_GATEWAY`, không lộ ra LAN) và cAdvisor (CPU/RAM theo container). Không dịch vụ nào mở cổng ra ngoài trừ Grafana ở `127.0.0.1:3001`.
+
+Nếu server bật tường lửa chặn mặc định (ví dụ ufw `default deny incoming`), phải mở cho Prometheus tới node-exporter: `sudo ufw allow from <EDGE_SUBNET> to <EDGE_GATEWAY> port 9100 proto tcp` (mặc định `sudo ufw allow from 172.30.0.0/24 to 172.30.0.1 port 9100 proto tcp`); thiếu dòng này target `node` trong Prometheus báo down.
 
 Vào Grafana qua SSH tunnel: `ssh -L 3001:127.0.0.1:3001 <server>` rồi mở `http://127.0.0.1:3001` (tài khoản `admin`, mật khẩu `GRAFANA_ADMIN_PASSWORD`), dashboard "Luna overview". Danh sách cảnh báo nằm ở panel "Alerts" của dashboard và ở trang `/alerts` của Prometheus (chạy `luna exec prometheus wget -qO- http://127.0.0.1:9090/api/v1/alerts`).
 
