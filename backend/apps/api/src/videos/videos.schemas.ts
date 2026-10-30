@@ -36,6 +36,11 @@ export const playbackSchema = z.object({
   watermark: z.object({ name: z.string(), email: z.string() }).describe('FE vẽ kèm giờ hiện tại'),
   resumeAt: z.number().nullable(),
   durationSec: z.number(),
+  maxHeight: z
+    .number()
+    .int()
+    .nullable()
+    .describe('Trần chất lượng mặc định (px chiều cao) cho người xem từ xa; null = không giới hạn'),
 });
 
 export const sessionQuery = z.object({ s: z.string().min(16).max(128) });

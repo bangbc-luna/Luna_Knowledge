@@ -30,7 +30,7 @@ import type { AuthenticatedUser } from '../auth/auth.service.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Public } from '../auth/decorators/public.decorator.js';
 import { SystemAdmin } from '../auth/decorators/system-admin.decorator.js';
-import { requestContext } from '../common/http/request-context.js';
+import { requestContext, viaTunnel } from '../common/http/request-context.js';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
 import { ApiZodBody, ApiZodCreated, ApiZodOk, ApiZodQuery } from '../common/swagger/zod-openapi.js';
 import { NodesService } from '../content/nodes.service.js';
@@ -90,7 +90,7 @@ export class VideosController {
     @Param('id', uuid()) id: string,
     @Req() req: Request,
   ) {
-    return this.videos.startPlayback(user, id, requestContext(req));
+    return this.videos.startPlayback(user, id, requestContext(req), { viaTunnel: viaTunnel(req) });
   }
 
   @Public()
