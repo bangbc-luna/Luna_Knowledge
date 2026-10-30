@@ -1,6 +1,6 @@
 # @import ./_auth.http
 # Upload multipart → worker xử lý → xem trước / tải về / phiên bản (SPEC §7.7–7.8).
-# Cần worker đang chạy (`pnpm dev`) cùng Gotenberg, Tika: các bước chờ xử lý có `# @sleep`.
+# Cần worker đang chạy (`pnpm dev`) cùng Gotenberg, Tika: các bước chờ xử lý hỏi lại trạng thái file tới khi xong (tối đa 60 giây).
 # File mà sharedViewer cần xem được tải vào viewFolder (sharedViewer chỉ có share "Chỉ xem" trên folder đó).
 # File DOCX do creator (ADMIN workspace → OWNER) tải lên; member là MEMBER (EDITOR): tải bản mới, khôi phục phiên bản.
 @apiUrl = http://localhost:4000/api/v1
@@ -14,6 +14,15 @@
   exports.pdfSize = size('sample.pdf');
   exports.pngSize = size('sample.png');
   exports.fakeSize = size('fake-exe.pdf');
+  exports.waitForFile = async (nodeId, token, done = (b) => !['UPLOADING', 'PROCESSING'].includes(b.node.status)) => {
+    const deadline = Date.now() + 60_000;
+    for (;;) {
+      const res = await fetch(`${apiUrl}/files/${nodeId}`, { headers: { Authorization: `Bearer ${token}` } });
+      const body = res.ok ? await res.json() : null;
+      if ((body && done(body)) || Date.now() > deadline) return;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  };
 }}
 
 ### Đuôi file không được phép → 415
@@ -155,9 +164,11 @@ Content-Type: application/json
 ?? status == 200
 
 ### Sau khi worker xử lý: READY, phiên bản 1, có preview PDF (Gotenberg)
-# @sleep 5000
 # @name docxFile
 # @ref docxUpload
+{{
+  await waitForFile(docxUpload.nodeId, creator.accessToken);
+}}
 GET {{apiUrl}}/files/{{docxUpload.nodeId}}
 Authorization: Bearer {{creator.accessToken}}
 
@@ -200,8 +211,10 @@ Content-Type: application/json
 ?? status == 200
 
 ### File trùng nội dung: chi tiết có danh sách duplicates (chỉ cảnh báo)
-# @sleep 5000
 # @ref dupUpload
+{{
+  await waitForFile(dupUpload.nodeId, creator.accessToken);
+}}
 GET {{apiUrl}}/files/{{dupUpload.nodeId}}
 Authorization: Bearer {{creator.accessToken}}
 
@@ -323,9 +336,15 @@ Content-Type: application/json
 ?? status == 200
 
 ### Lịch sử phiên bản: v2 là bản hiện tại
-# @sleep 4000
 # @name versions
 # @ref v2Upload
+{{
+  await waitForFile(
+    docxUpload.nodeId,
+    sharedViewer.accessToken,
+    (b) => b.node.status === 'READY' && b.currentVersion?.versionNo === 2,
+  );
+}}
 GET {{apiUrl}}/files/{{docxUpload.nodeId}}/versions
 Authorization: Bearer {{sharedViewer.accessToken}}
 
@@ -389,8 +408,10 @@ Content-Type: application/json
 ?? status == 200
 
 ### → FAILED kèm lý do
-# @sleep 3000
 # @ref fakeUpload
+{{
+  await waitForFile(fakeUpload.nodeId, member.accessToken);
+}}
 GET {{apiUrl}}/files/{{fakeUpload.nodeId}}
 Authorization: Bearer {{member.accessToken}}
 
@@ -430,9 +451,11 @@ Content-Type: application/json
 ?? status == 200
 
 ### Thumbnail → 302 tới URL ký sẵn
-# @sleep 3000
 # @ref pngUpload
 # @noRedirect
+{{
+  await waitForFile(pngUpload.nodeId, sharedViewer.accessToken);
+}}
 GET {{apiUrl}}/files/{{pngUpload.nodeId}}/thumbnail
 Authorization: Bearer {{sharedViewer.accessToken}}
 
