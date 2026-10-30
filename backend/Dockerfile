@@ -44,6 +44,7 @@ FROM runtime AS worker
 # FFmpeg cho transcode video (Phase 4). GPU NVIDIA: chạy với NVIDIA Container Toolkit, VIDEO_ENCODER=h264_nvenc.
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+RUN mkdir -p /var/tmp/luna && chown node:node /var/tmp/luna
 USER node
 COPY --from=build --chown=node:node /out/worker /app
 HEALTHCHECK --interval=15s --timeout=5s CMD node -e "fetch('http://127.0.0.1:'+(process.env.WORKER_METRICS_PORT||9464)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
