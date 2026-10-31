@@ -161,6 +161,15 @@ describe('Videos: phát có bảo vệ (e2e)', () => {
     await ctx?.close();
   });
 
+  it('người xem qua cloudflared nhận trần 720p, người trong LAN không bị giới hạn', async () => {
+    const { nodeId } = await seedVideo('Từ xa.mp4');
+    const lan = await play(viewer, nodeId).expect(200);
+    expect(lan.body.maxHeight).toBeNull();
+    const remote = await play(viewer, nodeId).set('Cf-Connecting-IP', '203.0.113.9').expect(200);
+    expect(remote.body.maxHeight).toBe(720);
+    await http().get(remote.body.masterUrl).expect(200);
+  });
+
   it('chi tiết video; người ngoài 404; chưa transcode xong thì chưa phát được', async () => {
     const { nodeId } = await seedVideo('Đào tạo.mp4');
     const d = await http().get(`/api/v1/videos/${nodeId}`).set(viewer.auth).expect(200);

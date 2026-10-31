@@ -58,6 +58,7 @@
     "@types/node": "^24",
     "@types/supertest": "^7",
     "@vitest/coverage-v8": "4.1.11",
+    "jszip": "3.10.2",
     "pino-pretty": "^13",
     "supertest": "^7",
     "testcontainers": "^12.2.0",

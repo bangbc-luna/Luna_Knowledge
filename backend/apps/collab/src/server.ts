@@ -30,6 +30,7 @@ import { pino } from 'pino';
 import * as Y from 'yjs';
 import { verifyCollabToken } from './auth.js';
 import type { CollabConfig } from './config.js';
+import { enqueueIndexNode } from './index-queue.js';
 
 export interface CollabContext {
   userId: string;
@@ -79,7 +80,14 @@ export function createCollabServer(
   deps: { prisma?: PrismaClient } = {},
 ) {
   const prisma =
-    deps.prisma ?? createPrismaClient({ connectionString: config.DATABASE_URL, max: 5 });
+    deps.prisma ??
+    createPrismaClient({
+      connectionString: config.DATABASE_URL,
+      max: 5,
+      connectTimeoutMs: config.DB_CONNECT_TIMEOUT_MS,
+      statementTimeoutMs: config.DB_STATEMENT_TIMEOUT_MS,
+      idleInTransactionTimeoutMs: config.DB_IDLE_TX_TIMEOUT_MS,
+    });
   const searchQueue = new Queue(QUEUES.SEARCH_INDEX, {
     connection: redisConnection(config.REDIS_URL),
     prefix: 'luna',
@@ -307,9 +315,9 @@ export function createCollabServer(
         data: { updatedById: editor ?? undefined },
         select: { createdAt: true },
       });
-      await searchQueue
-        .add('index-node', { nodeId }, { removeOnComplete: true, removeOnFail: 100 })
-        .catch(() => undefined);
+      await enqueueIndexNode(searchQueue, nodeId, config.COLLAB_INDEX_DELAY_MS).catch(
+        () => undefined,
+      );
       const since = row.lastVersionAt ?? node.createdAt;
       const due = now.getTime() - since.getTime() >= config.COLLAB_AUTO_VERSION_MIN * 60_000;
       if (due && !lastContext?.internal) await autoVersion(nodeId, editor);
@@ -346,5 +354,7 @@ export function createCollabServer(
       if (!deps.prisma) await prisma.$disconnect();
     },
   });
+  server.httpServer.keepAliveTimeout = config.HTTP_KEEP_ALIVE_TIMEOUT_MS;
+  server.httpServer.headersTimeout = config.HTTP_KEEP_ALIVE_TIMEOUT_MS + 1000;
   return server;
 }

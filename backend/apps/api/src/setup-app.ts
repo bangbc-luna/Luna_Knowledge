@@ -1,3 +1,4 @@
+import type { Server } from 'node:http';
 import { type INestApplication, RequestMethod } from '@nestjs/common';
 import { SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
@@ -39,6 +40,9 @@ export function setupApp(app: INestApplication, config: AppConfig) {
   app.useGlobalFilters(new AllExceptionsFilter());
   app.enableCors({ origin: config.CORS_ORIGINS, credentials: true });
   app.enableShutdownHooks();
+  const server = app.getHttpServer() as Server;
+  server.keepAliveTimeout = config.HTTP_KEEP_ALIVE_TIMEOUT_MS;
+  server.headersTimeout = config.HTTP_KEEP_ALIVE_TIMEOUT_MS + 1000;
 
   if (!config.SWAGGER_ENABLED) return;
   const document = buildOpenApiDocument(app, config);

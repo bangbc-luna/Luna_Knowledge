@@ -21,6 +21,23 @@ export interface FfmpegTools {
   ffmpeg: string;
   ffprobe: string;
   encoder: 'libx264' | 'h264_nvenc';
+  threads: number;
+  nice: number;
+}
+
+export function ffmpegCommand(tools: FfmpegTools, args: string[]): { cmd: string; args: string[] } {
+  return tools.nice > 0
+    ? { cmd: 'nice', args: ['-n', String(tools.nice), tools.ffmpeg, ...args] }
+    : { cmd: tools.ffmpeg, args };
+}
+
+export function threadArgs(threads: number): { global: string[]; output: string[] } {
+  return threads > 0
+    ? {
+        global: ['-filter_complex_threads', String(threads)],
+        output: ['-threads', String(threads)],
+      }
+    : { global: [], output: [] };
 }
 
 export class InvalidVideoError extends Error {
@@ -162,7 +179,9 @@ export async function transcodeHls(
         `[${n > 1 ? `s${i}` : '0:v'}]scale=${r.width}:${r.height}:flags=bicubic,setsar=1[v${i}]`,
     )
     .join(';');
+  const threads = threadArgs(tools.threads);
   const args = [
+    ...threads.global,
     '-hide_banner',
     '-nostats',
     '-y',
@@ -205,6 +224,7 @@ export async function transcodeHls(
     'expr:gte(t,n_forced*6)',
     '-sc_threshold',
     '0',
+    ...threads.output,
     '-f',
     'hls',
     '-hls_time',
@@ -227,7 +247,8 @@ export async function transcodeHls(
   );
 
   let buffer = '';
-  await run(tools.ffmpeg, args, (chunk) => {
+  const command = ffmpegCommand(tools, args);
+  await run(command.cmd, command.args, (chunk) => {
     buffer += chunk;
     const lines = buffer.split('\n');
     buffer = lines.pop() ?? '';
@@ -245,7 +266,7 @@ export async function extractPoster(
   durationSec: number,
 ) {
   const at = Math.min(5, durationSec * 0.1);
-  await run(tools.ffmpeg, [
+  const command = ffmpegCommand(tools, [
     '-hide_banner',
     '-loglevel',
     'error',
@@ -262,6 +283,7 @@ export async function extractPoster(
     '3',
     out,
   ]);
+  await run(command.cmd, command.args);
 }
 
 export async function buildSprite(
@@ -277,7 +299,7 @@ export async function buildSprite(
   const rows = Math.ceil(count / cols);
   const tw = 160;
   const th = even((tw * height) / width);
-  await run(tools.ffmpeg, [
+  const command = ffmpegCommand(tools, [
     '-hide_banner',
     '-loglevel',
     'error',
@@ -292,6 +314,7 @@ export async function buildSprite(
     '4',
     out,
   ]);
+  await run(command.cmd, command.args);
   const ts = (s: number) => {
     const h = Math.floor(s / 3600);
     const m = Math.floor((s % 3600) / 60);

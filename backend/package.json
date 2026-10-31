@@ -28,6 +28,7 @@
     "restore": "bash scripts/backup/restore.sh",
     "format:check": "prettier --check \"apps/*/{src,test}/**/*.ts\" \"packages/*/src/**/*.ts\" \"packages/db/prisma/*.ts\" \"scripts/*.ts\"",
     "load:api": "docker run --rm --network host -v \"$PWD/tests/load:/load\" grafana/k6:1.8.1 run /load/api.js",
+    "load:peak": "docker run --rm --network host --add-host knowledge.lunatech.test:127.0.0.1 --add-host media.knowledge.lunatech.test:127.0.0.1 -v \"$PWD/tests/load:/load\" -e BASE -e VIDEO_ID -e TRANSCODE_ID -e VIEWERS_LAN -e VIEWERS_TUNNEL -e EDITORS -e SEGMENTS -e HOLD grafana/k6:1.8.1 run /load/peak.js",
     "load:collab": "pnpm --filter @luna/collab load",
     "test:cleanup": "pnpm --filter @luna/scripts cleanup:test"
   },

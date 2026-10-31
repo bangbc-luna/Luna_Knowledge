@@ -1,10 +1,12 @@
 import {
   baseEnvSchema,
   databaseEnvSchema,
+  httpServerEnvSchema,
   loadEnv,
   redisEnvSchema,
   s3EnvSchema,
   observabilityEnvSchema,
+  optionalEnv,
   searchEnvSchema,
   uploadEnvSchema,
   videoEnvSchema,
@@ -31,6 +33,7 @@ export const apiEnvSchema = baseEnvSchema
   .extend(collabSecretsSchema.shape)
   .extend(searchEnvSchema.shape)
   .extend(observabilityEnvSchema.shape)
+  .extend(httpServerEnvSchema.shape)
   .extend({
     API_PORT: z.coerce.number().int().positive().default(4000),
     API_PUBLIC_URL: z.url().default('http://localhost:4000'),
@@ -39,6 +42,7 @@ export const apiEnvSchema = baseEnvSchema
     WEB_PUBLIC_URL: z.url().default('http://localhost:5173'),
     CORS_ORIGINS: csv,
     TRUST_PROXY: z.string().default('loopback, uniquelocal'),
+    REMOTE_VIDEO_MAX_HEIGHT: z.coerce.number().int().positive().default(720),
 
     GOOGLE_CLIENT_ID: z.string().min(1),
     GOOGLE_CLIENT_SECRET: z.string().min(1),
@@ -47,7 +51,7 @@ export const apiEnvSchema = baseEnvSchema
     ACCESS_TOKEN_TTL_SEC: z.coerce.number().int().positive().default(900),
     SESSION_IDLE_TIMEOUT_MIN: z.coerce.number().int().positive().default(60),
     SESSION_ABSOLUTE_TIMEOUT_HOURS: z.coerce.number().int().positive().default(12),
-    AUTH_REDIRECT_URL: z.url().optional(),
+    AUTH_REDIRECT_URL: optionalEnv(z.url()),
     COOKIE_SECURE: z
       .enum(['true', 'false'])
       .transform((v) => v === 'true')

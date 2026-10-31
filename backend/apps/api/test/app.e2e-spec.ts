@@ -1,13 +1,16 @@
 import type { INestApplication } from '@nestjs/common';
+import { createPrismaClient } from '@luna/db';
 import request from 'supertest';
-import { createTestApp } from './create-test-app.js';
+import { createTestApp, type TestContext } from './create-test-app.js';
 
 describe('App bootstrap (e2e)', () => {
   let app: INestApplication;
   let close: () => Promise<void>;
+  let ctx: TestContext;
 
   beforeAll(async () => {
-    ({ app, close } = await createTestApp());
+    ctx = await createTestApp();
+    ({ app, close } = ctx);
   });
 
   afterAll(async () => {
@@ -50,5 +53,26 @@ describe('App bootstrap (e2e)', () => {
     const res = await request(app.getHttpServer()).get('/api/docs-json').expect(200);
     expect(res.body.info.title).toBe('Luna Knowledge API');
     expect(res.body.paths).toHaveProperty('/health');
+  });
+
+  it('kết nối DB có statement_timeout và idle_in_transaction_session_timeout; keep-alive dài hơn Traefik', async () => {
+    const [st] = await ctx.prisma.$queryRawUnsafe<Array<{ statement_timeout: string }>>(
+      'SHOW statement_timeout',
+    );
+    expect(st.statement_timeout).toBe('30s');
+    const [idle] = await ctx.prisma.$queryRawUnsafe<
+      Array<{ idle_in_transaction_session_timeout: string }>
+    >('SHOW idle_in_transaction_session_timeout');
+    expect(idle.idle_in_transaction_session_timeout).toBe('1min');
+    const server = ctx.app.getHttpServer() as import('node:http').Server;
+    expect(server.keepAliveTimeout).toBe(95_000);
+    expect(server.headersTimeout).toBe(96_000);
+    const short = createPrismaClient({
+      connectionString: process.env.DATABASE_URL!,
+      max: 1,
+      statementTimeoutMs: 200,
+    });
+    await expect(short.$queryRawUnsafe('SELECT pg_sleep(1)')).rejects.toThrow(/statement timeout/);
+    await short.$disconnect();
   });
 });

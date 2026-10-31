@@ -14,6 +14,7 @@ import {
   Req,
   Res,
 } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import {
   ApiBearerAuth,
   ApiFoundResponse,
@@ -29,7 +30,7 @@ import type { AuthenticatedUser } from '../auth/auth.service.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Public } from '../auth/decorators/public.decorator.js';
 import { SystemAdmin } from '../auth/decorators/system-admin.decorator.js';
-import { requestContext } from '../common/http/request-context.js';
+import { requestContext, viaTunnel } from '../common/http/request-context.js';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
 import { ApiZodBody, ApiZodCreated, ApiZodOk, ApiZodQuery } from '../common/swagger/zod-openapi.js';
 import { NodesService } from '../content/nodes.service.js';
@@ -89,10 +90,11 @@ export class VideosController {
     @Param('id', uuid()) id: string,
     @Req() req: Request,
   ) {
-    return this.videos.startPlayback(user, id, requestContext(req));
+    return this.videos.startPlayback(user, id, requestContext(req), { viaTunnel: viaTunnel(req) });
   }
 
   @Public()
+  @SkipThrottle()
   @Get(':id/hls/master.m3u8')
   @Header('Content-Type', M3U8)
   @Header('Cache-Control', 'private, no-store')
@@ -103,6 +105,7 @@ export class VideosController {
   }
 
   @Public()
+  @SkipThrottle()
   @Get(':id/hls/:rendition/index.m3u8')
   @Header('Content-Type', M3U8)
   @Header('Cache-Control', 'private, no-store')
@@ -117,6 +120,7 @@ export class VideosController {
   }
 
   @Public()
+  @SkipThrottle()
   @Get(':id/hls/:rendition/:segment')
   @ApiOperation({ summary: 'Segment: chuyển hướng tới URL ký sẵn sống 2 phút (theo phiên xem)' })
   @ApiZodQuery(sessionQuery)
@@ -133,6 +137,7 @@ export class VideosController {
   }
 
   @Public()
+  @SkipThrottle()
   @Get(':id/key')
   @ApiOperation({ summary: 'Khoá AES-128 (16 byte) cho phiên xem, có giới hạn số lần' })
   @ApiZodQuery(sessionQuery)

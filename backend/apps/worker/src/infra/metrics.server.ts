@@ -47,6 +47,7 @@ export class MetricsServer implements OnModuleInit, OnModuleDestroy {
   onModuleInit() {
     if (!this.config.WORKER_METRICS_PORT) return;
     this.server = createServer(async (req, res) => {
+      if (req.url === '/health') return void res.writeHead(200).end('ok');
       if (req.url !== '/metrics') return void res.writeHead(404).end();
       if (
         !metricsAllowed(

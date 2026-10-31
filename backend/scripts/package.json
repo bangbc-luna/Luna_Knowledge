@@ -7,11 +7,13 @@
     "infra:init": "tsx infra-init.ts",
     "admin:grant": "tsx admin-grant.ts",
     "upload": "tsx upload.ts",
-    "cleanup:test": "tsx cleanup-test-data.ts"
+    "cleanup:test": "tsx cleanup-test-data.ts",
+    "load:seed": "tsx load-seed.ts"
   },
   "dependencies": {
     "@luna/db": "workspace:*",
     "@luna/shared": "workspace:*",
+    "jose": "^6.2.12",
     "zod": "^4.6.7"
   },
   "devDependencies": {

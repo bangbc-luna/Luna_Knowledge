@@ -97,7 +97,12 @@ export class VideosService {
     });
   }
 
-  async startPlayback(user: AuthenticatedUser, nodeId: string, ctx: RequestContext) {
+  async startPlayback(
+    user: AuthenticatedUser,
+    nodeId: string,
+    ctx: RequestContext,
+    opts: { viaTunnel: boolean },
+  ) {
     const node = await this.requireVideo(user, nodeId, 'VIEWER');
     const video = await this.prisma.client.video.findUnique({ where: { nodeId } });
     if (!video) throw AppError.conflict('This video is not ready to play yet');
@@ -159,6 +164,7 @@ export class VideosService {
       watermark: { name: me.name, email: me.email },
       resumeAt: watch?.positionSec ?? null,
       durationSec: video.durationSec,
+      maxHeight: opts.viaTunnel ? this.config.REMOTE_VIDEO_MAX_HEIGHT : null,
     };
   }
 

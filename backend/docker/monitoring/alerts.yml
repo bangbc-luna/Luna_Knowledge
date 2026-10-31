@@ -1,0 +1,66 @@
+groups:
+  - name: luna
+    rules:
+      - alert: ApiLatencyP95High
+        expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{service="api"}[5m]))) > 0.3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: API p95 latency above 300 ms
+
+      - alert: Http429Or5xxRatio
+        expr: sum(rate(http_request_duration_seconds_count{status=~"429|5.."}[5m])) / sum(rate(http_request_duration_seconds_count[5m])) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: More than 1% of API requests return 429 or 5xx
+
+      - alert: EventLoopLagHigh
+        expr: max by (service) (nodejs_eventloop_lag_p99_seconds) > 0.2
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Event loop p99 lag above 200 ms on {{ $labels.service }}
+
+      - alert: QueueBacklog
+        expr: sum by (queue) (queue_jobs{state="waiting"}) > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: More than 100 waiting jobs in queue {{ $labels.queue }}
+
+      - alert: HostCpuHigh
+        expr: 1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) > 0.9
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: Host CPU above 90%
+
+      - alert: HostMemoryLow
+        expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Less than 10% of host memory available
+
+      - alert: HostNetworkSaturated
+        expr: max(rate(node_network_transmit_bytes_total{device!~"lo|veth.*|br-.*|docker.*"}[5m])) * 8 > 0.8e9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Host NIC transmit above 80% of 1 Gbps
+
+      - alert: TargetDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Scrape target {{ $labels.job }} {{ $labels.instance }} is down

@@ -10,6 +10,9 @@ export class PrismaService implements OnModuleDestroy {
     this.client = createPrismaClient({
       connectionString: config.DATABASE_URL,
       max: config.DB_POOL_MAX ?? 30,
+      connectTimeoutMs: config.DB_CONNECT_TIMEOUT_MS,
+      statementTimeoutMs: config.DB_STATEMENT_TIMEOUT_MS,
+      idleInTransactionTimeoutMs: config.DB_IDLE_TX_TIMEOUT_MS,
     });
   }
 

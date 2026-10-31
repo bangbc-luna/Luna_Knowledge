@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Redis } from 'ioredis';
 import request from 'supertest';
 import { APP_CONFIG, loadAppConfig } from '../src/config/app-config.js';
@@ -100,6 +101,20 @@ describe('Bảo mật HTTP (e2e)', () => {
     for (let i = 0; i < 6; i++) statuses.push((await http().post('/api/v1/auth/refresh')).status);
     expect(statuses).toContain(429);
     for (let i = 0; i < 10; i++) await http().get('/health/live').expect(200);
+  });
+
+  it('route HLS không bị giới hạn theo IP dù IP đã cạn hạn mức ẩn danh', async () => {
+    const id = randomUUID();
+    const s = 'x'.repeat(32);
+    await http().post('/api/v1/auth/refresh').expect(429);
+    const paths = [
+      `/api/v1/videos/${id}/hls/master.m3u8?s=${s}`,
+      `/api/v1/videos/${id}/hls/720p/index.m3u8?s=${s}`,
+      `/api/v1/videos/${id}/hls/720p/seg_0000.ts?s=${s}`,
+      `/api/v1/videos/${id}/key?s=${s}`,
+    ];
+    for (const p of paths) for (let i = 0; i < 15; i++) await http().get(p).expect(404);
+    await http().post('/api/v1/auth/refresh').expect(429);
   });
 
   it('/metrics: trả số liệu Prometheus cho mạng nội bộ, có METRICS_TOKEN thì bắt buộc token', async () => {

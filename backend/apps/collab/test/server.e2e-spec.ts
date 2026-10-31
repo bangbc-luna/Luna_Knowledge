@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { HocuspocusProvider } from '@hocuspocus/provider';
@@ -11,14 +12,21 @@ import {
   latexJSON,
   stateToJSON,
 } from '@luna/editor';
-import { COLLAB_ACCESS_CHANNEL, COLLAB_TOKEN_AUDIENCE } from '@luna/shared';
+import {
+  COLLAB_ACCESS_CHANNEL,
+  COLLAB_TOKEN_AUDIENCE,
+  QUEUES,
+  redisConnection,
+} from '@luna/shared';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redis';
+import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
 import { SignJWT } from 'jose';
 import { pino } from 'pino';
 import * as Y from 'yjs';
 import type { CollabConfig } from '../src/config.js';
+import { enqueueIndexNode } from '../src/index-queue.js';
 import { createCollabServer } from '../src/server.js';
 
 const SECRET = 'collab-e2e-token-secret-0123456789abcdef';
@@ -31,6 +39,7 @@ describe('Collab server (e2e)', () => {
   let prisma: PrismaClient;
   let config: CollabConfig;
   let server: Server;
+  let queue: Queue;
   let base: string;
   let workspaceId: string;
   let folderId: string;
@@ -161,7 +170,13 @@ describe('Collab server (e2e)', () => {
       COLLAB_TOKEN_SECRET: SECRET,
       COLLAB_INTERNAL_SECRET: INTERNAL,
       COLLAB_AUTO_VERSION_MIN: 30,
+      COLLAB_INDEX_DELAY_MS: 20_000,
+      HTTP_KEEP_ALIVE_TIMEOUT_MS: 95_000,
     };
+    queue = new Queue(QUEUES.SEARCH_INDEX, {
+      connection: redisConnection(config.REDIS_URL),
+      prefix: 'luna',
+    });
     await start();
   }, 180_000);
 
@@ -171,8 +186,46 @@ describe('Collab server (e2e)', () => {
 
   afterAll(async () => {
     await server?.destroy();
+    await queue?.close();
     await prisma?.$disconnect();
     await Promise.all([pg?.stop(), redisC?.stop()]);
+  });
+
+  it('nhiều lần gọi trong cửa sổ gộp chỉ sinh một job index; hết cửa sổ thì sinh job mới', async () => {
+    const id = randomUUID();
+    await enqueueIndexNode(queue, id, 1500);
+    await enqueueIndexNode(queue, id, 1500);
+    await enqueueIndexNode(queue, id, 1500);
+    const jobsFor = async () =>
+      (await queue.getJobs(['delayed', 'waiting'])).filter((j) => j.data.nodeId === id);
+    expect(await jobsFor()).toHaveLength(1);
+    await sleep(1700);
+    await enqueueIndexNode(queue, id, 1500);
+    expect(await jobsFor()).toHaveLength(2);
+  });
+
+  it('lưu tài liệu nhiều lần chỉ đẩy một job index đang chờ', async () => {
+    const nodeId = await newDocument();
+    const a = await connect(users.editor, nodeId);
+    type(a.ydoc, 'một');
+    await until(async () =>
+      (await queue.getJobs(['delayed', 'waiting'])).some((j) => j.data.nodeId === nodeId),
+    );
+    const editedAt = async () =>
+      (await prisma.document.findUniqueOrThrow({ where: { nodeId } })).lastEditedAt?.getTime() ?? 0;
+    for (const text of ['hai', 'ba']) {
+      const before = await editedAt();
+      type(a.ydoc, text);
+      await until(async () => (await editedAt()) > before);
+    }
+    expect(
+      (await queue.getJobs(['delayed', 'waiting'])).filter((j) => j.data.nodeId === nodeId),
+    ).toHaveLength(1);
+  });
+
+  it('giữ kết nối keep-alive lâu hơn thời gian Traefik giữ kết nối rảnh', () => {
+    expect(server.httpServer.keepAliveTimeout).toBe(95_000);
+    expect(server.httpServer.headersTimeout).toBe(96_000);
   });
 
   it('GET /health trả ok', async () => {

@@ -5,16 +5,26 @@ import { z } from 'zod';
 
 const bool = z.enum(['true', 'false', '1', '0']).transform((v) => v === 'true' || v === '1');
 
+export function optionalEnv<T extends z.ZodType>(schema: T) {
+  return z.preprocess((v) => (v === '' ? undefined : v), schema.optional());
+}
+
 export const baseEnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   LISTEN_HOST: z.string().min(1).optional(),
 });
 
-
 export const databaseEnvSchema = z.object({
   DATABASE_URL: z.url(),
-  DB_POOL_MAX: z.coerce.number().int().min(1).max(200).optional(),
+  DB_POOL_MAX: optionalEnv(z.coerce.number().int().min(1).max(200)),
+  DB_CONNECT_TIMEOUT_MS: optionalEnv(z.coerce.number().int().min(0)),
+  DB_STATEMENT_TIMEOUT_MS: optionalEnv(z.coerce.number().int().min(0)),
+  DB_IDLE_TX_TIMEOUT_MS: optionalEnv(z.coerce.number().int().min(0)),
+});
+
+export const httpServerEnvSchema = z.object({
+  HTTP_KEEP_ALIVE_TIMEOUT_MS: z.coerce.number().int().positive().default(95_000),
 });
 
 export const redisEnvSchema = z.object({
@@ -33,7 +43,7 @@ export const s3EnvSchema = z.object({
   S3_BUCKET_THUMBNAILS: z.string().min(3),
   S3_BUCKET_ASSETS: z.string().min(3),
   S3_BUCKET_ORIGINALS: z.string().min(3),
-  S3_PUBLIC_ENDPOINT: z.url().optional(),
+  S3_PUBLIC_ENDPOINT: optionalEnv(z.url()),
 });
 
 export const searchEnvSchema = z.object({
@@ -62,6 +72,8 @@ export const videoEnvSchema = z.object({
   VIDEO_TRANSCODE_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(1),
   FFMPEG_PATH: z.string().default('ffmpeg'),
   FFPROBE_PATH: z.string().default('ffprobe'),
+  FFMPEG_THREADS: z.coerce.number().int().min(0).default(0),
+  FFMPEG_NICE: z.coerce.number().int().min(0).max(19).default(10),
 });
 
 export const collabSecretsSchema = z.object({
