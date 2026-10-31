@@ -23,18 +23,19 @@ export function RecentUpdates({ wsId, section, className }: { wsId: string; sect
     () => api<Page<NodeItem>>(`/workspaces/${wsId}/recently-updated`, { query: { section, limit: pageSize } }),
     [wsId, section, tick, pageSize],
   );
-  const [extra, setExtra] = useState<{ base: Page<NodeItem> | null; items: NodeItem[]; cursor: string | null }>({ base: null, items: [], cursor: null });
+  const resetKey = `${wsId}:${section}:${tick}`;
+  const [extra, setExtra] = useState<{ key: string; items: NodeItem[]; cursor: string | null }>({ key: "", items: [], cursor: null });
   const [moreLoading, setMoreLoading] = useState(false);
-  const [favState, setFavState] = useState<{ base: Page<NodeItem> | null; map: Record<string, boolean> }>({ base: null, map: {} });
+  const [favState, setFavState] = useState<{ key: string; map: Record<string, boolean> }>({ key: "", map: {} });
 
-  const fresh = extra.base === first.data;
-  const cursor = fresh && extra.base ? extra.cursor : (first.data?.nextCursor ?? null);
+  const fresh = extra.key === resetKey;
+  const cursor = fresh ? extra.cursor : (first.data?.nextCursor ?? null);
   const items = useMemo(() => {
     const seen = new Set<string>();
     const merged = [...(first.data?.items ?? []), ...(fresh ? extra.items : [])].filter((n) => (seen.has(n.id) ? false : (seen.add(n.id), true)));
-    const favorites = favState.base === first.data ? favState.map : {};
+    const favorites = favState.key === resetKey ? favState.map : {};
     return merged.map((n) => (n.id in favorites ? { ...n, isFavorite: favorites[n.id]! } : n));
-  }, [first.data, extra, fresh, favState]);
+  }, [first.data, extra, fresh, favState, resetKey]);
 
   const pending = items.some((n) => n.status === "PROCESSING" || n.status === "UPLOADING");
   const reloadFirst = first.reload;
@@ -49,7 +50,7 @@ export function RecentUpdates({ wsId, section, className }: { wsId: string; sect
     setMoreLoading(true);
     try {
       const page = await api<Page<NodeItem>>(`/workspaces/${wsId}/recently-updated`, { query: { section, limit: pageSize, cursor } });
-      setExtra((e) => ({ base: first.data, items: [...(e.base === first.data ? e.items : []), ...page.items], cursor: page.nextCursor }));
+      setExtra((e) => ({ key: resetKey, items: [...(e.key === resetKey ? e.items : []), ...page.items], cursor: page.nextCursor }));
     } catch (err) {
       toast("error", describeError(err));
     } finally {
@@ -61,14 +62,14 @@ export function RecentUpdates({ wsId, section, className }: { wsId: string; sect
   if (!first.error && !first.loading && !items.length) return null;
 
   const title = section === "VIDEOS" ? "Video mới cập nhật" : "Mới cập nhật";
-  const onFavorite = (id: string, fav: boolean) => setFavState((f) => ({ base: first.data, map: { ...(f.base === first.data ? f.map : {}), [id]: fav } }));
+  const onFavorite = (id: string, fav: boolean) => setFavState((f) => ({ key: resetKey, map: { ...(f.key === resetKey ? f.map : {}), [id]: fav } }));
 
   return (
     <section aria-labelledby={`recent-${section}`} className={cn("min-w-0", className)}>
       <h2 id={`recent-${section}`} className="mb-2 px-1 text-sm font-semibold sm:px-3">
         {title}
       </h2>
-      {first.error ? (
+      {first.error && !first.data ? (
         <ErrorBanner error={first.error} what={title.toLocaleLowerCase("vi")} onRetry={() => void first.reload()} />
       ) : first.loading && !first.data ? (
         <SkeletonRows rows={4} />
@@ -83,7 +84,15 @@ export function RecentUpdates({ wsId, section, className }: { wsId: string; sect
           ))}
         </ul>
       )}
-      {cursor && !first.error ? (
+      {first.error && first.data ? (
+        <p role="status" className="mt-2 px-1 text-sm text-muted sm:px-3">
+          Chưa làm mới được danh sách.{" "}
+          <button type="button" onClick={() => void first.reload()} className="cursor-pointer rounded font-medium text-foreground underline-offset-2 outline-hidden hover:underline focus-visible:ring-2 focus-visible:ring-primary">
+            Thử lại
+          </button>
+        </p>
+      ) : null}
+      {cursor && first.data ? (
         <div className="mt-2 flex justify-center">
           <Button loading={moreLoading} onClick={() => void loadMore()} className="w-full sm:w-auto">
             Xem thêm
