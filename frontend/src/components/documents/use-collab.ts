@@ -52,15 +52,17 @@ export function useCollab(nodeId: string) {
     };
 
     let retry: ReturnType<typeof setTimeout> | undefined;
+    let generation = 0;
     const recheck = (attempt = 0) => {
+      const gen = ++generation;
       clearTimeout(retry);
       provider?.disconnect();
       fetchToken()
         .then(() => {
-          if (!cancelled) void provider?.connect();
+          if (!cancelled && gen === generation) void provider?.connect();
         })
         .catch((err) => {
-          if (cancelled || (err instanceof ApiError && FINAL.has(err.status))) return;
+          if (cancelled || gen !== generation || (err instanceof ApiError && FINAL.has(err.status))) return;
           const delay = (BACKOFF[attempt] ?? BACKOFF[BACKOFF.length - 1]!) * (0.75 + Math.random() * 0.5);
           retry = setTimeout(() => recheck(attempt + 1), delay);
         });
