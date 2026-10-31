@@ -27,6 +27,7 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
 
 FROM build AS migrate
 WORKDIR /repo
+USER node
 CMD ["sh", "-c", "pnpm --filter @luna/db exec prisma migrate deploy && pnpm --filter @luna/scripts db:app-login && pnpm --filter @luna/scripts infra:init"]
 
 FROM node:22-bookworm-slim AS runtime
