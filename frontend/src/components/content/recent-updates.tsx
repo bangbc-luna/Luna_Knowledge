@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { api, ApiError, describeError } from "@/lib/api";
+import { cn } from "@/lib/cn";
 import { formatWhen } from "@/lib/format";
 import { useBranchTick } from "@/lib/tree-sync";
 import type { NodeItem, NodeSection, Page } from "@/lib/types";
@@ -14,7 +15,7 @@ import { VideoGrid } from "./video-grid";
 
 const wideScreen = () => typeof window !== "undefined" && window.matchMedia("(min-width: 1280px)").matches;
 
-export function RecentUpdates({ wsId, section }: { wsId: string; section: NodeSection }) {
+export function RecentUpdates({ wsId, section, className }: { wsId: string; section: NodeSection; className?: string }) {
   const toast = useToast();
   const [pageSize] = useState(() => (wideScreen() ? 10 : 5));
   const tick = useBranchTick(wsId, null);
@@ -55,7 +56,7 @@ export function RecentUpdates({ wsId, section }: { wsId: string; section: NodeSe
   const onFavorite = (id: string, fav: boolean) => setFavState((f) => ({ base: first.data, map: { ...(f.base === first.data ? f.map : {}), [id]: fav } }));
 
   return (
-    <section aria-labelledby={`recent-${section}`} className="min-w-0">
+    <section aria-labelledby={`recent-${section}`} className={cn("min-w-0", className)}>
       <h2 id={`recent-${section}`} className="mb-2 px-1 text-sm font-semibold sm:px-3">
         {title}
       </h2>

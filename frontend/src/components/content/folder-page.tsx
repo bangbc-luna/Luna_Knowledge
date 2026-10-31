@@ -241,8 +241,8 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
                 ) : null}
               </div>
             </div>
-            <div className={cn(showRecent && !isVideo && "grid gap-3 xl:grid-cols-[minmax(0,1fr)_22rem] xl:items-start xl:gap-6", showRecent && isVideo && "flex flex-col gap-3")}>
-              <div className="relative min-w-0 @container" {...dropProps}>
+            <div className={cn(showRecent && "flex flex-col gap-3", showRecent && !isVideo && "xl:flex-row xl:items-start xl:gap-6")}>
+              <div className="relative min-w-0 flex-1 @container" {...dropProps}>
                 {dragging ? (
                   <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center rounded-2xl border border-dashed border-foreground/40 bg-background text-center">
                     <Upload className="size-5 text-muted" aria-hidden />
@@ -306,9 +306,12 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
                 </div>
               </div>
               {showRecent ? (
-                <div className={cn("min-w-0 border-t border-border pt-3", !isVideo && "xl:border-l xl:border-t-0 xl:pl-6 xl:pt-0")}>
-                  <RecentUpdates key={`${wsId}:${section}`} wsId={wsId} section={section} />
-                </div>
+                <RecentUpdates
+                  key={`${wsId}:${section}`}
+                  wsId={wsId}
+                  section={section}
+                  className={cn("border-t border-border pt-3", !isVideo && "xl:w-[22rem] xl:shrink-0 xl:border-t-0 xl:border-l xl:pt-0 xl:pl-6")}
+                />
               ) : null}
             </div>
           </>
