@@ -164,6 +164,19 @@ describe('Worker file-process (e2e)', () => {
       () => false,
     );
 
+  async function waitForLockWait(timeoutMs: number): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const [row] = await prisma.$queryRaw<Array<{ waiting: number }>>`
+        SELECT count(*)::int AS waiting FROM pg_locks
+         WHERE NOT granted
+           AND (locktype IN ('advisory', 'transactionid', 'tuple') OR relation = 'nodes'::regclass)`;
+      if (row && row.waiting >= 1) return;
+      if (Date.now() > deadline) throw new Error(`no lock wait within ${timeoutMs}ms`);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+
   const versionOf = (id: string) =>
     prisma.fileVersion.findUniqueOrThrow({
       where: { id },
@@ -225,9 +238,8 @@ describe('Worker file-process (e2e)', () => {
   }, 60_000);
 
   it('worker dùng statement_timeout riêng cho việc dài', async () => {
-    const [row] = await prisma.$queryRawUnsafe<Array<{ statement_timeout: string }>>(
-      'SHOW statement_timeout',
-    );
+    const [row] =
+      await prisma.$queryRawUnsafe<Array<{ statement_timeout: string }>>('SHOW statement_timeout');
     expect(row.statement_timeout).toBe('5min');
   });
 
@@ -265,6 +277,43 @@ describe('Worker file-process (e2e)', () => {
 
     const exe = await completedUpload('fake-exe.pdf', { as: 'readme.txt' });
     await expect(processor.processUpload(exe.uploadId)).rejects.toBeInstanceOf(UnrecoverableError);
+  });
+
+  it('hai phiên bản mới ghi cùng lúc nhận số liên tiếp, không lỗi trùng', async () => {
+    const first = await completedUpload('sample.txt');
+    await processor.processUpload(first.uploadId);
+    const second = await completedUpload('sample.txt', { as: 'v3.txt', nodeId: first.nodeId });
+    let running!: Promise<unknown>;
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT id FROM nodes WHERE id = ${first.nodeId}::uuid FOR NO KEY UPDATE`;
+        const blob = await tx.blob.create({
+          data: {
+            nodeId: first.nodeId,
+            kind: 'ORIGINAL',
+            provider: 'S3',
+            container: 'w-originals',
+            key: `race/${crypto.randomUUID()}`,
+            sizeBytes: 1n,
+            mime: 'text/plain',
+          },
+        });
+        await tx.fileVersion.create({
+          data: {
+            nodeId: first.nodeId,
+            versionNo: 2,
+            fileName: 'v2.txt',
+            originalBlobId: blob.id,
+            uploadedById: userId,
+          },
+        });
+        running = processor.processUpload(second.uploadId);
+        await waitForLockWait(30_000);
+      },
+      { timeout: 60_000 },
+    );
+    await running;
+    expect((await versionOf(second.uploadId)).versionNo).toBe(3);
   });
 
   it('phiên bản lỗi không làm mất phiên bản đang dùng', async () => {
