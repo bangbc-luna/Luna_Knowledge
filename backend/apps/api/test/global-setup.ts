@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { ensureAppLogin } from '@luna/db';
 import { createS3Client, ensureBuckets, loadEnv, s3EnvSchema } from '@luna/shared';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redis';
@@ -74,6 +75,12 @@ export async function setup() {
     env: process.env,
     stdio: 'pipe',
   });
+
+  const appUrl = new URL(postgres.getConnectionUri());
+  appUrl.username = 'luna_app_e2e';
+  appUrl.password = 'e2e_app_password';
+  await ensureAppLogin(postgres.getConnectionUri(), appUrl.toString());
+  process.env.DATABASE_APP_URL = appUrl.toString();
 
   const s3Env = loadEnv(s3EnvSchema, process.env);
   const s3 = createS3Client(s3Env);

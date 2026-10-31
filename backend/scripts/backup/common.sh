@@ -20,8 +20,10 @@ load_env() {
     export "$key=$value"
   done < "$ENV_FILE"
   DATABASE_URL="${DATABASE_URL//@postgres:/@localhost:}"
+  DATABASE_MIGRATE_URL="${DATABASE_MIGRATE_URL:-$DATABASE_URL}"
+  DATABASE_MIGRATE_URL="${DATABASE_MIGRATE_URL//@postgres:/@localhost:}"
   S3_ENDPOINT="${S3_ENDPOINT//\/\/minio:/\/\/localhost:}"
-  export DATABASE_URL S3_ENDPOINT
+  export DATABASE_URL DATABASE_MIGRATE_URL S3_ENDPOINT
 }
 
 require() {

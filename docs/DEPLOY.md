@@ -74,7 +74,9 @@ openssl rand -base64 48   # POSTGRES_PASSWORD, MINIO_ROOT_PASSWORD, MEILI_MASTER
 openssl rand -base64 32   # VIDEO_MASTER_KEY (đúng 32 byte)
 ```
 
-- Thay `<POSTGRES_PASSWORD>` trong `DATABASE_URL` và `<MINIO_ROOT_PASSWORD>` ở `S3_SECRET_KEY` bằng mật khẩu thật.
+- Thay `<POSTGRES_PASSWORD>` trong `DATABASE_MIGRATE_URL` và `<MINIO_ROOT_PASSWORD>` ở `S3_SECRET_KEY` bằng mật khẩu thật.
+- Thay `<APP_DB_PASSWORD>` trong `DATABASE_URL` bằng một mật khẩu riêng, sinh bằng `openssl rand -hex 32` (chỉ chữ và số, không phải mã hoá trong URL).
+- Hai user Postgres: `DATABASE_MIGRATE_URL` là user chủ DB (`POSTGRES_USER`), chỉ dùng cho `migrate`, backup, restore. `DATABASE_URL` là login riêng của app (`luna_app_user`, thuộc role `luna_app`): đọc ghi dữ liệu được nhưng không tạo hay sửa bảng, không sửa, xoá hay TRUNCATE được `audit_logs`. Bước `migrate` tự tạo login này, và mỗi lần khởi động lại đặt lại mật khẩu theo `DATABASE_URL`, nên đổi mật khẩu chỉ cần sửa `DATABASE_URL` rồi `luna up -d`.
 - **Cất `VIDEO_MASTER_KEY` và `BACKUP_PASSWORD` ra một nơi an toàn khác server** (két, trình quản lý mật khẩu của công ty). Mất `VIDEO_MASTER_KEY` thì mọi video đã transcode không phát được nữa; mất `BACKUP_PASSWORD` thì bản backup vô dụng.
 - `.env.prod` không bao giờ đưa lên git (đã có trong `.gitignore`).
 
@@ -129,6 +131,8 @@ Công thức: số người xem từ xa cùng lúc ≈ upload (Mbps) / 3. Ví d�
 
 Backup gồm dump Postgres và bucket `originals`, `assets` (preview, thumbnail, HLS tạo lại được từ file gốc), mã hoá bằng `BACKUP_PASSWORD`, giữ `BACKUP_KEEP_DAYS` ngày.
 
+Backup và restore kết nối Postgres bằng `DATABASE_MIGRATE_URL` (user chủ DB); thiếu biến này thì dùng `DATABASE_URL`. Restore tạo sẵn role `luna_app` ở DB đích nếu chưa có, để giữ nguyên quyền của app trong bản dump.
+
 Chạy thử một lần, rồi đặt lịch:
 
 ```bash
@@ -169,6 +173,8 @@ luna --profile remote --profile monitoring ps
 ```
 
 Dịch vụ gián đoạn trong lúc đó.
+
+Lần đầu nâng cấp lên bản có role DB riêng cho app: trong `.env.prod`, thêm `DATABASE_MIGRATE_URL` bằng đúng giá trị `DATABASE_URL` cũ (user chủ DB), rồi đổi `DATABASE_URL` sang `postgresql://luna_app_user:<APP_DB_PASSWORD>@postgres:5432/luna?schema=public` (mục 4). Không cần tạo user bằng tay: `luna up -d` chạy `migrate`, bước này tạo role `luna_app`, cấp quyền và tạo login `luna_app_user`, xong thì api, worker, collab mới khởi động bằng login đó. Log `luna logs migrate` có dòng `App login luna_app_user created`. Nếu chưa thêm `DATABASE_MIGRATE_URL`, mọi thứ vẫn chạy như cũ bằng user chủ DB (log báo `share the login`), chỉ là chưa có lớp bảo vệ này.
 
 Nên chạy backup ngay trước khi nâng cấp. Nếu bản mới lỗi: `git checkout <commit cũ>`, `luna build && luna up -d`; nếu migration đã đổi DB thì khôi phục từ bản backup vừa chạy.
 

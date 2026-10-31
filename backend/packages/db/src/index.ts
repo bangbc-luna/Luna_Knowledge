@@ -31,3 +31,4 @@ export function createPrismaClient({
 }
 export * from './access.js';
 export * from './documents.js';
+export * from './roles.js';

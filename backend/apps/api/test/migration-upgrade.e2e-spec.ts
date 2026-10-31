@@ -14,6 +14,7 @@ const WAVE2: string[] = [
   '20261031125329_indexes',
   '20261031140000_foreign_keys',
   '20261031150000_constraints',
+  '20261031160000_app_role_audit',
 ];
 
 describe('Wave 2 migrations upgrade existing data (e2e)', () => {
@@ -291,5 +292,20 @@ describe('Wave 2 migrations upgrade existing data (e2e)', () => {
     expect(byId[rootlessA]).toBe(rootlessA);
     expect(byId[rootlessB]).toBe(rootlessA);
     expect(byId[rootlessLive]).toBe(rootlessA);
+  });
+
+  it('role luna_app có quyền ghi trên bảng cũ nhưng không sửa, xoá được audit_logs', async () => {
+    const p = await one<Record<string, boolean>>(
+      `SELECT has_table_privilege('luna_app', 'nodes', 'UPDATE') AS nodes_update,
+              has_table_privilege('luna_app', 'audit_logs', 'INSERT') AS audit_insert,
+              has_table_privilege('luna_app', 'audit_logs', 'UPDATE') AS audit_update,
+              has_table_privilege('luna_app', 'audit_logs', 'DELETE') AS audit_delete`,
+    );
+    expect(p).toEqual({
+      nodes_update: true,
+      audit_insert: true,
+      audit_update: false,
+      audit_delete: false,
+    });
   });
 });

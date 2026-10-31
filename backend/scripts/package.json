@@ -8,7 +8,8 @@
     "admin:grant": "tsx admin-grant.ts",
     "upload": "tsx upload.ts",
     "cleanup:test": "tsx cleanup-test-data.ts",
-    "load:seed": "tsx load-seed.ts"
+    "load:seed": "tsx load-seed.ts",
+    "db:app-login": "tsx db-app-login.ts"
   },
   "dependencies": {
     "@luna/db": "workspace:*",
