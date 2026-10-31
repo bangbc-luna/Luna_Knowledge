@@ -18,6 +18,7 @@ import { TranscodeQueueService } from '../files/transcode-queue.service.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { REDIS } from '../infra/redis/redis.module.js';
 import { S3_PRESIGN } from '../infra/s3/s3.module.js';
+import { playbackIndexKey, playbackKey } from './playback-keys.js';
 
 const SESSION_IDLE_SEC = 15 * 60;
 const SESSION_MAX_SEC = 8 * 3600;
@@ -30,6 +31,7 @@ const SEGMENT_RE = /^seg_\d{4,6}\.ts$/;
 
 interface Session {
   userId: string;
+  sessionId: string;
   nodeId: string;
   prefix: string;
   bucket: string;
@@ -101,6 +103,7 @@ export class VideosService {
     user: AuthenticatedUser,
     nodeId: string,
     ctx: RequestContext,
+    sessionId: string,
     opts: { viaTunnel: boolean },
   ) {
     const node = await this.requireVideo(user, nodeId, 'VIEWER');
@@ -123,12 +126,18 @@ export class VideosService {
     const token = randomBytes(24).toString('base64url');
     const session: Session = {
       userId: user.id,
+      sessionId,
       nodeId,
       prefix: hls.key,
       bucket: hls.container,
       createdAt: Date.now(),
     };
-    await this.redis.set(`pb:${token}`, JSON.stringify(session), 'EX', SESSION_IDLE_SEC);
+    await this.redis
+      .multi()
+      .set(playbackKey(token), JSON.stringify(session), 'EX', SESSION_IDLE_SEC)
+      .sadd(playbackIndexKey(sessionId), token)
+      .expire(playbackIndexKey(sessionId), SESSION_MAX_SEC)
+      .exec();
 
     const fresh = await this.redis
       .set(`video:view:${user.id}:${nodeId}`, '1', 'EX', VIEW_DEDUPE_SEC, 'NX')
@@ -319,7 +328,7 @@ export class VideosService {
     token: string,
     { checkAccess = false } = {},
   ): Promise<Session> {
-    const raw = await this.redis.get(`pb:${token}`);
+    const raw = await this.redis.get(playbackKey(token));
     const s = raw ? (JSON.parse(raw) as Session) : null;
     if (!s || s.nodeId !== nodeId || Date.now() - s.createdAt > SESSION_MAX_SEC * 1000) {
       throw AppError.notFound('Playback session is invalid or has expired');
@@ -333,7 +342,7 @@ export class VideosService {
         throw AppError.notFound('Playback session is invalid or has expired');
       await this.requireVideo({ id: user.id } as unknown as AuthenticatedUser, nodeId, 'VIEWER');
     }
-    await this.redis.expire(`pb:${token}`, SESSION_IDLE_SEC);
+    await this.redis.expire(playbackKey(token), SESSION_IDLE_SEC);
     return s;
   }
 

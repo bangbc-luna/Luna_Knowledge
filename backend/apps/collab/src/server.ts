@@ -37,6 +37,7 @@ export interface CollabContext {
   name: string;
   nodeId: string;
   workspaceId: string;
+  sessionId?: string;
   internal?: boolean;
 }
 
@@ -156,7 +157,22 @@ export function createCollabServer(
       .catch((err) => logger.error({ err, nodeId }, 'Could not write edit log'));
   };
 
+  const closeSession = (server: Server, sessionId: string) => {
+    for (const document of server.hocuspocus.documents.values()) {
+      for (const connection of [...document.connections.keys()] as Connection<CollabContext>[]) {
+        const ctx = connection.context;
+        if (!ctx || ctx.internal || ctx.sessionId !== sessionId) continue;
+        logger.info(
+          { userId: ctx.userId, nodeId: ctx.nodeId },
+          'Session ended, closing collab connection',
+        );
+        connection.close({ code: 4401, reason: 'Session ended' });
+      }
+    }
+  };
+
   const recheck = async (server: Server, event: CollabAccessEvent) => {
+    if (event.sessionId) return closeSession(server, event.sessionId);
     for (const [name, document] of server.hocuspocus.documents) {
       const nodeId = nodeIdOf(name);
       if (!nodeId || (event.nodeId && event.nodeId !== nodeId)) continue;
@@ -265,10 +281,24 @@ export function createCollabServer(
         throw new Error('Invalid token');
       });
       if (claims.nodeId !== nodeId) throw new Error('Token is for another document');
+      if (claims.sessionId) {
+        const session = await prisma.session.findUnique({
+          where: { id: claims.sessionId },
+          select: { userId: true, revokedAt: true },
+        });
+        if (!session || session.revokedAt || session.userId !== claims.userId)
+          throw new Error('Session ended');
+      }
       const access = await resolveDocumentAccess(prisma, claims.userId, nodeId);
       if (!access || access.type !== 'DOCUMENT') throw new Error('Forbidden');
       connectionConfig.readOnly = access.role === 'VIEWER';
-      return { userId: claims.userId, name: claims.name, nodeId, workspaceId: access.workspaceId };
+      return {
+        userId: claims.userId,
+        name: claims.name,
+        nodeId,
+        workspaceId: access.workspaceId,
+        sessionId: claims.sessionId,
+      };
     },
 
     async onLoadDocument({ documentName, document }) {

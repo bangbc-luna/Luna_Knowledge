@@ -27,6 +27,7 @@ import {
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
+import { CurrentSession } from '../auth/decorators/current-session.decorator.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Public } from '../auth/decorators/public.decorator.js';
 import { SystemAdmin } from '../auth/decorators/system-admin.decorator.js';
@@ -87,10 +88,13 @@ export class VideosController {
   @ApiZodOk(playbackSchema)
   playback(
     @CurrentUser() user: AuthenticatedUser,
+    @CurrentSession() sessionId: string,
     @Param('id', uuid()) id: string,
     @Req() req: Request,
   ) {
-    return this.videos.startPlayback(user, id, requestContext(req), { viaTunnel: viaTunnel(req) });
+    return this.videos.startPlayback(user, id, requestContext(req), sessionId, {
+      viaTunnel: viaTunnel(req),
+    });
   }
 
   @Public()

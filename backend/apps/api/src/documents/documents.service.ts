@@ -168,10 +168,10 @@ export class DocumentsService {
     return this.detail(user, nodeId);
   }
 
-  async collabToken(user: AuthenticatedUser, nodeId: string) {
+  async collabToken(user: AuthenticatedUser, nodeId: string, sessionId: string) {
     const node = await this.requireDocument(user, nodeId, 'VIEWER');
     const expiresAt = new Date(Date.now() + COLLAB_TOKEN_TTL_SEC * 1000);
-    const token = await new SignJWT({ doc: nodeId, name: user.name })
+    const token = await new SignJWT({ doc: nodeId, name: user.name, sid: sessionId })
       .setProtectedHeader({ alg: 'HS256' })
       .setSubject(user.id)
       .setAudience(COLLAB_TOKEN_AUDIENCE)
