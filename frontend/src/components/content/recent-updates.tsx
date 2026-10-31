@@ -79,7 +79,7 @@ export function RecentUpdates({ wsId, section, className }: { wsId: string; sect
         <ul className="border-y border-border">
           {items.map((n) => (
             <li key={n.id} className="relative border-t border-border px-1 py-2 first:border-t-0 hover:bg-surface-hover sm:px-3">
-              <NodeName node={n} stretched sub={`Sửa ${formatWhen(n.updatedAt)} · ${n.createdBy.name}`} />
+              <NodeName node={n} stretched sub={`Sửa ${formatWhen(n.updatedAt)}`} />
             </li>
           ))}
         </ul>
