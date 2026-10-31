@@ -12,21 +12,22 @@ import { useToast } from "../ui/toast";
 import { NodeName } from "./node-name";
 import { VideoGrid } from "./video-grid";
 
-const PAGE_SIZE = 10;
+const wideScreen = () => typeof window !== "undefined" && window.matchMedia("(min-width: 1280px)").matches;
 
 export function RecentUpdates({ wsId, section }: { wsId: string; section: NodeSection }) {
   const toast = useToast();
+  const [pageSize] = useState(() => (wideScreen() ? 10 : 5));
   const tick = useBranchTick(wsId, null);
   const first = useApi(
-    () => api<Page<NodeItem>>(`/workspaces/${wsId}/recently-updated`, { query: { section, limit: PAGE_SIZE } }),
-    [wsId, section, tick],
+    () => api<Page<NodeItem>>(`/workspaces/${wsId}/recently-updated`, { query: { section, limit: pageSize } }),
+    [wsId, section, tick, pageSize],
   );
   const [extra, setExtra] = useState<{ base: Page<NodeItem> | null; items: NodeItem[]; cursor: string | null }>({ base: null, items: [], cursor: null });
   const [moreLoading, setMoreLoading] = useState(false);
   const [favState, setFavState] = useState<{ base: Page<NodeItem> | null; map: Record<string, boolean> }>({ base: null, map: {} });
 
   const fresh = extra.base === first.data;
-  const cursor = fresh && extra.items.length ? extra.cursor : (first.data?.nextCursor ?? null);
+  const cursor = fresh && extra.base ? extra.cursor : (first.data?.nextCursor ?? null);
   const items = useMemo(() => {
     const seen = new Set<string>();
     const merged = [...(first.data?.items ?? []), ...(fresh ? extra.items : [])].filter((n) => (seen.has(n.id) ? false : (seen.add(n.id), true)));
@@ -38,7 +39,7 @@ export function RecentUpdates({ wsId, section }: { wsId: string; section: NodeSe
     if (!cursor || !first.data) return;
     setMoreLoading(true);
     try {
-      const page = await api<Page<NodeItem>>(`/workspaces/${wsId}/recently-updated`, { query: { section, limit: PAGE_SIZE, cursor } });
+      const page = await api<Page<NodeItem>>(`/workspaces/${wsId}/recently-updated`, { query: { section, limit: pageSize, cursor } });
       setExtra((e) => ({ base: first.data, items: [...(e.base === first.data ? e.items : []), ...page.items], cursor: page.nextCursor }));
     } catch (err) {
       toast("error", describeError(err));

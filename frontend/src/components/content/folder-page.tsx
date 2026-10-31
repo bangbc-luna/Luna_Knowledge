@@ -242,74 +242,74 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
               </div>
             </div>
             <div className={cn(showRecent && !isVideo && "grid gap-3 xl:grid-cols-[minmax(0,1fr)_22rem] xl:items-start xl:gap-6", showRecent && isVideo && "flex flex-col gap-3")}>
-            {showRecent ? (
-              <div className={cn("min-w-0 border-b border-border pb-3 xl:border-b-0 xl:pb-0", !isVideo && "xl:order-2 xl:border-l xl:pl-6")}>
-                <RecentUpdates wsId={wsId} section={section} />
+              <div className="relative min-w-0 @container" {...dropProps}>
+                {dragging ? (
+                  <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center rounded-2xl border border-dashed border-foreground/40 bg-background text-center">
+                    <Upload className="size-5 text-muted" aria-hidden />
+                    <p className="mt-2 text-sm font-medium text-foreground">{isVideo ? "Thả video để tải lên" : "Thả tệp để tải lên"}</p>
+                    <p className="mt-1 max-w-[40ch] truncate text-sm text-muted">vào «{title}»</p>
+                  </div>
+                ) : null}
+                <div className={cn(!showList && "rounded-2xl border border-border bg-surface")}>
+                  {loading && !list.data ? (
+                    <SkeletonRows rows={6} />
+                  ) : loadError ? (
+                    <ErrorBanner error={loadError} what="thư mục" onRetry={reloadAll} />
+                  ) : !items.length ? (
+                    <EmptyState
+                      text={
+                        filter ? (
+                          `Không có mục nào khớp «${filter}».`
+                        ) : canEdit ? (
+                          <>
+                            {folderId ? "Thư mục này chưa có gì." : isVideo ? "Chưa có video nào." : "Chưa có tài liệu nào."}
+                            <span className="[@media(hover:none)]:hidden">{isVideo ? " Kéo thả video vào đây để tải lên." : " Kéo thả tệp vào đây để tải lên."}</span>
+                          </>
+                        ) : folderId ? (
+                          "Thư mục này chưa có gì."
+                        ) : isVideo ? (
+                          "Chưa có video nào."
+                        ) : (
+                          "Chưa có tài liệu nào."
+                        )
+                      }
+                      action={
+                        filter ? (
+                          <Button onClick={() => setFilter("")}>Xoá lọc</Button>
+                        ) : canEdit ? (
+                          <div className="flex flex-wrap justify-center gap-2">
+                            <Button icon={Upload} onClick={() => fileInput.current?.click()}>
+                              {isVideo ? "Tải video lên" : "Tải tệp lên"}
+                            </Button>
+                            {isVideo ? null : (
+                              <Button icon={FilePlus2} onClick={() => setNewDocOpen(true)}>
+                                Tạo tài liệu
+                              </Button>
+                            )}
+                            <Button icon={FolderPlus} onClick={() => setDialog({ kind: "create" })}>
+                              Tạo thư mục
+                            </Button>
+                          </div>
+                        ) : undefined
+                      }
+                    />
+                  ) : (
+                    <>
+                      {isVideo ? <VideoGrid items={items} menuFor={menuFor} onFavorite={onFavorite} /> : <FolderTable items={items} menuFor={menuFor} onFavorite={onFavorite} />}
+                      <p className="py-2 text-sm tabular-nums text-muted sm:px-3">
+                        {items.length} mục
+                        {filter ? ` khớp «${filter}»` : ""}
+                        {list.data?.nextCursor ? " · đang hiện 200 mục đầu" : ""}
+                      </p>
+                    </>
+                  )}
+                </div>
               </div>
-            ) : null}
-            <div className={cn("relative min-w-0 @container", showRecent && !isVideo && "xl:order-1")} {...dropProps}>
-              {dragging ? (
-                <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center rounded-2xl border border-dashed border-foreground/40 bg-background text-center">
-                  <Upload className="size-5 text-muted" aria-hidden />
-                  <p className="mt-2 text-sm font-medium text-foreground">{isVideo ? "Thả video để tải lên" : "Thả tệp để tải lên"}</p>
-                  <p className="mt-1 max-w-[40ch] truncate text-sm text-muted">vào «{title}»</p>
+              {showRecent ? (
+                <div className={cn("min-w-0 border-t border-border pt-3", !isVideo && "xl:border-l xl:border-t-0 xl:pl-6 xl:pt-0")}>
+                  <RecentUpdates key={`${wsId}:${section}`} wsId={wsId} section={section} />
                 </div>
               ) : null}
-              <div className={cn(!showList && "rounded-2xl border border-border bg-surface")}>
-                {loading && !list.data ? (
-                  <SkeletonRows rows={6} />
-                ) : loadError ? (
-                  <ErrorBanner error={loadError} what="thư mục" onRetry={reloadAll} />
-                ) : !items.length ? (
-                  <EmptyState
-                    text={
-                      filter ? (
-                        `Không có mục nào khớp «${filter}».`
-                      ) : canEdit ? (
-                        <>
-                          {folderId ? "Thư mục này chưa có gì." : isVideo ? "Chưa có video nào." : "Chưa có tài liệu nào."}
-                          <span className="[@media(hover:none)]:hidden">{isVideo ? " Kéo thả video vào đây để tải lên." : " Kéo thả tệp vào đây để tải lên."}</span>
-                        </>
-                      ) : folderId ? (
-                        "Thư mục này chưa có gì."
-                      ) : isVideo ? (
-                        "Chưa có video nào."
-                      ) : (
-                        "Chưa có tài liệu nào."
-                      )
-                    }
-                    action={
-                      filter ? (
-                        <Button onClick={() => setFilter("")}>Xoá lọc</Button>
-                      ) : canEdit ? (
-                        <div className="flex flex-wrap justify-center gap-2">
-                          <Button icon={Upload} onClick={() => fileInput.current?.click()}>
-                            {isVideo ? "Tải video lên" : "Tải tệp lên"}
-                          </Button>
-                          {isVideo ? null : (
-                            <Button icon={FilePlus2} onClick={() => setNewDocOpen(true)}>
-                              Tạo tài liệu
-                            </Button>
-                          )}
-                          <Button icon={FolderPlus} onClick={() => setDialog({ kind: "create" })}>
-                            Tạo thư mục
-                          </Button>
-                        </div>
-                      ) : undefined
-                    }
-                  />
-                ) : (
-                  <>
-                    {isVideo ? <VideoGrid items={items} menuFor={menuFor} onFavorite={onFavorite} /> : <FolderTable items={items} menuFor={menuFor} onFavorite={onFavorite} />}
-                    <p className="py-2 text-sm tabular-nums text-muted sm:px-3">
-                      {items.length} mục
-                      {filter ? ` khớp «${filter}»` : ""}
-                      {list.data?.nextCursor ? " · đang hiện 200 mục đầu" : ""}
-                    </p>
-                  </>
-                )}
-              </div>
-            </div>
             </div>
           </>
         )}
