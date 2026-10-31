@@ -517,7 +517,7 @@ export function DocumentPage() {
   return (
     <>
       <style>{commentStyle}</style>
-      <TopBar actions={hasPanel ? <DocPanelToggle pressed={togglePressed} onToggle={togglePanel} /> : null}>
+      <TopBar actions={hasPanel ? <DocPanelToggle pressed={togglePressed} onToggle={togglePanel} count={wide ? 0 : openCount} /> : null}>
         {parents.length ? (
           <>
             <div className="hidden md:block">

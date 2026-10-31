@@ -57,17 +57,23 @@ export function useDocPanel() {
   };
 }
 
-export function DocPanelToggle({ pressed, onToggle }: { pressed: boolean; onToggle: () => void }) {
+export function DocPanelToggle({ pressed, onToggle, count = 0 }: { pressed: boolean; onToggle: () => void; count?: number }) {
+  const label = count ? `Mục lục và bình luận, ${count} bình luận đang mở` : "Mục lục và bình luận";
   return (
     <button
       type="button"
       aria-pressed={pressed}
-      aria-label="Mục lục và bình luận"
-      title="Mục lục và bình luận"
+      aria-label={label}
+      title={label}
       onClick={onToggle}
-      className={cn("inline-flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-xl text-foreground/70 transition-colors hover:bg-foreground/5 hover:text-foreground aria-pressed:bg-foreground/5 aria-pressed:text-foreground", focusRing)}
+      className={cn("relative inline-flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-xl text-foreground/70 transition-colors hover:bg-foreground/5 hover:text-foreground aria-pressed:bg-foreground/5 aria-pressed:text-foreground", focusRing)}
     >
       <PanelRight className="size-4" aria-hidden />
+      {count ? (
+        <span aria-hidden className="absolute top-1 right-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] leading-none font-semibold text-primary-foreground tabular-nums">
+          {count > 99 ? "99+" : count}
+        </span>
+      ) : null}
     </button>
   );
 }
