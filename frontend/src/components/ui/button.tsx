@@ -64,10 +64,18 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   );
 });
 
+export type IconButtonSize = "compact" | "md" | "touch";
+
+export const ICON_BUTTON_SIZES: Record<IconButtonSize, string> = {
+  compact: "size-6 min-h-6 rounded-md",
+  md: "size-8 min-h-8 rounded-lg",
+  touch: "size-8 min-h-8 rounded-lg max-sm:size-10 max-sm:min-h-10",
+};
+
 export const IconButton = forwardRef<
   HTMLButtonElement,
-  React.ButtonHTMLAttributes<HTMLButtonElement> & { icon: LucideIcon; label: string }
->(function IconButton({ icon: Icon, label, className, type = "button", ...rest }, ref) {
+  React.ButtonHTMLAttributes<HTMLButtonElement> & { icon: LucideIcon; label: string; size?: IconButtonSize }
+>(function IconButton({ icon: Icon, label, size = "md", className, type = "button", ...rest }, ref) {
   return (
     <button
       ref={ref}
@@ -75,7 +83,8 @@ export const IconButton = forwardRef<
       aria-label={label}
       title={label}
       className={cn(
-        "inline-flex size-8 min-h-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted outline-hidden transition-colors hover:bg-foreground/8 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 aria-expanded:bg-foreground/8",
+        "inline-flex shrink-0 cursor-pointer items-center justify-center text-muted outline-hidden transition-colors hover:bg-foreground/8 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 aria-expanded:bg-foreground/8",
+        ICON_BUTTON_SIZES[size],
         className,
       )}
       {...rest}

@@ -4,7 +4,6 @@ import { FilePlus2, FolderPlus, Plus, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { api } from "@/lib/api";
-import { cn } from "@/lib/cn";
 import { docHref } from "@/lib/documents";
 import { DOC_ACCEPT_ATTR, extensionOf, VIDEO_ACCEPT_ATTR, VIDEO_EXTENSIONS } from "@/lib/files";
 import { expandTreeNodes, invalidateTree, useTreeScope } from "@/lib/tree-sync";
@@ -55,7 +54,8 @@ export function TreeCreateMenu({
       <RowMenu
         label={label}
         icon={Plus}
-        className={cn("size-6 min-h-6 rounded-md", className)}
+        size="compact"
+        className={className}
         panelClassName="min-w-48"
         groups={[
           [

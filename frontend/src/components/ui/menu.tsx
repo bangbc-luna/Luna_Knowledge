@@ -3,7 +3,7 @@
 import { Ellipsis, type LucideIcon } from "lucide-react";
 import { Fragment } from "react";
 import { cn } from "@/lib/cn";
-import { IconButton } from "./button";
+import { ICON_BUTTON_SIZES, IconButton, type IconButtonSize } from "./button";
 import { MenuItem, MenuSeparator, PopoverPanel, usePopover } from "./popover";
 
 export interface MenuAction {
@@ -18,21 +18,23 @@ export function RowMenu({
   groups,
   label = "Thao tác",
   icon = Ellipsis,
+  size = "md",
   className,
   panelClassName = "min-w-56",
 }: {
   groups: MenuAction[][];
   label?: string;
   icon?: LucideIcon;
+  size?: IconButtonSize;
   className?: string;
   panelClassName?: string;
 }) {
   const { open, setOpen, toggle, rootRef } = usePopover();
   const visible = groups.map((g) => g.filter((a) => !a.hidden)).filter((g) => g.length);
-  if (!visible.length) return <span className={cn("size-8 shrink-0", className)} aria-hidden />;
+  if (!visible.length) return <span className={cn("shrink-0", ICON_BUTTON_SIZES[size], className)} aria-hidden />;
   return (
     <div ref={rootRef} className="relative">
-      <IconButton icon={icon} label={label} aria-expanded={open} aria-haspopup="menu" onClick={toggle} className={className} />
+      <IconButton icon={icon} label={label} aria-expanded={open} aria-haspopup="menu" onClick={toggle} size={size} className={className} />
       <PopoverPanel open={open} align="right" className={panelClassName}>
         <div role="menu">
           {visible.map((group, gi) => (

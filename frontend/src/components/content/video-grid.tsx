@@ -67,7 +67,7 @@ export function VideoGrid({
               </div>
               <div className="relative z-10 flex shrink-0 items-center">
                 <FavoriteButton node={n} onChange={(fav) => onFavorite(n.id, fav)} />
-                {menuFor ? <RowMenu groups={menuFor(n)} className="max-sm:size-10 max-sm:min-h-10" /> : null}
+                {menuFor ? <RowMenu groups={menuFor(n)} size="touch" /> : null}
               </div>
             </div>
           </li>
