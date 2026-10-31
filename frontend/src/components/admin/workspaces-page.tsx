@@ -182,7 +182,7 @@ export function WorkspacesPage() {
                 <table className="w-full border-collapse">
                   <thead className="hidden sm:table-header-group">
                     <tr className="text-left text-xs font-medium text-muted">
-                      <th className="h-10 px-4 font-medium sm:pl-3">Workspace</th>
+                      <th className="h-10 pr-4 pl-3 font-medium">Workspace</th>
                       <th className="h-10 w-px px-4 text-right font-medium whitespace-nowrap">Thành viên</th>
                       <th className="hidden h-10 w-px px-4 font-medium whitespace-nowrap @2xl:table-cell">Ngày tạo</th>
                       <th className="h-10 w-px px-2 whitespace-nowrap sm:pr-3">
@@ -227,7 +227,7 @@ export function WorkspacesPage() {
                     ))}
                   </tbody>
                 </table>
-                <div className="border-t border-border px-3 py-2 sm:px-3">
+                <div className="border-t border-border px-3 py-2">
                   <p className="text-sm tabular-nums text-muted">{list.length} workspace</p>
                 </div>
               </>

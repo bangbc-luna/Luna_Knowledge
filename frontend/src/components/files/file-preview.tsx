@@ -8,7 +8,7 @@ import { useApi } from "@/lib/use-api";
 import { Button } from "../ui/button";
 import { PdfViewer } from "./pdf-viewer";
 
-const VIEW_H = "h-[calc(100dvh-15rem)] min-h-[28rem]";
+const VIEW_H = "h-[calc(100dvh-12.75rem)] min-h-[28rem]";
 const TEXT_LIMIT = 200 * 1024;
 
 function Centered({ children }: { children: React.ReactNode }) {
@@ -114,7 +114,7 @@ export function FilePreviewPane({
     return (
       <div className="flex min-h-64 items-center justify-center bg-background p-4">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={url} alt={node.name} className="max-h-[calc(100dvh-17rem)] max-w-full rounded-lg object-contain" />
+        <img src={url} alt={node.name} className="max-h-[calc(100dvh-14.75rem)] max-w-full rounded-lg object-contain" />
       </div>
     );
   }

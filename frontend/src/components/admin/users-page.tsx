@@ -90,7 +90,7 @@ export function UsersPage() {
                 <table className="w-full border-collapse">
                   <thead className="hidden sm:table-header-group">
                     <tr className="text-left text-xs font-medium text-muted">
-                      <th className="h-10 px-4 font-medium sm:pl-3">Người dùng</th>
+                      <th className="h-10 pr-4 pl-3 font-medium">Người dùng</th>
                       <th className="hidden h-10 w-px px-4 font-medium whitespace-nowrap @2xl:table-cell">Đăng nhập cuối</th>
                       <th className="hidden h-10 w-px px-4 font-medium whitespace-nowrap @3xl:table-cell">Tạo lúc</th>
                       <th className="h-10 w-px px-2 whitespace-nowrap sm:pr-3">
@@ -143,7 +143,7 @@ export function UsersPage() {
                     })}
                   </tbody>
                 </table>
-                <div className="flex items-center justify-between gap-4 border-t border-border px-3 py-2 sm:px-3">
+                <div className="flex items-center justify-between gap-4 border-t border-border px-3 py-2">
                   <p className="text-sm tabular-nums text-muted">
                     {data.items.length} người dùng{cursors.length > 1 || data.nextCursor ? ` · trang ${cursors.length}` : ""}
                   </p>

@@ -68,7 +68,7 @@ export function TrashPage() {
                 <table className="w-full border-collapse">
                   <thead className="hidden sm:table-header-group">
                     <tr className="text-left text-xs font-medium text-muted">
-                      <th className="h-10 px-4 font-medium sm:pl-3">Tên</th>
+                      <th className="h-10 pr-4 pl-3 font-medium">Tên</th>
                       <th className="hidden h-10 px-4 font-medium whitespace-nowrap @3xl:table-cell">Người xoá</th>
                       <th className="h-10 w-px px-4 font-medium whitespace-nowrap">Xoá lúc</th>
                       <th className="h-10 w-px px-4 font-medium whitespace-nowrap">Tự xoá sau</th>
@@ -120,7 +120,7 @@ export function TrashPage() {
                     })}
                   </tbody>
                 </table>
-                <div className="border-t border-border px-3 py-2 sm:px-3">
+                <div className="border-t border-border px-3 py-2">
                   <p className="text-sm text-muted text-pretty">
                     {data.length} lần xoá · {data.reduce((s, t) => s + t.itemCount, 0)} mục. Mục quá {RETENTION_DAYS} ngày được tự xoá lúc 03:00 hằng ngày.
                   </p>

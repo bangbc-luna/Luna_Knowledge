@@ -45,7 +45,7 @@ export function SkeletonRows({ rows = 5 }: { rows?: number }) {
   return (
     <div aria-busy="true" aria-label="Đang tải">
       {Array.from({ length: rows }, (_, i) => (
-        <div key={i} className="flex h-11 items-center gap-3 border-t border-border px-4 first:border-t-0 sm:px-3">
+        <div key={i} className="flex h-11 items-center gap-3 border-t border-border px-3 first:border-t-0">
           <span className="size-8 shrink-0 animate-pulse rounded-lg bg-foreground/6" />
           <span className="h-3 animate-pulse rounded-full bg-foreground/6" style={{ width: `${[52, 38, 60, 30, 46][i % 5]}%` }} />
           <span className="ml-auto hidden h-3 w-24 animate-pulse rounded-full bg-foreground/6 sm:block" />
