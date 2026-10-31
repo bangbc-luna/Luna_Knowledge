@@ -3,6 +3,7 @@ import { PrismaClient } from './generated/prisma/client.js';
 
 export * from './generated/prisma/client.js';
 export * from './maintenance.js';
+export * from './tree-lock.js';
 
 export interface CreatePrismaClientOptions {
   connectionString: string;

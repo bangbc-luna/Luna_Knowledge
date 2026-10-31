@@ -4,7 +4,9 @@ export async function waitForLockWait(prisma: PrismaClient, timeoutMs: number): 
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const [row] = await prisma.$queryRaw<Array<{ waiting: number }>>`
-      SELECT count(*)::int AS waiting FROM pg_locks WHERE NOT granted`;
+      SELECT count(*)::int AS waiting FROM pg_locks
+       WHERE NOT granted
+         AND (locktype IN ('advisory', 'transactionid', 'tuple') OR relation = 'nodes'::regclass)`;
     if (row && row.waiting > 0) return;
     if (Date.now() > deadline) throw new Error(`no lock wait within ${timeoutMs}ms`);
     await new Promise((resolve) => setTimeout(resolve, 20));

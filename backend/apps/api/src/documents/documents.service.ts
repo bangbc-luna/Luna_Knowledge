@@ -397,20 +397,22 @@ export class DocumentsService {
     json: DocJSON,
   ) {
     try {
-      const node = await this.prisma.client.node.create({
-        data: {
-          workspaceId,
-          parentId,
-          type: 'DOCUMENT',
-          name,
-          nameNormalized: nameKey(name),
-          createdById: user.id,
-          updatedById: user.id,
-          document: {
-            create: { ...this.contentFields(json), format: isLatexJSON(json) ? 'LATEX' : 'RICH' },
+      const node = await this.nodes.withTreeLock(workspaceId, (tx) =>
+        tx.node.create({
+          data: {
+            workspaceId,
+            parentId,
+            type: 'DOCUMENT',
+            name,
+            nameNormalized: nameKey(name),
+            createdById: user.id,
+            updatedById: user.id,
+            document: {
+              create: { ...this.contentFields(json), format: isLatexJSON(json) ? 'LATEX' : 'RICH' },
+            },
           },
-        },
-      });
+        }),
+      );
       return node.id;
     } catch (err) {
       throw await this.nodes.mapNameConflict(err, workspaceId, parentId, name);

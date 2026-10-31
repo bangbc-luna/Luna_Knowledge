@@ -1,4 +1,4 @@
-import type { NodeSection, NodeType, Prisma } from '@luna/db';
+import { lockWorkspaceTree, type NodeSection, type NodeType, type Prisma } from '@luna/db';
 import { SearchQueueService } from '../infra/queue/search-queue.service.js';
 import { Injectable } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service.js';
@@ -8,7 +8,7 @@ import type { RequestContext } from '../common/http/request-context.js';
 import type { Page } from '../common/pagination/cursor.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { CollabEventsService } from '../infra/redis/collab-events.service.js';
-import { isNameConflict } from './conflicts.js';
+import { isNameConflict, isTreeViolation } from './conflicts.js';
 import { ContentAccessService } from './content-access.service.js';
 import { NodeDtoService } from './node-dto.service.js';
 import { nameKey, suggestName } from './node-names.js';
@@ -205,18 +205,20 @@ export class NodesService {
     const parentId = body.parentId ?? null;
     const section = await this.requireContainer(user, workspaceId, parentId, body.section);
     try {
-      const node = await this.prisma.client.node.create({
-        data: {
-          workspaceId,
-          parentId,
-          section,
-          type: 'FOLDER',
-          name: body.name,
-          nameNormalized: nameKey(body.name),
-          createdById: user.id,
-          updatedById: user.id,
-        },
-      });
+      const node = await this.withTreeLock(workspaceId, (tx) =>
+        tx.node.create({
+          data: {
+            workspaceId,
+            parentId,
+            section,
+            type: 'FOLDER',
+            name: body.name,
+            nameNormalized: nameKey(body.name),
+            createdById: user.id,
+            updatedById: user.id,
+          },
+        }),
+      );
       await this.audit.log({
         actorId: user.id,
         action: 'node.create',
@@ -296,14 +298,15 @@ export class NodesService {
     if (targetParentId === node.parentId) return this.dto.one(user.id, nodeId);
 
     try {
-      await this.prisma.client.$transaction(async (tx) => {
+      await this.withTreeLock(node.workspaceId, async (tx) => {
         await tx.$queryRaw`SELECT id FROM nodes WHERE id = ${nodeId}::uuid FOR UPDATE`;
         if (targetParentId) {
-          const [{ inside }] = await tx.$queryRaw<{ inside: boolean }[]>`
+          const [target] = await tx.$queryRaw<{ inside: boolean }[]>`
             SELECT (t.path <@ n.path) AS inside
               FROM nodes t, nodes n
              WHERE t.id = ${targetParentId}::uuid AND n.id = ${nodeId}::uuid`;
-          if (inside) throw AppError.validation('Cannot move a folder into its own subfolder');
+          if (target?.inside)
+            throw AppError.validation('Cannot move a folder into its own subfolder');
         }
         await tx.node.update({
           where: { id: nodeId },
@@ -337,11 +340,14 @@ export class NodesService {
 
   async trash(user: AuthenticatedUser, nodeId: string, ctx: RequestContext): Promise<void> {
     const node = await this.access.requireNode(user, nodeId, 'EDITOR');
-    const count = await this.prisma.client.$executeRaw`
-      UPDATE nodes
-         SET deleted_at = now(), deleted_by = ${user.id}::uuid, deleted_root_id = ${nodeId}::uuid
-       WHERE path <@ (SELECT path FROM nodes WHERE id = ${nodeId}::uuid)
-         AND deleted_at IS NULL`;
+    const count = await this.withTreeLock(
+      node.workspaceId,
+      (tx) => tx.$executeRaw`
+        UPDATE nodes
+           SET deleted_at = now(), deleted_by = ${user.id}::uuid, deleted_root_id = ${nodeId}::uuid
+         WHERE path <@ (SELECT path FROM nodes WHERE id = ${nodeId}::uuid)
+           AND deleted_at IS NULL`,
+    );
     await this.audit.log({
       actorId: user.id,
       action: 'node.trash',
@@ -353,6 +359,16 @@ export class NodesService {
     });
     await this.search.tree(nodeId);
     await this.collab.accessChanged({ workspaceId: node.workspaceId });
+  }
+
+  withTreeLock<T>(
+    workspaceId: string,
+    fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    return this.prisma.client.$transaction(async (tx) => {
+      await lockWorkspaceTree(tx, workspaceId);
+      return fn(tx);
+    });
   }
 
   async requireContainer(
@@ -388,6 +404,11 @@ export class NodesService {
     excludeId?: string,
     section: NodeSection = 'DOCS',
   ): Promise<unknown> {
+    if (isTreeViolation(err)) {
+      return AppError.conflict(
+        'The target folder was just moved or deleted, refresh and try again',
+      );
+    }
     if (!isNameConflict(err)) return err;
     const taken = await this.siblingKeys(workspaceId, parentId, excludeId, section);
     return AppError.conflict('An item with this name already exists in this folder', {
@@ -400,6 +421,7 @@ export class NodesService {
     parentId: string | null,
     excludeId?: string,
     section: NodeSection = 'DOCS',
+    db: Prisma.TransactionClient = this.prisma.client,
   ): Promise<Set<string>> {
     const where: Prisma.NodeWhereInput = {
       workspaceId,
@@ -408,7 +430,7 @@ export class NodesService {
       deletedAt: null,
       id: excludeId ? { not: excludeId } : undefined,
     };
-    const siblings = await this.prisma.client.node.findMany({
+    const siblings = await db.node.findMany({
       where,
       select: { nameNormalized: true },
     });

@@ -83,20 +83,22 @@ export class UploadsService {
       const section = body.kind === 'VIDEO' ? 'VIDEOS' : 'DOCS';
       await this.nodes.requireContainer(user, workspaceId, parentId, section);
       try {
-        const node = await this.prisma.client.node.create({
-          data: {
-            workspaceId,
-            parentId,
-            section,
-            type: body.kind,
-            name,
-            nameNormalized: nameKey(name),
-            description: body.description ?? null,
-            status: 'UPLOADING',
-            createdById: user.id,
-            updatedById: user.id,
-          },
-        });
+        const node = await this.nodes.withTreeLock(workspaceId, (tx) =>
+          tx.node.create({
+            data: {
+              workspaceId,
+              parentId,
+              section,
+              type: body.kind,
+              name,
+              nameNormalized: nameKey(name),
+              description: body.description ?? null,
+              status: 'UPLOADING',
+              createdById: user.id,
+              updatedById: user.id,
+            },
+          }),
+        );
         nodeId = node.id;
       } catch (err) {
         throw await this.nodes.mapNameConflict(
