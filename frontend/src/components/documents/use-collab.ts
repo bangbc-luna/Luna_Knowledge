@@ -53,6 +53,8 @@ export function useCollab(nodeId: string) {
 
     let retry: ReturnType<typeof setTimeout> | undefined;
     let generation = 0;
+    let lostStreak = 0;
+    const backoff = (attempt: number) => (BACKOFF[attempt] ?? BACKOFF[BACKOFF.length - 1]!) * (0.75 + Math.random() * 0.5);
     const recheck = (attempt = 0) => {
       const gen = ++generation;
       clearTimeout(retry);
@@ -63,8 +65,7 @@ export function useCollab(nodeId: string) {
         })
         .catch((err) => {
           if (cancelled || gen !== generation || (err instanceof ApiError && FINAL.has(err.status))) return;
-          const delay = (BACKOFF[attempt] ?? BACKOFF[BACKOFF.length - 1]!) * (0.75 + Math.random() * 0.5);
-          retry = setTimeout(() => recheck(attempt + 1), delay);
+          retry = setTimeout(() => recheck(attempt + 1), backoff(attempt));
         });
     };
 
@@ -92,11 +93,22 @@ export function useCollab(nodeId: string) {
           if (s === WebSocketStatus.Connected) setStatus("online");
           else setStatus((prev) => (prev === "denied" ? prev : s === WebSocketStatus.Connecting ? "connecting" : "offline"));
         },
-        onSynced: ({ state }) => setSynced(state),
+        onSynced: ({ state }) => {
+          if (state) lostStreak = 0;
+          setSynced(state);
+        },
         onUnsyncedChanges: ({ number }) => setUnsynced(number),
         onAuthenticationFailed: () => void fetchToken().catch(() => undefined),
         onClose: ({ event }) => {
-          if (event.code === 4403 || event.code === 4401 || LOST_ACCESS.has(event.reason)) recheck();
+          if (!(event.code === 4403 || event.code === 4401 || LOST_ACCESS.has(event.reason))) return;
+          const streak = lostStreak++;
+          if (!streak) return recheck();
+          generation++;
+          clearTimeout(retry);
+          provider?.disconnect();
+          retry = setTimeout(() => {
+            if (!cancelled) recheck(streak - 1);
+          }, backoff(streak - 1));
         },
         onAwarenessUpdate: ({ states }) => {
           const seen = new Set<string>();
