@@ -21,6 +21,7 @@ export const JOBS = {
   PURGE_TRASH: 'purge-trash',
   CLEAN_UPLOADS: 'clean-uploads',
   BLOB_GC: 'blob-gc',
+  RETENTION: 'retention',
   TRANSCODE: 'transcode',
 } as const;
 

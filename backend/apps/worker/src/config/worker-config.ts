@@ -26,6 +26,8 @@ export const workerEnvSchema = baseEnvSchema
     FILE_PROCESS_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
     WORKER_TMP_DIR: optionalEnv(z.string()),
     WORKER_METRICS_PORT: z.coerce.number().int().min(0).default(9464),
+    WORKSPACE_PURGE_DAYS: z.coerce.number().int().min(1).default(30),
+    AUTO_VERSION_THIN_DAYS: z.coerce.number().int().min(1).default(30),
   });
 
 export type WorkerConfig = z.output<typeof workerEnvSchema>;

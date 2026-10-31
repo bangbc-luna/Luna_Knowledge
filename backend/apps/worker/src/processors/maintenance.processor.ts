@@ -2,7 +2,7 @@ import { readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AbortMultipartUploadCommand } from '@aws-sdk/client-s3';
-import { purgeExpiredTrash } from '@luna/db';
+import { purgeExpiredTrash, runRetention } from '@luna/db';
 import { JOBS, QUEUES } from '@luna/shared';
 import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger, type OnApplicationBootstrap } from '@nestjs/common';
@@ -37,6 +37,11 @@ export class MaintenanceProcessor extends WorkerHost implements OnApplicationBoo
       { name: JOBS.PURGE_TRASH, opts },
     );
     await this.queue.upsertJobScheduler(
+      JOBS.RETENTION,
+      { pattern: '30 3 * * *', tz: 'Asia/Ho_Chi_Minh' },
+      { name: JOBS.RETENTION, opts },
+    );
+    await this.queue.upsertJobScheduler(
       JOBS.CLEAN_UPLOADS,
       { pattern: '17 * * * *' },
       { name: JOBS.CLEAN_UPLOADS, opts },
@@ -55,6 +60,17 @@ export class MaintenanceProcessor extends WorkerHost implements OnApplicationBoo
         this.logger.log(`Purged ${purged} expired trash item(s)`);
         const gc = await this.collectGarbage();
         return { purged, ...gc };
+      }
+      case JOBS.RETENTION: {
+        const result = await runRetention(this.prisma.client, {
+          workspacePurgeDays: this.config.WORKSPACE_PURGE_DAYS,
+          autoVersionThinDays: this.config.AUTO_VERSION_THIN_DAYS,
+        });
+        this.logger.log(
+          `Retention: ${result.auditLogs} audit log(s), ${result.notifications} notification(s), ${result.recentViews} recent view(s), ${result.documentVersions} auto version(s), ${result.workspaces} workspace(s)`,
+        );
+        const gc = await this.collectGarbage();
+        return { ...result, ...gc };
       }
       case JOBS.CLEAN_UPLOADS:
         return { ...(await this.cleanUploads()), staleWorkDirs: await this.cleanWorkDirs() };

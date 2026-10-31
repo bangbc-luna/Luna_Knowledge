@@ -7,12 +7,19 @@ import { createDecipheriv } from 'node:crypto';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createS3Client, ensureBuckets, loadEnv, openVideoKey, s3EnvSchema } from '@luna/shared';
+import {
+  createS3Client,
+  ensureBuckets,
+  JOBS,
+  loadEnv,
+  openVideoKey,
+  s3EnvSchema,
+} from '@luna/shared';
 import type { INestApplicationContext } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { RedisContainer } from '@testcontainers/redis';
-import { UnrecoverableError } from 'bullmq';
+import { type Job, UnrecoverableError } from 'bullmq';
 import { GenericContainer, type StartedTestContainer, Wait } from 'testcontainers';
 import type { FileProcessProcessor } from '../src/processors/file-process.processor.js';
 import type { MaintenanceProcessor } from '../src/processors/maintenance.processor.js';
@@ -634,5 +641,55 @@ describe('Worker file-process (e2e)', () => {
     const result = await maintenance.cleanUploads();
     expect(result.aborted).toBe(1);
     expect(await prisma.node.findUnique({ where: { id: pending.id } })).toBeNull();
+  });
+
+  it('job retention chạy các bước dọn rồi GC', async () => {
+    const gone = await prisma.workspace.create({
+      data: {
+        name: 'Gone',
+        slug: 'retention-gone',
+        createdById: userId,
+        deletedAt: new Date(Date.now() - 40 * 86_400_000),
+      },
+    });
+    const node = await prisma.node.create({
+      data: {
+        workspaceId: gone.id,
+        type: 'FILE',
+        name: 'g.bin',
+        nameNormalized: 'g.bin',
+        createdById: userId,
+      },
+    });
+    const key = `retention/${Date.now()}`;
+    await s3.send(
+      new PutObjectCommand({ Bucket: BUCKETS.S3_BUCKET_ORIGINALS, Key: key, Body: 'x' }),
+    );
+    await prisma.blob.create({
+      data: {
+        nodeId: node.id,
+        kind: 'ORIGINAL',
+        provider: 'S3',
+        container: BUCKETS.S3_BUCKET_ORIGINALS,
+        key,
+        sizeBytes: 1n,
+        mime: 'application/octet-stream',
+      },
+    });
+    const r = await maintenance.process({ name: JOBS.RETENTION } as Job);
+    expect(r).toEqual(
+      expect.objectContaining({
+        auditLogs: expect.any(Number),
+        workspaces: expect.any(Number),
+        deleted: expect.any(Number),
+      }),
+    );
+    expect(r).toEqual(expect.objectContaining({ workspaces: 1 }));
+    expect(await prisma.workspace.findUnique({ where: { id: gone.id } })).toBeNull();
+    expect(await prisma.blobGc.count({ where: { key } })).toBe(0);
+    await expect(
+      s3.send(new HeadObjectCommand({ Bucket: BUCKETS.S3_BUCKET_ORIGINALS, Key: key })),
+    ).rejects.toThrow();
+    expect(await prisma.workspace.findUnique({ where: { id: workspaceId } })).not.toBeNull();
   });
 });
