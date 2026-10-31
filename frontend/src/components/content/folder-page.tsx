@@ -178,14 +178,14 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
       <TopBar>
         <div className="flex min-w-0 items-center gap-1">
           {parents.length ? (
-            <div className="hidden min-w-0 items-center gap-1 md:flex">
-              <Breadcrumb items={parents} />
+            <div className="hidden min-w-0 shrink-[2] items-center gap-1 md:flex">
+              <Breadcrumb items={parents} tail={1} />
               <span className="shrink-0 text-muted" aria-hidden>
                 ›
               </span>
             </div>
           ) : null}
-          <h1 className="min-w-0 truncate text-base font-semibold">{title}</h1>
+          <h1 className="min-w-24 truncate text-base font-semibold">{title}</h1>
         </div>
       </TopBar>
       <PageBody>
