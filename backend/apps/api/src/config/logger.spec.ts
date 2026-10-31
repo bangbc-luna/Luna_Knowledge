@@ -35,7 +35,7 @@ describe('request log', () => {
       unknown
     >;
     const app = express();
-    app.use(pinoHttp(options as never, stream));
+    app.use((pinoHttp as unknown as (o: never, s: Writable) => never)(options as never, stream));
     app.get('/a', (_req, res) => res.send('ok'));
     await request(app).get('/a?s=secret&token=secret2').expect(200);
     await new Promise((r) => setTimeout(r, 20));
