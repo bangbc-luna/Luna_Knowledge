@@ -59,7 +59,7 @@ describe('Worker file-process (e2e)', () => {
         .withExposedPorts(3000)
         .withWaitStrategy(Wait.forHttp('/health', 3000))
         .start(),
-      new GenericContainer('apache/tika:latest-full')
+      new GenericContainer('apache/tika:4.1.0-full')
         .withExposedPorts(9998)
         .withWaitStrategy(Wait.forHttp('/version', 9998))
         .start(),

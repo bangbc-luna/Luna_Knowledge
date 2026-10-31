@@ -11,7 +11,8 @@ Trình duyệt ──https──> Traefik :443 ──> frontend (Next.js)       
                               └────────> minio :9000                   media.knowledge.lunatech.vn
                                          (tải file, xem video bằng URL ký sẵn)
 
-Mạng nội bộ Docker (không mở ra ngoài): postgres, redis, meilisearch, tika, gotenberg, worker
+Mạng nội bộ Docker (không mở ra ngoài): postgres, redis, meilisearch, worker
+Mạng `luna_processing` (internal, không ra internet): tika, gotenberg; chỉ worker nối vào được cả hai mạng. Redis đặt mật khẩu qua `REDIS_PASSWORD` và `REDIS_URL=redis://:<mật khẩu>@redis:6379` (mật khẩu chỉ dùng ký tự an toàn trong URL)
 Truy cập từ xa (tuỳ chọn): cloudflared ──tunnel──> Traefik
 ```
 

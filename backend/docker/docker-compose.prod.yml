@@ -122,6 +122,7 @@ services:
       FFMPEG_THREADS: '4'
       FFMPEG_NICE: '10'
       DB_STATEMENT_TIMEOUT_MS: '300000'
+    networks: [internal, processing]
     healthcheck:
       test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:'+(process.env.WORKER_METRICS_PORT||9464)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 15s
@@ -165,14 +166,16 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ['redis-server', '--appendonly', 'yes', '--maxmemory', '768mb', '--maxmemory-policy', 'noeviction']
+    command: ['redis-server', '--appendonly', 'yes', '--maxmemory', '768mb', '--maxmemory-policy', 'noeviction', '--requirepass', '${REDIS_PASSWORD}']
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
     cpus: '0.5'
     mem_limit: 1g
     volumes:
       - redis-data:/data
     networks: [internal]
     healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
+      test: ['CMD-SHELL', 'redis-cli -a "$$REDIS_PASSWORD" --no-auth-warning ping | grep PONG']
       interval: 5s
       timeout: 5s
       retries: 30
@@ -249,14 +252,14 @@ services:
     mem_limit: 1536m
     environment:
       JAVA_TOOL_OPTIONS: -Xmx1g
-    networks: [internal]
+    networks: [processing]
 
   gotenberg:
     image: gotenberg/gotenberg:8
     restart: unless-stopped
     cpus: '1'
     mem_limit: 1g
-    networks: [internal]
+    networks: [processing]
 
   prometheus:
     image: prom/prometheus:v3.5.0
@@ -348,6 +351,9 @@ networks:
           gateway: ${EDGE_GATEWAY:-172.30.0.1}
   internal:
     name: luna_internal
+  processing:
+    name: luna_processing
+    internal: true
 
 volumes:
   letsencrypt:
