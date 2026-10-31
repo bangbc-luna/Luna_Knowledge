@@ -18,7 +18,7 @@ export function nodeHref(node: Pick<NodeItem, "id" | "type" | "workspaceId" | "p
 
 export function NodeIcon({ node, compact = false, open = false }: { node: NodeItem; compact?: boolean; open?: boolean }) {
   const isImage = !compact && node.type === "FILE" && node.status === "READY" && !!node.mime?.startsWith("image/");
-  const thumb = useThumbnail(node.id, isImage);
+  const thumb = useThumbnail(isImage ? `/api/v1/files/${node.id}/thumbnail` : null);
   if (compact) {
     const cls = cn("size-4 shrink-0", node.type === "FOLDER" ? "text-primary" : "text-foreground/60");
     if (node.type === "FOLDER") return open ? <FolderOpen className={cls} aria-hidden /> : <Folder className={cls} aria-hidden />;
@@ -26,17 +26,16 @@ export function NodeIcon({ node, compact = false, open = false }: { node: NodeIt
     return <FileTypeIcon name={node.name} mime={node.type === "VIDEO" ? "video/mp4" : node.mime} className={cls} />;
   }
   if (thumb) {
-    // eslint-disable-next-line @next/next/no-img-element
-    return <img src={thumb} alt="" className="size-8 shrink-0 rounded-lg bg-foreground/5 object-cover" />;
+    return <span aria-hidden className="size-6 shrink-0 rounded-md bg-foreground/5 bg-cover bg-center" style={{ backgroundImage: `url("${thumb}")` }} />;
   }
   return (
-    <span className={cn("inline-flex size-8 shrink-0 items-center justify-center rounded-lg", node.type === "FOLDER" ? "bg-primary-light text-primary" : "bg-foreground/5 text-foreground/70")}>
+    <span className={cn("inline-flex size-6 shrink-0 items-center justify-center rounded-md", node.type === "FOLDER" ? "bg-primary-light text-primary" : "bg-foreground/5 text-foreground/70")}>
       {node.type === "FOLDER" ? (
-        <Folder className="size-4" aria-hidden />
+        <Folder className="size-3.5" aria-hidden />
       ) : node.type === "DOCUMENT" ? (
-        node.documentFormat === "LATEX" ? <Sigma className="size-4" aria-hidden /> : <FileText className="size-4" aria-hidden />
+        node.documentFormat === "LATEX" ? <Sigma className="size-3.5" aria-hidden /> : <FileText className="size-3.5" aria-hidden />
       ) : (
-        <FileTypeIcon name={node.name} mime={node.type === "VIDEO" ? "video/mp4" : node.mime} className="size-4" />
+        <FileTypeIcon name={node.name} mime={node.type === "VIDEO" ? "video/mp4" : node.mime} className="size-3.5" />
       )}
     </span>
   );
@@ -50,9 +49,9 @@ export function nodeMeta(node: NodeItem): string {
   return TYPE_LABEL[node.type];
 }
 
-export function NodeName({ node, sub, stretched = false }: { node: NodeItem; sub?: React.ReactNode; stretched?: boolean }) {
+export function NodeName({ node, sub, stretched = false, dense = false }: { node: NodeItem; sub?: React.ReactNode; stretched?: boolean; dense?: boolean }) {
   return (
-    <div className="flex min-w-0 items-center gap-3">
+    <div className="flex min-w-0 items-center gap-2.5">
       <NodeIcon node={node} />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">
@@ -68,7 +67,7 @@ export function NodeName({ node, sub, stretched = false }: { node: NodeItem; sub
             <Badge tone="err">Lỗi xử lý</Badge>
           ) : null}
         </div>
-        <p className="mt-0.5 truncate text-xs text-muted">
+        <p className={cn("mt-0.5 truncate text-xs text-muted", dense && "sm:hidden")}>
           {sub ?? nodeMeta(node)}
         </p>
       </div>

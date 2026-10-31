@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, FilePlus2, FolderInput, FolderPlus, Pencil, Share2, Star, Tag as TagIcon, Trash2, Upload } from "lucide-react";
+import { Copy, FilePlus2, FolderInput, FolderPlus, Pencil, Share2, Tag as TagIcon, Trash2, Upload } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -9,7 +9,7 @@ import { useAuth } from "@/lib/auth";
 import { docHref } from "@/lib/documents";
 import { cn } from "@/lib/cn";
 import { DOC_ACCEPT_ATTR, extensionOf, VIDEO_ACCEPT_ATTR, VIDEO_EXTENSIONS } from "@/lib/files";
-import { contentRoleOf, formatWhen, roleAtLeast, SECTION_LABEL, sectionPath } from "@/lib/format";
+import { contentRoleOf, roleAtLeast, SECTION_LABEL, sectionPath } from "@/lib/format";
 import { useReportSection } from "@/lib/section";
 import type { Member, NodeItem, NodeSection, Page } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
@@ -19,12 +19,13 @@ import { PageBody, TopBar } from "../shell/shell";
 import { Button } from "../ui/button";
 import { ConfirmDialog } from "../ui/dialog";
 import { SearchInput } from "../ui/input";
-import { RowMenu } from "../ui/menu";
+import type { MenuAction } from "../ui/menu";
 import { Breadcrumb, Card, EmptyState, ErrorBanner, SkeletonRows } from "../ui/misc";
 import { Select } from "../ui/select";
 import { useToast } from "../ui/toast";
 import { CopyDialog, MoveDialog, NameDialog, NewDocumentDialog, TagsDialog } from "./node-dialogs";
-import { NodeName, TagCell, TagChip } from "./node-name";
+import { FolderTable } from "./folder-table";
+import { VideoGrid } from "./video-grid";
 import { ShareSheet } from "./share-sheet";
 
 type Sort = "name" | "updatedAt" | "createdAt";
@@ -33,33 +34,6 @@ const SORTS = [
   { value: "updatedAt" as const, label: "Sửa lần cuối" },
   { value: "createdAt" as const, label: "Ngày tạo" },
 ];
-
-function FavoriteButton({ node, onChange }: { node: NodeItem; onChange: (fav: boolean) => void }) {
-  const toast = useToast();
-  return (
-    <button
-      type="button"
-      aria-label={node.isFavorite ? "Bỏ yêu thích" : "Yêu thích"}
-      aria-pressed={node.isFavorite}
-      onClick={async () => {
-        const next = !node.isFavorite;
-        onChange(next);
-        try {
-          await api(`/nodes/${node.id}/favorite`, { method: next ? "PUT" : "DELETE" });
-        } catch (err) {
-          onChange(!next);
-          toast("error", describeError(err));
-        }
-      }}
-      className={cn(
-        "inline-flex size-8 min-h-8 shrink-0 cursor-pointer items-center justify-center rounded-lg outline-hidden transition-colors hover:bg-foreground/8",
-        node.isFavorite ? "text-foreground" : "text-muted/60 hover:text-foreground",
-      )}
-    >
-      <Star className={cn("size-4", node.isFavorite && "fill-current")} aria-hidden />
-    </button>
-  );
-}
 
 export function FolderPage({ section: routeSection }: { section: NodeSection }) {
   const { wsId, folder } = useParams<{ wsId: string; folder?: string[] }>();
@@ -116,13 +90,30 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
 
   const patchItem = (id: string, patch: Partial<NodeItem>) =>
     list.setData((d) => (d ? { ...d, items: d.items.map((n) => (n.id === id ? { ...n, ...patch } : n)) } : d));
+  const menuFor = (n: NodeItem): MenuAction[][] => {
+    const rowOwner = roleAtLeast(n.myRole, "OWNER");
+    const rowEdit = roleAtLeast(n.myRole, "EDITOR");
+    return [
+      [
+        { icon: Pencil, label: "Đổi tên", onSelect: () => setDialog({ kind: "rename", node: n }), hidden: !rowEdit },
+        { icon: FolderInput, label: "Di chuyển", onSelect: () => setDialog({ kind: "move", node: n }), hidden: !rowEdit },
+        { icon: Copy, label: "Tạo bản sao", onSelect: () => setDialog({ kind: "copy", node: n }), hidden: n.type !== "DOCUMENT" },
+        { icon: Share2, label: "Chia sẻ", onSelect: () => setDialog({ kind: "share", node: n }), hidden: !rowOwner },
+        { icon: TagIcon, label: "Gắn tag", onSelect: () => setDialog({ kind: "tags", node: n }), hidden: !rowEdit || !membership },
+      ],
+      [{ icon: Trash2, label: "Xoá vào thùng rác", danger: true, onSelect: () => setDialog({ kind: "delete", node: n }), hidden: !rowEdit }],
+    ];
+  };
+  const onFavorite = (id: string, fav: boolean) => patchItem(id, { isFavorite: fav });
   const reloadAll = () => {
+    invalidateTree(wsId);
     void list.reload();
     if (folderId) void current.reload();
   };
   const changed = (extraParents: Array<string | null> = []) => {
     invalidateTree(wsId, [folderId, ...extraParents]);
-    reloadAll();
+    void list.reload();
+    if (folderId) void current.reload();
   };
 
   const uploads = useUploads();
@@ -175,6 +166,7 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
 
   const loadError = current.error ?? list.error;
   const loading = current.loading || list.loading;
+  const showList = !(loading && !list.data) && !loadError && items.length > 0;
   const notMemberAtRoot = !folderId && !membership;
 
   return (
@@ -207,25 +199,25 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
         ) : (
           <>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <SearchInput label="Lọc theo tên" placeholder="Lọc theo tên trong thư mục này" value={filter} onChange={(e) => setFilter(e.target.value)} className="flex-1 sm:max-w-80" />
-              <div className="grid grid-cols-2 gap-2 sm:ml-auto sm:flex sm:flex-wrap sm:items-center">
-                <Select prefix="Sắp xếp:" value={sort} options={SORTS} onChange={setSort} className="order-first col-span-2 w-full sm:order-none sm:w-fit" />
+              <SearchInput label="Lọc theo tên" placeholder="Lọc theo tên trong thư mục này" value={filter} onChange={(e) => setFilter(e.target.value)} className="flex-1 sm:max-w-80 sm:[&_input]:h-9" />
+              <div className="grid grid-cols-2 gap-2 sm:ml-auto sm:flex sm:flex-nowrap sm:items-center">
+                <Select prefix="Sắp xếp:" value={sort} options={SORTS} onChange={setSort} className="order-first col-span-2 w-full sm:order-none sm:w-fit sm:[&>button]:h-9" />
                 {folderNode && canShare ? (
-                  <Button icon={Share2} className="col-span-2" onClick={() => setDialog({ kind: "share", node: folderNode })}>
+                  <Button icon={Share2} className="col-span-2 sm:h-9 sm:min-h-9 sm:py-0" onClick={() => setDialog({ kind: "share", node: folderNode })}>
                     Chia sẻ
                   </Button>
                 ) : null}
                 {canEdit ? (
                   <>
                     {isVideo ? null : (
-                      <Button icon={FilePlus2} onClick={() => setNewDocOpen(true)}>
+                      <Button icon={FilePlus2} className="sm:h-9 sm:min-h-9 sm:py-0" onClick={() => setNewDocOpen(true)}>
                         Tài liệu mới
                       </Button>
                     )}
-                    <Button icon={FolderPlus} className={cn(isVideo && "col-span-2")} onClick={() => setDialog({ kind: "create" })}>
+                    <Button icon={FolderPlus} className={cn("sm:h-9 sm:min-h-9 sm:py-0", isVideo && "col-span-2")} onClick={() => setDialog({ kind: "create" })}>
                       Thư mục mới
                     </Button>
-                    <Button icon={Upload} variant="primary" className="order-first col-span-2 sm:order-none" onClick={() => fileInput.current?.click()}>
+                    <Button icon={Upload} variant="primary" className="order-first col-span-2 sm:order-none sm:h-9 sm:min-h-9 sm:py-0" onClick={() => fileInput.current?.click()}>
                       {isVideo ? "Tải video lên" : "Tải lên"}
                     </Button>
                     <input
@@ -253,7 +245,7 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
                   <p className="mt-1 max-w-[40ch] truncate text-sm text-muted">vào «{title}»</p>
                 </div>
               ) : null}
-              <Card>
+              <div className={cn(!showList && "rounded-2xl border border-border bg-surface")}>
                 {loading && !list.data ? (
                   <SkeletonRows rows={6} />
                 ) : loadError ? (
@@ -298,71 +290,15 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
                   />
                 ) : (
                   <>
-                    <table className="w-full border-collapse">
-                      <thead className="hidden sm:table-header-group">
-                        <tr className="text-left text-xs font-medium text-muted">
-                          <th className="h-10 px-4 font-medium sm:pl-3">Tên</th>
-                          <th className="hidden h-10 px-4 font-medium @4xl:table-cell">Tag</th>
-                          <th className="hidden h-10 px-4 font-medium whitespace-nowrap @3xl:table-cell">Người tạo</th>
-                          <th className="h-10 w-px px-4 font-medium whitespace-nowrap">Sửa lần cuối</th>
-                          <th className="h-10 w-px px-2 whitespace-nowrap sm:pr-3">
-                            <span className="sr-only">Thao tác</span>
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {items.map((n) => {
-                          const rowOwner = roleAtLeast(n.myRole, "OWNER");
-                          const rowEdit = roleAtLeast(n.myRole, "EDITOR");
-                          return (
-                            <tr key={n.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 border-t border-border relative px-4 py-2.5 hover:bg-surface-hover sm:table-row sm:px-0 sm:py-0">
-                              <td className="min-w-0 sm:h-11 sm:w-full sm:max-w-0 sm:pr-4 sm:pl-3">
-                                <NodeName node={n} stretched />
-                                {n.tags.length ? (
-                                  <div className="mt-1.5 flex flex-wrap gap-1 pl-11 @4xl:hidden">
-                                    {n.tags.map((t) => (
-                                      <TagChip key={t.id} tag={t} />
-                                    ))}
-                                  </div>
-                                ) : null}
-                              </td>
-                              <td className="hidden px-4 whitespace-nowrap @4xl:table-cell">
-                                <TagCell tags={n.tags} />
-                              </td>
-                              <td className="hidden px-4 text-sm whitespace-nowrap text-foreground/80 @3xl:table-cell">{n.createdBy.name}</td>
-                              <td className="hidden px-4 text-sm whitespace-nowrap text-muted tabular-nums sm:table-cell">{formatWhen(n.updatedAt)}</td>
-                              <td className="whitespace-nowrap sm:w-px sm:px-2 sm:pr-3">
-                                <div className="relative z-10 flex flex-nowrap items-center justify-end gap-0.5">
-                                  <FavoriteButton node={n} onChange={(fav) => patchItem(n.id, { isFavorite: fav })} />
-                                  <RowMenu
-                                    groups={[
-                                      [
-                                        { icon: Pencil, label: "Đổi tên", onSelect: () => setDialog({ kind: "rename", node: n }), hidden: !rowEdit },
-                                        { icon: FolderInput, label: "Di chuyển", onSelect: () => setDialog({ kind: "move", node: n }), hidden: !rowEdit },
-                                        { icon: Copy, label: "Tạo bản sao", onSelect: () => setDialog({ kind: "copy", node: n }), hidden: n.type !== "DOCUMENT" },
-                                        { icon: Share2, label: "Chia sẻ", onSelect: () => setDialog({ kind: "share", node: n }), hidden: !rowOwner },
-                                        { icon: TagIcon, label: "Gắn tag", onSelect: () => setDialog({ kind: "tags", node: n }), hidden: !rowEdit || !membership },
-                                      ],
-                                      [{ icon: Trash2, label: "Xoá vào thùng rác", danger: true, onSelect: () => setDialog({ kind: "delete", node: n }), hidden: !rowEdit }],
-                                    ]}
-                                  />
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                    <div className="border-t border-border px-3 py-2 sm:px-3">
-                      <p className="text-sm tabular-nums text-muted">
-                        {items.length} mục
-                        {filter ? ` khớp «${filter}»` : ""}
-                        {list.data?.nextCursor ? " · đang hiện 200 mục đầu" : ""}
-                      </p>
-                    </div>
+                    {isVideo ? <VideoGrid items={items} menuFor={menuFor} onFavorite={onFavorite} /> : <FolderTable items={items} menuFor={menuFor} onFavorite={onFavorite} />}
+                    <p className="py-2 text-sm tabular-nums text-muted sm:px-3">
+                      {items.length} mục
+                      {filter ? ` khớp «${filter}»` : ""}
+                      {list.data?.nextCursor ? " · đang hiện 200 mục đầu" : ""}
+                    </p>
                   </>
                 )}
-              </Card>
+              </div>
             </div>
           </>
         )}
