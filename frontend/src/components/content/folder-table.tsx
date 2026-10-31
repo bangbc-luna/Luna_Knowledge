@@ -4,7 +4,7 @@ import { formatWhen } from "@/lib/format";
 import type { NodeItem } from "@/lib/types";
 import { RowMenu, type MenuAction } from "../ui/menu";
 import { FavoriteButton } from "./favorite-button";
-import { NodeName, TagCell, TagChip } from "./node-name";
+import { nodeMeta, NodeName, TagCell, TagChip } from "./node-name";
 
 export function FolderTable({
   items,
@@ -21,6 +21,7 @@ export function FolderTable({
         <thead className="hidden sm:table-header-group">
           <tr className="text-left text-xs font-medium text-muted">
             <th className="h-8 px-3 font-medium">Tên</th>
+            <th className="hidden h-8 px-3 font-medium whitespace-nowrap @2xl:table-cell">Loại</th>
             <th className="hidden h-8 px-3 font-medium @4xl:table-cell">Tag</th>
             <th className="hidden h-8 px-3 font-medium whitespace-nowrap @3xl:table-cell">Người tạo</th>
             <th className="h-8 w-px px-3 font-medium whitespace-nowrap">Sửa lần cuối</th>
@@ -42,6 +43,7 @@ export function FolderTable({
                   </div>
                 ) : null}
               </td>
+              <td className="hidden px-3 text-sm whitespace-nowrap text-muted @2xl:table-cell">{nodeMeta(n)}</td>
               <td className="hidden px-3 whitespace-nowrap @4xl:table-cell">
                 <TagCell tags={n.tags} />
               </td>
@@ -50,7 +52,7 @@ export function FolderTable({
               <td className="whitespace-nowrap sm:w-px sm:px-2">
                 <div className="relative z-10 flex flex-nowrap items-center justify-end gap-0.5">
                   <FavoriteButton node={n} onChange={(fav) => onFavorite(n.id, fav)} />
-                  <RowMenu groups={menuFor(n)} />
+                  <RowMenu groups={menuFor(n)} className="size-10 min-h-10 sm:size-8 sm:min-h-8" />
                 </div>
               </td>
             </tr>

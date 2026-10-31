@@ -201,21 +201,21 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <SearchInput label="Lọc theo tên" placeholder="Lọc theo tên trong thư mục này" value={filter} onChange={(e) => setFilter(e.target.value)} className="flex-1 sm:max-w-80 sm:[&_input]:h-9" />
               <div className="grid grid-cols-2 gap-2 sm:ml-auto sm:flex sm:flex-nowrap sm:items-center">
-                <Select prefix="Sắp xếp:" value={sort} options={SORTS} onChange={setSort} className="order-first col-span-2 w-full sm:order-none sm:w-fit sm:[&>button]:h-9" />
+                <Select prefix="Sắp xếp:" value={sort} options={SORTS} onChange={setSort} className="order-first col-span-2 w-full sm:order-none sm:w-fit sm:[&>button]:h-9 max-xl:sm:[&>button>span.text-muted]:hidden" />
                 {folderNode && canShare ? (
-                  <Button icon={Share2} className="col-span-2 sm:h-9 sm:min-h-9 sm:py-0" onClick={() => setDialog({ kind: "share", node: folderNode })}>
-                    Chia sẻ
+                  <Button icon={Share2} title="Chia sẻ" className="col-span-2 sm:h-9 sm:min-h-9 sm:px-2.5 sm:py-0 xl:px-4" onClick={() => setDialog({ kind: "share", node: folderNode })}>
+                    <span className="sm:sr-only xl:not-sr-only">Chia sẻ</span>
                   </Button>
                 ) : null}
                 {canEdit ? (
                   <>
                     {isVideo ? null : (
-                      <Button icon={FilePlus2} className="sm:h-9 sm:min-h-9 sm:py-0" onClick={() => setNewDocOpen(true)}>
-                        Tài liệu mới
+                      <Button icon={FilePlus2} title="Tài liệu mới" className="sm:h-9 sm:min-h-9 sm:px-2.5 sm:py-0 xl:px-4" onClick={() => setNewDocOpen(true)}>
+                        <span className="sm:sr-only xl:not-sr-only">Tài liệu mới</span>
                       </Button>
                     )}
-                    <Button icon={FolderPlus} className={cn("sm:h-9 sm:min-h-9 sm:py-0", isVideo && "col-span-2")} onClick={() => setDialog({ kind: "create" })}>
-                      Thư mục mới
+                    <Button icon={FolderPlus} title="Thư mục mới" className={cn("sm:h-9 sm:min-h-9 sm:px-2.5 sm:py-0 xl:px-4", isVideo && "col-span-2")} onClick={() => setDialog({ kind: "create" })}>
+                      <span className="sm:sr-only xl:not-sr-only">Thư mục mới</span>
                     </Button>
                     <Button icon={Upload} variant="primary" className="order-first col-span-2 sm:order-none sm:h-9 sm:min-h-9 sm:py-0" onClick={() => fileInput.current?.click()}>
                       {isVideo ? "Tải video lên" : "Tải lên"}

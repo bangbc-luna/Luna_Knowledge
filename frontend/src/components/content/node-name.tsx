@@ -6,6 +6,7 @@ import { cn } from "@/lib/cn";
 import { fileKindLabel, formatBytes } from "@/lib/files";
 import { TYPE_LABEL } from "@/lib/format";
 import type { NodeItem, Tag } from "@/lib/types";
+import { useInView } from "@/lib/use-in-view";
 import { useThumbnail } from "@/lib/use-thumbnail";
 import { FileTypeIcon } from "../files/file-type-icon";
 import { Badge } from "../ui/misc";
@@ -18,7 +19,8 @@ export function nodeHref(node: Pick<NodeItem, "id" | "type" | "workspaceId" | "p
 
 export function NodeIcon({ node, compact = false, open = false }: { node: NodeItem; compact?: boolean; open?: boolean }) {
   const isImage = !compact && node.type === "FILE" && node.status === "READY" && !!node.mime?.startsWith("image/");
-  const thumb = useThumbnail(isImage ? `/api/v1/files/${node.id}/thumbnail` : null);
+  const [viewRef, seen] = useInView<HTMLSpanElement>();
+  const thumb = useThumbnail(isImage && seen ? `/api/v1/files/${node.id}/thumbnail` : null);
   if (compact) {
     const cls = cn("size-4 shrink-0", node.type === "FOLDER" ? "text-primary" : "text-foreground/60");
     if (node.type === "FOLDER") return open ? <FolderOpen className={cls} aria-hidden /> : <Folder className={cls} aria-hidden />;
@@ -26,10 +28,10 @@ export function NodeIcon({ node, compact = false, open = false }: { node: NodeIt
     return <FileTypeIcon name={node.name} mime={node.type === "VIDEO" ? "video/mp4" : node.mime} className={cls} />;
   }
   if (thumb) {
-    return <span aria-hidden className="size-6 shrink-0 rounded-md bg-foreground/5 bg-cover bg-center" style={{ backgroundImage: `url("${thumb}")` }} />;
+    return <span ref={viewRef} aria-hidden className="size-6 shrink-0 rounded-md bg-foreground/5 bg-cover bg-center" style={{ backgroundImage: `url("${thumb}")` }} />;
   }
   return (
-    <span className={cn("inline-flex size-6 shrink-0 items-center justify-center rounded-md", node.type === "FOLDER" ? "bg-primary-light text-primary" : "bg-foreground/5 text-foreground/70")}>
+    <span ref={viewRef} className={cn("inline-flex size-6 shrink-0 items-center justify-center rounded-md", node.type === "FOLDER" ? "bg-primary-light text-primary" : "bg-foreground/5 text-foreground/70")}>
       {node.type === "FOLDER" ? (
         <Folder className="size-3.5" aria-hidden />
       ) : node.type === "DOCUMENT" ? (

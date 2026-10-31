@@ -3,6 +3,7 @@
 import { Folder, LoaderCircle, Play } from "lucide-react";
 import Link from "next/link";
 import type { NodeItem } from "@/lib/types";
+import { useInView } from "@/lib/use-in-view";
 import { useThumbnail } from "@/lib/use-thumbnail";
 import { Badge } from "../ui/misc";
 import { RowMenu, type MenuAction } from "../ui/menu";
@@ -10,9 +11,10 @@ import { FavoriteButton } from "./favorite-button";
 import { nodeHref } from "./node-name";
 
 function VideoPoster({ node }: { node: NodeItem }) {
-  const poster = useThumbnail(node.type === "VIDEO" && node.status === "READY" ? `/api/v1/videos/${node.id}/poster` : null);
+  const [viewRef, seen] = useInView<HTMLDivElement>();
+  const poster = useThumbnail(seen && node.type === "VIDEO" && node.status === "READY" ? `/api/v1/videos/${node.id}/poster` : null);
   return (
-    <div className="relative aspect-video w-full bg-foreground/5 bg-cover bg-center" style={poster ? { backgroundImage: `url("${poster}")` } : undefined}>
+    <div ref={viewRef} className="relative aspect-video w-full bg-foreground/5 bg-cover bg-center" style={poster ? { backgroundImage: `url("${poster}")` } : undefined}>
       {poster ? null : (
         <span className="absolute inset-0 flex items-center justify-center text-foreground/40">
           <Play className="size-6" aria-hidden />
@@ -65,7 +67,7 @@ export function VideoGrid({
               </div>
               <div className="relative z-10 flex shrink-0 items-center">
                 <FavoriteButton node={n} onChange={(fav) => onFavorite(n.id, fav)} />
-                <RowMenu groups={menuFor(n)} />
+                <RowMenu groups={menuFor(n)} className="size-10 min-h-10 sm:size-8 sm:min-h-8" />
               </div>
             </div>
           </li>
