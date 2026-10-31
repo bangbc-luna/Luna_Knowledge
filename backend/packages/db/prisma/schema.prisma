@@ -240,6 +240,7 @@ model Node {
   @@index([path], type: Gist)
   @@index([parentId])
   @@index([workspaceId])
+  @@index([workspaceId, section, updatedAt])
   @@index([deletedRootId], map: "nodes_deleted_root_id_idx", where: raw("deleted_root_id IS NOT NULL"))
   @@map("nodes")
 }
