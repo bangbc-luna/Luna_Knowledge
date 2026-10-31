@@ -187,7 +187,7 @@ Nên chạy backup ngay trước khi nâng cấp. Nếu bản mới lỗi: `git 
 | Trạng thái dịch vụ | `luna ps` |
 | Log một dịch vụ | `luna logs -f --tail 200 api` (thay `api` bằng `worker`, `collab`, `traefik`…) |
 | Sức khoẻ API, collab | `luna ps` (có `healthy`), chi tiết: `luna exec api node -e "fetch('http://127.0.0.1:4000/health').then(r=>r.text()).then(console.log)"` |
-| Metrics Prometheus | Chỉ đọc được trong mạng Docker `luna_internal`: `http://api:4000/metrics`, `http://collab:4001/metrics`, `http://worker:9464/metrics`, kèm header `Authorization: Bearer <METRICS_TOKEN>` |
+| Metrics Prometheus | Chỉ đọc được trong mạng Docker `luna_internal`: `http://api:4000/metrics`, `http://collab:4001/metrics`, `http://worker:9464/metrics`, kèm header `Authorization: Bearer <METRICS_TOKEN>`. `METRICS_TOKEN` bắt buộc ở production (sinh bằng `openssl rand -base64 32`, collab không khởi động nếu thiếu). Traefik không chuyển tiếp `/collab/metrics` và `/collab/internal/*` ra ngoài |
 | Dung lượng ổ | `df -h /srv/luna /var/lib/docker` |
 | Dựng lại chỉ mục tìm kiếm | Đăng nhập bằng System Admin rồi gọi `POST /api/v1/admin/search/reindex`; tự chạy lúc 03:30 hằng đêm |
 

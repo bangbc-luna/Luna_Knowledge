@@ -93,7 +93,7 @@ services:
     networks: [edge, internal]
     labels:
       - traefik.enable=true
-      - traefik.http.routers.collab.rule=Host(`${APP_HOST}`) && PathPrefix(`/collab`)
+      - traefik.http.routers.collab.rule=Host(`${APP_HOST}`) && PathPrefix(`/collab`) && !PathPrefix(`/collab/metrics`) && !PathPrefix(`/collab/internal`)
       - traefik.http.routers.collab.priority=10
       - traefik.http.routers.collab.middlewares=collab-strip
       - traefik.http.middlewares.collab-strip.stripprefix.prefixes=/collab
