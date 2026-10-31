@@ -6,7 +6,7 @@ import { useEffect, useId, useReducer, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { roleAtLeast, sectionPath } from "@/lib/format";
-import { expandTreeNodes, pruneExpandedExcept, toggleTreeNode, useBranchTick, useExpandedTree, useTreeScope, useTreeUser } from "@/lib/tree-sync";
+import { expandTreeNodes, pruneExpandedExcept, toggleTreeNode, useBranchTick, useExpandedTree, useTreeScope, useTreeUser, useTreeVersion } from "@/lib/tree-sync";
 import type { NodeItem, NodeSection, Page } from "@/lib/types";
 import { useUploads } from "@/lib/uploads";
 import { NodeIcon, nodeHref } from "../content/node-name";
@@ -24,7 +24,7 @@ interface BranchEntry {
 }
 
 const branches = new Map<string, BranchEntry>();
-const crumbRequests = new Map<string, Promise<Array<{ id: string }> | null>>();
+const crumbRequests = new Map<string, { version: number; request: Promise<Array<{ id: string }> | null> }>();
 
 function markWorkspaceStale(user: string, wsId: string) {
   const prefix = `${user}:${wsId}:`;
@@ -223,22 +223,37 @@ function TreeRow({ node, wsId, section, depth, activeId }: { node: NodeItem; wsI
 function useRevealActive(wsId: string, section: NodeSection, activeId: string | null) {
   const user = useTreeUser();
   const scope = useTreeScope(wsId, section);
+  const version = useTreeVersion();
+  const revealed = useRef<{ scope: string; activeId: string; path: string } | null>(null);
   useEffect(() => {
     if (!activeId) return;
     const key = `${user}:${activeId}`;
-    let request = crumbRequests.get(key);
-    if (!request) {
-      request = api<Array<{ id: string }>>(`/nodes/${activeId}/breadcrumb`).catch(() => null);
-      crumbRequests.set(key, request);
+    let entry = crumbRequests.get(key);
+    if (!entry || entry.version !== version) {
+      const fresh: { version: number; request: Promise<Array<{ id: string }> | null> } = {
+        version,
+        request: api<Array<{ id: string }>>(`/nodes/${activeId}/breadcrumb`).catch(() => {
+          if (crumbRequests.get(key) === fresh) crumbRequests.delete(key);
+          return null;
+        }),
+      };
+      entry = fresh;
+      crumbRequests.set(key, entry);
     }
     let live = true;
-    void request.then((crumbs) => {
-      if (live && crumbs && crumbs.length > 1) expandTreeNodes(scope, crumbs.slice(0, -1).map((c) => c.id));
+    void entry.request.then((crumbs) => {
+      if (!live || !crumbs || crumbs.length < 2) return;
+      const ids = crumbs.slice(0, -1).map((c) => c.id);
+      const path = ids.join("/");
+      const last = revealed.current;
+      if (last && last.scope === scope && last.activeId === activeId && last.path === path) return;
+      revealed.current = { scope, activeId, path };
+      expandTreeNodes(scope, ids);
     });
     return () => {
       live = false;
     };
-  }, [user, scope, activeId]);
+  }, [user, scope, activeId, version]);
 }
 
 export function ContentTree({ wsId, section, activeId }: { wsId: string; section: NodeSection; activeId: string | null }) {

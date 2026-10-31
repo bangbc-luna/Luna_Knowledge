@@ -7,6 +7,7 @@ import type { NodeSection } from "./types";
 const workspaceTicks = new Map<string, number>();
 const branchTicks = new Map<string, number>();
 const listeners = new Set<() => void>();
+let treeVersion = 0;
 
 function subscribe(listener: () => void) {
   listeners.add(listener);
@@ -21,6 +22,7 @@ const bump = (map: Map<string, number>, key: string) => map.set(key, (map.get(ke
 export function invalidateTree(wsId: string, parentIds?: Array<string | null>) {
   if (parentIds?.length) new Set(parentIds).forEach((id) => bump(branchTicks, branchKey(wsId, id)));
   else bump(workspaceTicks, wsId);
+  treeVersion++;
   listeners.forEach((l) => l());
 }
 
@@ -28,6 +30,14 @@ export function useTreeTick(wsId: string | null): number {
   return useSyncExternalStore(
     subscribe,
     () => (wsId ? (workspaceTicks.get(wsId) ?? 0) : 0),
+    () => 0,
+  );
+}
+
+export function useTreeVersion(): number {
+  return useSyncExternalStore(
+    subscribe,
+    () => treeVersion,
     () => 0,
   );
 }
