@@ -112,7 +112,7 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
     if (folderId) void current.reload();
   };
   const changed = (extraParents: Array<string | null> = []) => {
-    invalidateTree(wsId, [folderId, ...extraParents]);
+    invalidateTree(wsId, [folderId, ...extraParents], { moved: extraParents.length > 0 });
     void list.reload();
     if (folderId) void current.reload();
   };

@@ -22,7 +22,7 @@ export function lastWorkspace(): string | null {
   }
 }
 
-function fallbackWorkspace(list: MeWorkspace[]): MeWorkspace | null {
+export function fallbackWorkspace(list: MeWorkspace[]): MeWorkspace | null {
   const remembered = lastWorkspace();
   return (remembered ? list.find((w) => w.id === remembered) : undefined) ?? list.find((w) => w.kind === "COMPANY") ?? list[0] ?? null;
 }

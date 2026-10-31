@@ -6,12 +6,12 @@ import { useEffect } from "react";
 import { NoWorkspaceNotice } from "@/components/shell/no-workspace";
 import { PageBody, TopBar } from "@/components/shell/shell";
 import { useAuth } from "@/lib/auth";
-import { lastWorkspace } from "@/lib/workspace";
+import { fallbackWorkspace } from "@/lib/workspace";
 
 export default function HomePage() {
   const { me } = useAuth();
   const router = useRouter();
-  const target = me?.workspaces.find((w) => w.id === lastWorkspace()) ?? me?.workspaces[0];
+  const target = me ? fallbackWorkspace(me.workspaces) : null;
   useEffect(() => {
     if (target) router.replace(`/w/${target.id}/f`);
   }, [target, router]);

@@ -34,7 +34,7 @@ export function TrashPage() {
     try {
       const res = await api<{ movedToRoot: boolean; renamed: boolean; name: string }>(`/nodes/${item.id}/restore`, { method: "POST" });
       toast("success", `Đã khôi phục «${res.name}»${res.movedToRoot ? " về gốc (thư mục cũ đã bị xoá)" : ""}${res.renamed ? " (đổi tên vì trùng)" : ""}`);
-      invalidateTree(wsId, [res.movedToRoot ? null : item.parentId]);
+      invalidateTree(wsId, [res.movedToRoot ? null : item.parentId], { moved: res.movedToRoot });
       await reload();
     } catch (err) {
       toast("error", describeError(err));

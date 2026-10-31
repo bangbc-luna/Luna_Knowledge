@@ -19,10 +19,11 @@ function subscribe(listener: () => void) {
 const branchKey = (wsId: string, parentId: string | null) => `${wsId}:${parentId ?? ""}`;
 const bump = (map: Map<string, number>, key: string) => map.set(key, (map.get(key) ?? 0) + 1);
 
-export function invalidateTree(wsId: string, parentIds?: Array<string | null>) {
-  if (parentIds?.length) new Set(parentIds).forEach((id) => bump(branchTicks, branchKey(wsId, id)));
-  else bump(workspaceTicks, wsId);
-  treeVersion++;
+export function invalidateTree(wsId: string, parentIds?: Array<string | null>, { moved = false }: { moved?: boolean } = {}) {
+  const wide = !parentIds?.length;
+  if (wide) bump(workspaceTicks, wsId);
+  else new Set(parentIds).forEach((id) => bump(branchTicks, branchKey(wsId, id)));
+  if (wide || moved) treeVersion++;
   listeners.forEach((l) => l());
 }
 
