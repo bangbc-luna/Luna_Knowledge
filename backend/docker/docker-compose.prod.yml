@@ -8,6 +8,7 @@ x-app-env: &app-env
 x-no-owner-secrets: &no-owner-secrets
   DATABASE_MIGRATE_URL: ''
   POSTGRES_PASSWORD: ''
+  MINIO_ROOT_USER: ''
   MINIO_ROOT_PASSWORD: ''
   BACKUP_PASSWORD: ''
   CF_DNS_API_TOKEN: ''
@@ -72,6 +73,7 @@ services:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
       meilisearch: { condition: service_healthy }
     stop_grace_period: 30s
     networks: [edge, internal]
@@ -89,6 +91,7 @@ services:
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
     stop_grace_period: 30s
     networks: [edge, internal]
     labels:
@@ -107,6 +110,7 @@ services:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
     cpus: '4'
     mem_limit: 6g
     stop_grace_period: 60s
@@ -133,6 +137,8 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_MIGRATE_URL:-${DATABASE_URL}}
       APP_DATABASE_URL: ${DATABASE_URL}
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
     depends_on:
       postgres: { condition: service_healthy }
       minio: { condition: service_healthy }
@@ -186,13 +192,35 @@ services:
     networks: [edge, internal]
     labels:
       - traefik.enable=true
-      - traefik.http.routers.media.rule=Host(`${MEDIA_HOST}`)
+      - traefik.http.routers.media.rule=Host(`${MEDIA_HOST}`) && (Method(`GET`) || Method(`HEAD`) || Method(`PUT`) || Method(`OPTIONS`))
       - traefik.http.services.media.loadbalancer.server.port=9000
     healthcheck:
       test: ['CMD', 'curl', '-fsS', 'http://localhost:9000/minio/health/live']
       interval: 5s
       timeout: 5s
       retries: 30
+
+  minio-init:
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
+    restart: 'no'
+    entrypoint: ['sh', '/init/app-user.sh']
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_BUCKET_TMP: ${S3_BUCKET_TMP:-luna-tmp}
+      S3_BUCKET_HLS: ${S3_BUCKET_HLS:-luna-hls}
+      S3_BUCKET_PREVIEWS: ${S3_BUCKET_PREVIEWS:-luna-previews}
+      S3_BUCKET_THUMBNAILS: ${S3_BUCKET_THUMBNAILS:-luna-thumbnails}
+      S3_BUCKET_ASSETS: ${S3_BUCKET_ASSETS:-luna-assets}
+      S3_BUCKET_ORIGINALS: ${S3_BUCKET_ORIGINALS:-luna-originals}
+    volumes:
+      - ./minio:/init:ro
+    depends_on:
+      minio: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    networks: [internal]
 
   meilisearch:
     image: getmeili/meilisearch:v1.16
