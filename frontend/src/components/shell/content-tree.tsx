@@ -117,7 +117,7 @@ function Branch({
       <li>
         <div role="status" aria-busy="true" aria-label="Đang tải" className="flex flex-col">
           {[64, 48, 56].map((w, i) => (
-            <span key={i} className="flex h-7 items-center gap-2" style={{ paddingLeft: indent(depth).paddingLeft + 20 }}>
+            <span key={i} className="flex h-7 items-center gap-2 [@media(pointer:coarse)]:h-9" style={{ paddingLeft: indent(depth).paddingLeft + 20 }}>
               <span className="size-4 shrink-0 animate-pulse rounded bg-foreground/6" />
               <span className="h-2.5 animate-pulse rounded-full bg-foreground/6" style={{ width: `${w}%` }} />
             </span>
@@ -141,7 +141,7 @@ function Branch({
       ))}
       {data.nextCursor ? (
         <li style={textPad}>
-          <Link href={parentId ? `${base}/${parentId}` : base} className="flex h-7 items-center rounded-md text-xs font-medium text-primary outline-hidden hover:underline focus-visible:ring-2 focus-visible:ring-primary">
+          <Link href={parentId ? `${base}/${parentId}` : base} className="flex h-7 items-center rounded-md [@media(pointer:coarse)]:h-9 text-xs font-medium text-primary outline-hidden hover:underline focus-visible:ring-2 focus-visible:ring-primary">
             Xem tất cả
           </Link>
         </li>
@@ -175,7 +175,7 @@ function TreeRow({ node, wsId, section, depth, activeId }: { node: NodeItem; wsI
     <li className="flex flex-col">
       <div
         ref={rowRef}
-        className={cn("group relative flex h-7 items-center gap-1 rounded-lg pr-1", active ? "bg-primary-light" : "hover:bg-item-hover")}
+        className={cn("group relative flex h-7 items-center gap-1 rounded-lg pr-1 [@media(pointer:coarse)]:h-9", active ? "bg-primary-light" : "hover:bg-item-hover")}
         style={indent(depth)}
       >
         {isFolder ? (
@@ -185,7 +185,7 @@ function TreeRow({ node, wsId, section, depth, activeId }: { node: NodeItem; wsI
             aria-expanded={open}
             aria-controls={open ? groupId : undefined}
             onClick={() => toggleTreeNode(scope, node.id)}
-            className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted outline-hidden hover:bg-foreground/8 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary"
+            className="relative inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted outline-hidden hover:bg-foreground/8 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary [@media(pointer:coarse)]:after:absolute [@media(pointer:coarse)]:after:-inset-1.5 [@media(pointer:coarse)]:after:content-['']"
           >
             <ChevronRight className={cn("size-3.5 transition-transform motion-reduce:transition-none", open && "rotate-90")} aria-hidden />
           </button>
