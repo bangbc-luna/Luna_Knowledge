@@ -11,7 +11,7 @@ import { useShellWorkspace } from "@/lib/workspace";
 import { CreateWorkspaceDialog } from "./workspace-dialogs";
 
 const tile =
-  "inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-xs font-semibold outline-hidden transition-colors focus-visible:ring-2 focus-visible:ring-rail-foreground focus-visible:ring-offset-2 focus-visible:ring-offset-rail";
+  "inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-xs font-semibold outline-hidden transition-colors focus-visible:ring-[3px] focus-visible:ring-rail-foreground focus-visible:ring-offset-4 focus-visible:ring-offset-rail";
 
 export function WorkspaceRail() {
   const { me } = useAuth();

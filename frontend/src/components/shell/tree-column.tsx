@@ -105,6 +105,11 @@ export function TreeColumn() {
             </div>
             <ContentTree wsId={ws.id} section={section} activeId={activeId} />
           </>
+        ) : me ? (
+          <div className="px-2 py-2 text-sm text-pretty text-muted">
+            <p className="font-medium text-foreground">Bạn chưa thuộc workspace nào</p>
+            <p className="mt-1">Bấm + ở cột bên trái để tạo workspace, hoặc xem các mục người khác chia sẻ ở Được chia sẻ.</p>
+          </div>
         ) : null}
       </div>
       {base && !foreign && ws?.role !== "VIEWER" ? (
