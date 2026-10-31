@@ -102,6 +102,7 @@ model User {
   comments          Comment[]
   notifications     Notification[]
   documentAssets    DocumentAsset[]
+  editedDocuments   Document[]        @relation("documentLastEditor")
 
   @@map("users")
 }
@@ -331,7 +332,11 @@ model Blob {
   previewOf     FileVersion[]  @relation("versionPreview")
   thumbnailOf   FileVersion[]  @relation("versionThumbnail")
   documentAsset DocumentAsset?
+  hlsOf         Video[]        @relation("videoHls")
+  posterOf      Video[]        @relation("videoPoster")
+  spriteOf      Video[]        @relation("videoSprite")
 
+  @@unique([provider, container, key])
   @@index([nodeId])
   @@index([sha256])
   @@map("blobs")
@@ -368,6 +373,7 @@ model FileVersion {
   thumbnail  Blob?     @relation("versionThumbnail", fields: [thumbnailBlobId], references: [id], onDelete: SetNull)
   uploadedBy User      @relation(fields: [uploadedById], references: [id])
   currentOf  FileInfo? @relation("currentVersion")
+  videos     Video[]
 
   @@unique([nodeId, versionNo])
   @@index([originalBlobId])
@@ -428,8 +434,16 @@ model Video {
   viewCount    Int      @default(0) @map("view_count")
   transcodedAt DateTime @default(now()) @map("transcoded_at") @db.Timestamptz(3)
 
-  node Node @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  node    Node        @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  version FileVersion @relation(fields: [versionId], references: [id], onDelete: NoAction)
+  hls     Blob        @relation("videoHls", fields: [hlsBlobId], references: [id], onDelete: NoAction)
+  poster  Blob?       @relation("videoPoster", fields: [posterBlobId], references: [id], onDelete: SetNull)
+  sprite  Blob?       @relation("videoSprite", fields: [spriteBlobId], references: [id], onDelete: SetNull)
 
+  @@index([versionId])
+  @@index([hlsBlobId])
+  @@index([posterBlobId])
+  @@index([spriteBlobId])
   @@map("videos")
 }
 
@@ -469,8 +483,10 @@ model Document {
   lastVersionAt     DateTime?      @map("last_version_at") @db.Timestamptz(3)
   dirtySinceVersion Boolean        @default(false) @map("dirty_since_version")
 
-  node Node @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  node       Node  @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  lastEditor User? @relation("documentLastEditor", fields: [lastEditedBy], references: [id], onDelete: SetNull)
 
+  @@index([lastEditedBy])
   @@map("documents")
 }
 
@@ -490,10 +506,13 @@ model DocumentVersion {
   createdById    String?  @map("created_by") @db.Uuid
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  node      Node  @relation(fields: [nodeId], references: [id], onDelete: Cascade)
-  createdBy User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  node         Node              @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  createdBy    User?             @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  restoredFrom DocumentVersion?  @relation("versionRestore", fields: [restoredFromId], references: [id], onDelete: SetNull)
+  restoredTo   DocumentVersion[] @relation("versionRestore")
 
   @@unique([nodeId, versionNo])
+  @@index([restoredFromId], map: "document_versions_restored_from_id_idx", where: raw("restored_from_id IS NOT NULL"))
   @@map("document_versions")
 }
 

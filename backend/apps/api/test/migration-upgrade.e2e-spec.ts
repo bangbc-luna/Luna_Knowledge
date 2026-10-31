@@ -1,4 +1,5 @@
 import { readdir, readFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
@@ -8,7 +9,11 @@ const MIGRATIONS = fileURLToPath(
   new URL('../../../packages/db/prisma/migrations', import.meta.url),
 );
 
-const WAVE2: string[] = ['20261031123247_tree_guard', '20261031125329_indexes'];
+const WAVE2: string[] = [
+  '20261031123247_tree_guard',
+  '20261031125329_indexes',
+  '20261031140000_foreign_keys',
+];
 
 describe('Wave 2 migrations upgrade existing data (e2e)', () => {
   let container: StartedPostgreSqlContainer;
@@ -18,6 +23,8 @@ describe('Wave 2 migrations upgrade existing data (e2e)', () => {
   let wsId: string;
   let trashedFolder: string;
   let liveChild: string;
+  let docNode: string;
+  let videoNodeId: string;
 
   const one = async <T extends Record<string, unknown>>(sql: string, params: unknown[] = []) =>
     (await client.query<T>(sql, params)).rows[0]!;
@@ -72,6 +79,25 @@ describe('Wave 2 migrations upgrade existing data (e2e)', () => {
       `INSERT INTO notifications (id, user_id, type, payload) VALUES (gen_random_uuid(), $1, 'mention', '{}')`,
       [userId],
     );
+
+    const videoNode = await insertNode('V', null, 'VIDEO');
+    const orphan = randomUUID();
+    await client.query(
+      `INSERT INTO videos (node_id, version_id, duration_sec, width, height, renditions, hls_blob_id, poster_blob_id, sprite_blob_id, key_encrypted)
+       VALUES ($1, $2, 1, 1, 1, '[]', $3, $4, $5, '\\x01')`,
+      [videoNode, orphan, randomUUID(), randomUUID(), randomUUID()],
+    );
+    docNode = await insertNode('D', null, 'DOCUMENT');
+    await client.query(`INSERT INTO documents (node_id, last_edited_by) VALUES ($1, $2)`, [
+      docNode,
+      randomUUID(),
+    ]);
+    await client.query(
+      `INSERT INTO document_versions (id, node_id, version_no, restored_from_id, yjs_snapshot, content_json, content_text)
+       VALUES (gen_random_uuid(), $1, 1, $2, '\\x01', '{}', '')`,
+      [docNode, randomUUID()],
+    );
+    videoNodeId = videoNode;
   });
 
   afterAll(async () => {
@@ -124,5 +150,32 @@ describe('Wave 2 migrations upgrade existing data (e2e)', () => {
     expect(c.deleted_root_id).toBe(trashedFolder);
     expect(c.deleted_by).toBe(userId);
     expect(c.deleted_at).not.toBeNull();
+  });
+
+  it('tham chiếu mồ côi ở cột nullable về NULL, khoá ngoại bắt buộc để NOT VALID', async () => {
+    const v = await one<{ poster: string | null; sprite: string | null }>(
+      'SELECT poster_blob_id AS poster, sprite_blob_id AS sprite FROM videos WHERE node_id = $1',
+      [videoNodeId],
+    );
+    expect(v).toEqual({ poster: null, sprite: null });
+    const d = await one<{ last_edited_by: string | null }>(
+      'SELECT last_edited_by FROM documents WHERE node_id = $1',
+      [docNode],
+    );
+    expect(d.last_edited_by).toBeNull();
+    const dv = await one<{ restored_from_id: string | null }>(
+      'SELECT restored_from_id FROM document_versions WHERE node_id = $1',
+      [docNode],
+    );
+    expect(dv.restored_from_id).toBeNull();
+    const c = await client.query<{ conname: string; convalidated: boolean }>(
+      `SELECT conname, convalidated FROM pg_constraint
+        WHERE conname IN ('videos_hls_blob_id_fkey', 'videos_version_id_fkey')
+        ORDER BY conname`,
+    );
+    expect(c.rows).toEqual([
+      { conname: 'videos_hls_blob_id_fkey', convalidated: false },
+      { conname: 'videos_version_id_fkey', convalidated: false },
+    ]);
   });
 });
