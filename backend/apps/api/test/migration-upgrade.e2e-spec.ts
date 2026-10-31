@@ -93,7 +93,7 @@ describe('Wave 2 migrations upgrade existing data (e2e)', () => {
     const orphan = randomUUID();
     await client.query(
       `INSERT INTO videos (node_id, version_id, duration_sec, width, height, renditions, hls_blob_id, poster_blob_id, sprite_blob_id, key_encrypted)
-       VALUES ($1, $2, 1, 1, 1, '[]', $3, $4, $5, '\\x01')`,
+       VALUES ($1, $2, 1, -4, 1, '[]', $3, $4, $5, '\\x01')`,
       [videoNode, orphan, randomUUID(), randomUUID(), randomUUID()],
     );
     docNode = await insertNode('D', null, 'DOCUMENT');
@@ -267,6 +267,15 @@ describe('Wave 2 migrations upgrade existing data (e2e)', () => {
       [docNode],
     );
     expect(d.word_count).toBe(0);
+    const v = await one<{ width: number; version_id: string }>(
+      'SELECT width, version_id FROM videos WHERE node_id = $1',
+      [videoNodeId],
+    );
+    expect(v.width).toBe(0);
+    const fk = await one<{ convalidated: boolean }>(
+      `SELECT convalidated FROM pg_constraint WHERE conname = 'videos_version_id_fkey'`,
+    );
+    expect(fk.convalidated).toBe(false);
     const b = await one<{ size_bytes: string }>('SELECT size_bytes FROM blobs WHERE id = $1', [
       blobNegative,
     ]);
