@@ -2,6 +2,7 @@
 
 import { Check, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { focusRing } from "./focus";
 import { MenuItem, PopoverPanel, usePopover } from "./popover";
 
 export interface SelectOption<T extends string> {
@@ -44,8 +45,8 @@ export function Select<T extends string>({
         onClick={toggle}
         className={cn(
           size === "field"
-            ? "flex h-11 w-full cursor-pointer items-center gap-2 rounded-xl border border-border-strong bg-surface px-4 text-left text-base whitespace-nowrap outline-hidden aria-expanded:border-focus aria-expanded:ring-2 aria-expanded:ring-focus md:h-10 md:text-sm"
-            : "flex h-8 cursor-pointer items-center gap-1 rounded-lg px-2 text-sm outline-hidden hover:bg-foreground/8 aria-expanded:bg-foreground/8",
+            ? "flex h-11 w-full cursor-pointer items-center gap-2 rounded-xl border border-border-strong bg-surface px-4 text-left text-base whitespace-nowrap outline-hidden aria-expanded:border-focus aria-expanded:ring-2 aria-expanded:ring-focus focus-visible:border-focus focus-visible:ring-2 focus-visible:ring-focus md:h-10 md:text-sm"
+            : cn("flex h-8 cursor-pointer items-center gap-1 rounded-lg px-2 text-sm hover:bg-foreground/8 aria-expanded:bg-foreground/8", focusRing),
         )}
       >
         {prefix ? <span className="text-muted">{prefix}</span> : null}
