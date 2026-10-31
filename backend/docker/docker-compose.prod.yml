@@ -5,6 +5,15 @@ x-app-env: &app-env
   restart: unless-stopped
   networks: [internal]
 
+x-no-owner-secrets: &no-owner-secrets
+  DATABASE_MIGRATE_URL: ''
+  POSTGRES_PASSWORD: ''
+  MINIO_ROOT_PASSWORD: ''
+  BACKUP_PASSWORD: ''
+  CF_DNS_API_TOKEN: ''
+  CLOUDFLARE_TUNNEL_TOKEN: ''
+  GRAFANA_ADMIN_PASSWORD: ''
+
 services:
   traefik:
     image: traefik:3.6.2
@@ -58,6 +67,7 @@ services:
     <<: *app-env
     build: { context: .., target: api }
     image: luna-api:${LUNA_VERSION:-latest}
+    environment: *no-owner-secrets
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
@@ -75,6 +85,7 @@ services:
     <<: *app-env
     build: { context: .., target: collab }
     image: luna-collab:${LUNA_VERSION:-latest}
+    environment: *no-owner-secrets
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
@@ -102,6 +113,7 @@ services:
     volumes:
       - worker-tmp:/var/tmp/luna
     environment:
+      <<: *no-owner-secrets
       WORKER_TMP_DIR: /var/tmp/luna
       FFMPEG_THREADS: '4'
       FFMPEG_NICE: '10'

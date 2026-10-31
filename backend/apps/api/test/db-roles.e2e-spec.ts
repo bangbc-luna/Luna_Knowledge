@@ -44,12 +44,14 @@ describe('Non-owner app database role (e2e)', () => {
   });
 
   it('app role đúng là login luna_app_e2e, không phải owner', async () => {
-    const { rows } = await app.query<{ me: string; member: boolean; owns: boolean }>(
+    const { rows } = await app.query(
       `SELECT current_user AS me,
               pg_has_role(current_user, 'luna_app', 'MEMBER') AS member,
-              (SELECT tableowner FROM pg_tables WHERE tablename = 'audit_logs') = current_user AS owns`,
+              (SELECT tableowner FROM pg_tables WHERE tablename = 'audit_logs') = current_user AS owns,
+              r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolbypassrls AS elevated
+         FROM pg_roles r WHERE r.rolname = current_user`,
     );
-    expect(rows[0]).toEqual({ me: 'luna_app_e2e', member: true, owns: false });
+    expect(rows[0]).toEqual({ me: 'luna_app_e2e', member: true, owns: false, elevated: false });
   });
 
   it('app role ghi và đọc được audit_logs', async () => {

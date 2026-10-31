@@ -2,6 +2,8 @@ import pg from 'pg';
 
 export const APP_DB_ROLE = 'luna_app';
 
+const SAFE_ATTRS = 'NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS';
+
 export type AppLoginResult = 'created' | 'updated' | 'same-user';
 
 function credentials(url: string) {
@@ -32,6 +34,9 @@ export async function ensureAppLogin(adminUrl: string, appUrl: string): Promise<
   };
   try {
     await client.query('BEGIN');
+    await client.query(
+      "SET LOCAL log_statement = 'none'; SET LOCAL log_min_error_statement = 'panic'; SET LOCAL log_min_duration_statement = -1",
+    );
     const { rows } = await client.query<{ super: boolean }>(
       'SELECT rolsuper AS super FROM pg_roles WHERE rolname = $1',
       [app.user],
@@ -39,9 +44,14 @@ export async function ensureAppLogin(adminUrl: string, appUrl: string): Promise<
     if (rows[0]?.super) throw new Error(`${app.user} is a superuser; the app needs its own login`);
     const result: AppLoginResult = rows.length ? 'updated' : 'created';
     if (result === 'created')
-      await run('CREATE ROLE %I LOGIN PASSWORD %L IN ROLE %I', app.user, app.password, APP_DB_ROLE);
+      await run(
+        `CREATE ROLE %I LOGIN ${SAFE_ATTRS} PASSWORD %L IN ROLE %I`,
+        app.user,
+        app.password,
+        APP_DB_ROLE,
+      );
     else {
-      await run('ALTER ROLE %I WITH LOGIN PASSWORD %L', app.user, app.password);
+      await run(`ALTER ROLE %I WITH LOGIN ${SAFE_ATTRS} PASSWORD %L`, app.user, app.password);
       await run('GRANT %I TO %I', APP_DB_ROLE, app.user);
     }
     await run('GRANT CONNECT ON DATABASE %I TO %I', app.database || admin.database, app.user);

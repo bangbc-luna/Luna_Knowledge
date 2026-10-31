@@ -69,14 +69,16 @@ chmod 600 .env.prod
 Điền các ô trống. Sinh secret:
 
 ```bash
-openssl rand -base64 48   # POSTGRES_PASSWORD, MINIO_ROOT_PASSWORD, MEILI_MASTER_KEY, JWT_ACCESS_SECRET,
+openssl rand -hex 32      # POSTGRES_PASSWORD, APP_DB_PASSWORD (nằm trong URL nên chỉ dùng chữ và số)
+openssl rand -base64 48   # MINIO_ROOT_PASSWORD, MEILI_MASTER_KEY, JWT_ACCESS_SECRET,
                           # COLLAB_TOKEN_SECRET, COLLAB_INTERNAL_SECRET, METRICS_TOKEN, BACKUP_PASSWORD
 openssl rand -base64 32   # VIDEO_MASTER_KEY (đúng 32 byte)
 ```
 
 - Thay `<POSTGRES_PASSWORD>` trong `DATABASE_MIGRATE_URL` và `<MINIO_ROOT_PASSWORD>` ở `S3_SECRET_KEY` bằng mật khẩu thật.
-- Thay `<APP_DB_PASSWORD>` trong `DATABASE_URL` bằng một mật khẩu riêng, sinh bằng `openssl rand -hex 32` (chỉ chữ và số, không phải mã hoá trong URL).
-- Hai user Postgres: `DATABASE_MIGRATE_URL` là user chủ DB (`POSTGRES_USER`), chỉ dùng cho `migrate`, backup, restore. `DATABASE_URL` là login riêng của app (`luna_app_user`, thuộc role `luna_app`): đọc ghi dữ liệu được nhưng không tạo hay sửa bảng, không sửa, xoá hay TRUNCATE được `audit_logs`. Bước `migrate` tự tạo login này, và mỗi lần khởi động lại đặt lại mật khẩu theo `DATABASE_URL`, nên đổi mật khẩu chỉ cần sửa `DATABASE_URL` rồi `luna up -d`.
+- Thay `<APP_DB_PASSWORD>` trong `DATABASE_URL` bằng một mật khẩu riêng, khác `POSTGRES_PASSWORD`.
+- Hai user Postgres: `DATABASE_MIGRATE_URL` là user chủ DB (`POSTGRES_USER`), chỉ dùng cho `migrate` và script backup, restore chạy trên server; compose xoá trắng `DATABASE_MIGRATE_URL`, `POSTGRES_PASSWORD`, `MINIO_ROOT_PASSWORD`, `BACKUP_PASSWORD` và các token Cloudflare, Grafana trong container api, worker, collab (riêng `S3_SECRET_KEY` hiện vẫn là mật khẩu root MinIO, chưa có user MinIO riêng cho app). `DATABASE_URL` là login riêng của app (`luna_app_user`, thuộc role `luna_app`): đọc ghi dữ liệu được nhưng không tạo hay sửa bảng, không sửa, xoá hay TRUNCATE được `audit_logs`. Bước `migrate` tự tạo login này, và mỗi lần khởi động lại đặt lại mật khẩu theo `DATABASE_URL`, nên đổi mật khẩu chỉ cần sửa `DATABASE_URL` rồi `luna up -d`.
+- Mọi bảng phải do user chủ DB tạo (qua migration): quyền mặc định cấp cho `luna_app` gắn với user đó, bảng do user khác tạo thì app không đọc ghi được.
 - **Cất `VIDEO_MASTER_KEY` và `BACKUP_PASSWORD` ra một nơi an toàn khác server** (két, trình quản lý mật khẩu của công ty). Mất `VIDEO_MASTER_KEY` thì mọi video đã transcode không phát được nữa; mất `BACKUP_PASSWORD` thì bản backup vô dụng.
 - `.env.prod` không bao giờ đưa lên git (đã có trong `.gitignore`).
 
