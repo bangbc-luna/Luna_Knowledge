@@ -25,6 +25,7 @@ import type { Request, Response } from 'express';
 import { memoryStorage } from 'multer';
 import { z } from 'zod';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
+import { CurrentSession } from '../auth/decorators/current-session.decorator.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { requestContext } from '../common/http/request-context.js';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
@@ -121,8 +122,12 @@ export class DocumentsController {
       'Dùng cho `HocuspocusProvider({ url, name: documentName, token })`; xin token mới mỗi lần kết nối lại. VIEWER kết nối chỉ đọc.',
   })
   @ApiZodOk(collabTokenSchema)
-  collabToken(@CurrentUser() user: AuthenticatedUser, @Param('id', uuid()) id: string) {
-    return this.documents.collabToken(user, id);
+  collabToken(
+    @CurrentUser() user: AuthenticatedUser,
+    @CurrentSession() sessionId: string,
+    @Param('id', uuid()) id: string,
+  ) {
+    return this.documents.collabToken(user, id, sessionId);
   }
 
   @Get('documents/:id/export')

@@ -150,8 +150,10 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
       written.push(...derived.blobs);
 
       const created = await this.prisma.client.$transaction(async (tx) => {
-        const exists = await tx.node.findUnique({ where: { id: node.id }, select: { id: true } });
-        if (!exists) return false;
+        const locked = await tx.$queryRaw<
+          Array<{ id: string }>
+        >`SELECT id FROM nodes WHERE id = ${node.id}::uuid FOR UPDATE`;
+        if (locked.length === 0) return false;
         const blobs = await Promise.all(
           written.map((b) =>
             tx.blob.create({

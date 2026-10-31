@@ -56,9 +56,10 @@ describe('App bootstrap (e2e)', () => {
   });
 
   it('kết nối DB có statement_timeout và idle_in_transaction_session_timeout; keep-alive dài hơn Traefik', async () => {
-    const [st] = await ctx.prisma.$queryRawUnsafe<Array<{ statement_timeout: string }>>(
-      'SHOW statement_timeout',
-    );
+    const [st] =
+      await ctx.prisma.$queryRawUnsafe<Array<{ statement_timeout: string }>>(
+        'SHOW statement_timeout',
+      );
     expect(st.statement_timeout).toBe('30s');
     const [idle] = await ctx.prisma.$queryRawUnsafe<
       Array<{ idle_in_transaction_session_timeout: string }>

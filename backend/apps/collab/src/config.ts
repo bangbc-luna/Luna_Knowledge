@@ -6,6 +6,7 @@ import {
   httpServerEnvSchema,
   loadEnv,
   redisEnvSchema,
+  requireMetricsTokenInProduction,
 } from '@luna/shared';
 import { z } from 'zod';
 
@@ -19,7 +20,8 @@ export const collabEnvSchema = baseEnvSchema
     COLLAB_PORT: z.coerce.number().int().nonnegative().default(4001),
     COLLAB_AUTO_VERSION_MIN: z.coerce.number().int().positive().default(30),
     COLLAB_INDEX_DELAY_MS: z.coerce.number().int().min(0).default(5000),
-  });
+  })
+  .superRefine(requireMetricsTokenInProduction);
 
 export type CollabConfig = z.output<typeof collabEnvSchema>;
 

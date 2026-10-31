@@ -52,8 +52,8 @@ describe('Collab server (e2e)', () => {
     base = `127.0.0.1:${server.address.port}`;
   };
 
-  const token = (userId: string, nodeId: string, secret = SECRET) =>
-    new SignJWT({ doc: nodeId, name: 'Tester' })
+  const token = (userId: string, nodeId: string, secret = SECRET, sid?: string) =>
+    new SignJWT({ doc: nodeId, name: 'Tester', ...(sid ? { sid } : {}) })
       .setProtectedHeader({ alg: 'HS256' })
       .setSubject(userId)
       .setAudience(COLLAB_TOKEN_AUDIENCE)
@@ -260,7 +260,10 @@ describe('Collab server (e2e)', () => {
 
   it('từ chối tài liệu đã vào thùng rác và tài khoản bị khoá', async () => {
     const trashed = await newDocument();
-    await prisma.node.update({ where: { id: trashed }, data: { deletedAt: new Date() } });
+    await prisma.node.update({
+      where: { id: trashed },
+      data: { deletedAt: new Date(), deletedRootId: trashed },
+    });
     expect((await connect(users.editor, trashed)).result).not.toBe('synced');
 
     const nodeId = await newDocument();
@@ -425,6 +428,48 @@ describe('Collab server (e2e)', () => {
     await pub.publish(COLLAB_ACCESS_CHANNEL, JSON.stringify({ workspaceId, userId: temp }));
     await pub.quit();
     await closed;
+  });
+
+  it('sự kiện thu hồi phiên đóng đúng kết nối của phiên đó (4401)', async () => {
+    const nodeId = await newDocument();
+    const sessionFor = async () =>
+      (
+        await prisma.session.create({
+          data: { userId: users.editor2, absoluteExpiresAt: new Date(Date.now() + 3_600_000) },
+        })
+      ).id;
+    const [sidA, sidB] = [await sessionFor(), await sessionFor()];
+    const a = await connect(
+      users.editor2,
+      nodeId,
+      await token(users.editor2, nodeId, SECRET, sidA),
+    );
+    const b = await connect(
+      users.editor2,
+      nodeId,
+      await token(users.editor2, nodeId, SECRET, sidB),
+    );
+    const w = await connect(users.editor, nodeId);
+    expect([a.result, b.result, w.result]).toEqual(['synced', 'synced', 'synced']);
+    const closedA = new Promise<string>((resolve) =>
+      a.provider.on('close', ({ event }: { event: { reason: string } }) => resolve(event.reason)),
+    );
+    let closedB = false;
+    b.provider.on('close', () => (closedB = true));
+    await prisma.session.update({ where: { id: sidA }, data: { revokedAt: new Date() } });
+    const pub = new Redis(config.REDIS_URL);
+    await pub.publish(COLLAB_ACCESS_CHANNEL, JSON.stringify({ sessionId: sidA }));
+    await pub.quit();
+    expect(await closedA).toBe('Session ended');
+    type(b.ydoc, 'Phiên B vẫn sửa được');
+    await until(() => textOf(w.ydoc) === 'Phiên B vẫn sửa được');
+    expect(closedB).toBe(false);
+    const again = await connect(
+      users.editor2,
+      nodeId,
+      await token(users.editor2, nodeId, SECRET, sidA),
+    );
+    expect(again.result).not.toBe('synced');
   });
 
   it('phiên sửa kết thúc (không còn ai kết nối) thì tự tạo phiên bản', async () => {

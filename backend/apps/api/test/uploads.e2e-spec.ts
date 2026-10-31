@@ -222,6 +222,25 @@ describe('Uploads and files (e2e)', () => {
       expect(dup.body.error.details.suggestion).toBe('báo cáo (1).PDF');
     });
 
+    it('S3 lỗi khi tạo multipart: không để lại mục UPLOADING, upload phiên bản mới giữ nguyên mục cũ', async () => {
+      const spy = vi.spyOn(s3, 'send').mockRejectedValueOnce(new Error('S3 unavailable'));
+      const res = await startUpload(editor, { fileName: 'mo-coi.pdf', size: 10 });
+      expect(res.status).toBeGreaterThanOrEqual(500);
+      expect(await ctx.prisma.node.count({ where: { name: 'mo-coi.pdf' } })).toBe(0);
+      const existing = await uploadSmall(editor, 'giu-nguyen.pdf');
+      spy.mockRejectedValueOnce(new Error('S3 unavailable'));
+      const res2 = await startUpload(editor, {
+        fileName: 'v2.pdf',
+        size: 10,
+        replaceNodeId: existing.nodeId,
+      });
+      expect(res2.status).toBeGreaterThanOrEqual(500);
+      const kept = await ctx.prisma.node.findUnique({ where: { id: existing.nodeId } });
+      expect(kept).not.toBeNull();
+      expect(kept?.status).toBe('READY');
+      spy.mockRestore();
+    });
+
     it('mục đang tải lên chỉ người tải thấy trong danh sách', async () => {
       await startUpload(editor, { fileName: 'pending.pdf', size: 10 }).expect(201);
       const mine = await http()

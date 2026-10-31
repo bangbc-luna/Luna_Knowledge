@@ -21,6 +21,7 @@ export const JOBS = {
   PURGE_TRASH: 'purge-trash',
   CLEAN_UPLOADS: 'clean-uploads',
   BLOB_GC: 'blob-gc',
+  RETENTION: 'retention',
   TRANSCODE: 'transcode',
 } as const;
 
@@ -64,7 +65,9 @@ export interface CollabAccessEvent {
   workspaceId?: string;
   userId?: string;
   nodeId?: string;
+  sessionId?: string;
 }
+export const SESSION_REVOKED_CHANNEL = 'luna:session-revoked';
 export const collabDocumentName = (nodeId: string) => `doc:${nodeId}`;
 export const COLLAB_TOKEN_AUDIENCE = 'luna-collab';
 

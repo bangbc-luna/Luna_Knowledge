@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowLeft, Bookmark, History } from "lucide-react";
+import DOMPurify from "dompurify";
 import dynamic from "next/dynamic";
 import { useMemo, useState } from "react";
 import { api, describeError } from "@/lib/api";
@@ -19,15 +20,10 @@ const LatexPreview = dynamic(() => import("./latex-workspace").then((m) => m.Lat
 
 function safeHtml(html: string) {
   if (typeof window === "undefined") return "";
-  const doc = new DOMParser().parseFromString(html, "text/html");
-  doc.querySelectorAll("script,style,iframe,object,embed").forEach((el) => el.remove());
-  doc.querySelectorAll("*").forEach((el) => {
-    for (const a of [...el.attributes]) {
-      if (a.name.startsWith("on")) el.removeAttribute(a.name);
-      if ((a.name === "href" || a.name === "src") && /^\s*javascript:/i.test(a.value)) el.removeAttribute(a.name);
-    }
+  return DOMPurify.sanitize(html, {
+    USE_PROFILES: { html: true },
+    FORBID_TAGS: ["form", "input", "button", "select", "textarea", "style"],
   });
-  return doc.body.innerHTML;
 }
 
 const versionTitle = (v: DocVersion) => v.name ?? (v.createdBy ? `Sửa bởi ${v.createdBy.name}` : "Tự động lưu");

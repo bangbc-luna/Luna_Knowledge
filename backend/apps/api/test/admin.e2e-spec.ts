@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import {
   createTestApp,
@@ -111,6 +112,22 @@ describe('Admin: stats & audit logs (e2e)', () => {
         targetId: 'gone',
       },
     });
+    await ctx.prisma.auditLog.create({
+      data: {
+        action: 'test.csv',
+        metadata: { name: '\t=SUM(A1)' },
+        targetType: 'node',
+        targetId: randomUUID(),
+      },
+    });
+    await ctx.prisma.auditLog.create({
+      data: {
+        action: 'test.csv',
+        metadata: { name: '\r=1+1' },
+        targetType: 'node',
+        targetId: randomUUID(),
+      },
+    });
     const res = await http()
       .get('/api/v1/admin/audit-logs/export?actions=test.csv')
       .set(admin.auth)
@@ -120,6 +137,8 @@ describe('Admin: stats & audit logs (e2e)', () => {
     expect(res.text.charCodeAt(0)).toBe(0xfeff);
     expect(res.text).toContain('Thời gian,Người thực hiện');
     expect(res.text).toContain(`'=HYPERLINK(""x"")`);
+    expect(res.text).toContain("'\t=SUM(A1)");
+    expect(res.text).toContain(`"'\r=1+1"`);
   });
 
   it('số liệu tổng quan', async () => {

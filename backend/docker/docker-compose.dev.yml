@@ -70,7 +70,7 @@ services:
       retries: 20
 
   tika:
-    image: apache/tika:latest-full
+    image: apache/tika:4.1.0-full
     restart: unless-stopped
     ports:
       - '127.0.0.1:${TIKA_PORT:-9998}:9998'

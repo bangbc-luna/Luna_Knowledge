@@ -22,13 +22,15 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
-import { concat, interval, map, merge, type Observable, of } from 'rxjs';
+import { concat, interval, map, merge, type Observable, of, takeUntil } from 'rxjs';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
+import { CurrentSession } from '../auth/decorators/current-session.decorator.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { Public } from '../auth/decorators/public.decorator.js';
 import { requestContext } from '../common/http/request-context.js';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
 import { ApiZodCreated, ApiZodOk, ApiZodQuery } from '../common/swagger/zod-openapi.js';
+import { SessionRevocationsService } from '../infra/redis/session-revocations.service.js';
 import { z } from 'zod';
 import {
   duplicateInfoSchema,
@@ -61,7 +63,10 @@ async function sendDownload(res: Response, file: Download) {
 @ApiBearerAuth()
 @Controller()
 export class FilesController {
-  constructor(private readonly files: FilesService) {}
+  constructor(
+    private readonly files: FilesService,
+    private readonly revocations: SessionRevocationsService,
+  ) {}
 
   @Get('files/:id')
   @ApiOperation({ summary: 'Chi tiết file: phiên bản hiện tại, trạng thái xử lý (VIEWER)' })
@@ -197,13 +202,14 @@ export class FilesController {
   })
   async events(
     @CurrentUser() user: AuthenticatedUser,
+    @CurrentSession() sessionId: string,
     @Param('id', uuid()) id: string,
   ): Promise<Observable<MessageEvent>> {
     const { initial, stream } = await this.files.events$(user, id);
     return merge(
       concat(of(initial), stream).pipe(map((data) => ({ type: 'status', data }))),
       interval(HEARTBEAT_MS).pipe(map(() => ({ type: 'ping', data: {} }))),
-    );
+    ).pipe(takeUntil(this.revocations.revoked$(sessionId)));
   }
 
   @Get('workspaces/:wsId/storage')

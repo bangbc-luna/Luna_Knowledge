@@ -287,6 +287,18 @@ describe('Videos: phát có bảo vệ (e2e)', () => {
     await http().get(`/api/v1/videos/${nodeId}/key?s=${pb.body.token}`).expect(404);
   });
 
+  it('đăng xuất vô hiệu phiên xem của phiên đăng nhập đó', async () => {
+    const { nodeId } = await seedVideo('Đăng xuất.mp4');
+    const device = await loginAs(ctx, 'viewer@lunatech.vn');
+    const mine = await play(device, nodeId).expect(200);
+    const others = await play(viewer, nodeId).expect(200);
+    await http().get(mine.body.masterUrl).expect(200);
+    await device.agent.post('/api/v1/auth/logout').set(device.auth).expect(204);
+    await http().get(mine.body.masterUrl).expect(404);
+    await http().get(`/api/v1/videos/${nodeId}/key?s=${mine.body.token}`).expect(404);
+    await http().get(others.body.masterUrl).expect(200);
+  });
+
   it('lượt xem: mở lại trong 30 phút chỉ tính một lần; nhật ký video.play', async () => {
     const { nodeId } = await seedVideo('Đếm.mp4');
     await play(viewer, nodeId).expect(200);

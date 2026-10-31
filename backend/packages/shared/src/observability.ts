@@ -10,6 +10,19 @@ export const observabilityEnvSchema = z.object({
   SENTRY_ENVIRONMENT: optionalEnv(z.string()),
 });
 
+export function requireMetricsTokenInProduction(
+  env: { NODE_ENV?: string; METRICS_TOKEN?: string },
+  ctx: z.RefinementCtx,
+) {
+  if (env.NODE_ENV === 'production' && !env.METRICS_TOKEN) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['METRICS_TOKEN'],
+      message: 'METRICS_TOKEN is required in production',
+    });
+  }
+}
+
 export function createMetricsRegistry(service: string) {
   const registry = new Registry();
   registry.setDefaultLabels({ service });
@@ -17,9 +30,22 @@ export function createMetricsRegistry(service: string) {
   return registry;
 }
 
-const PRIVATE = [/^127\./, /^10\./, /^192\.168\./, /^172\.(1[6-9]|2\d|3[01])\./, /^::1$/, /^fc/i, /^fd/i, /^::ffff:(127|10|192\.168)\./];
+const PRIVATE = [
+  /^127\./,
+  /^10\./,
+  /^192\.168\./,
+  /^172\.(1[6-9]|2\d|3[01])\./,
+  /^::1$/,
+  /^fc/i,
+  /^fd/i,
+  /^::ffff:(127|10|192\.168)\./,
+];
 
-export function metricsAllowed(remoteAddress: string | undefined, authorization: string | undefined, token?: string) {
+export function metricsAllowed(
+  remoteAddress: string | undefined,
+  authorization: string | undefined,
+  token?: string,
+) {
   if (token) {
     const given = Buffer.from((authorization ?? '').replace(/^Bearer\s+/i, ''));
     const want = Buffer.from(token);
@@ -30,7 +56,10 @@ export function metricsAllowed(remoteAddress: string | undefined, authorization:
 
 let sentryOn = false;
 
-export function initSentry(service: string, env: { SENTRY_DSN?: string; SENTRY_ENVIRONMENT?: string; NODE_ENV?: string }) {
+export function initSentry(
+  service: string,
+  env: { SENTRY_DSN?: string; SENTRY_ENVIRONMENT?: string; NODE_ENV?: string },
+) {
   if (!env.SENTRY_DSN || sentryOn) return;
   Sentry.init({
     dsn: env.SENTRY_DSN,
