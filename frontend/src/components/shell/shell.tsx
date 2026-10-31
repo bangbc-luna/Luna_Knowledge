@@ -68,9 +68,9 @@ export function TopBar({ children, actions }: { children: React.ReactNode; actio
       <div className="min-w-0 flex-1">{children}</div>
       {inAdmin || pathname === "/search" ? null : <SearchTrigger />}
       {actions}
-      {inAdmin ? null : <MembersToggle />}
+      {inAdmin ? null : <MembersToggle compact={!!actions} />}
       {inAdmin ? null : <NotificationBell />}
-      <AccountMenu />
+      <AccountMenu compact={!!actions} />
     </header>
   );
 }

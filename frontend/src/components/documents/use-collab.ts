@@ -9,6 +9,8 @@ import { type CollabToken, userColor } from "@/lib/documents";
 export type CollabStatus = "connecting" | "online" | "offline" | "denied";
 
 const LOST_ACCESS = new Set(["Forbidden", "Session ended"]);
+const FINAL = new Set([401, 403, 404]);
+const BACKOFF = [1000, 2000, 5000, 10000];
 
 export interface Peer {
   clientId: number;
@@ -49,14 +51,18 @@ export function useCollab(nodeId: string) {
       }
     };
 
-    const recheck = () => {
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const recheck = (attempt = 0) => {
+      clearTimeout(retry);
       provider?.disconnect();
       fetchToken()
         .then(() => {
           if (!cancelled) void provider?.connect();
         })
         .catch((err) => {
-          if (!cancelled && !(err instanceof ApiError)) void provider?.connect();
+          if (cancelled || (err instanceof ApiError && FINAL.has(err.status))) return;
+          const delay = (BACKOFF[attempt] ?? BACKOFF[BACKOFF.length - 1]!) * (0.75 + Math.random() * 0.5);
+          retry = setTimeout(() => recheck(attempt + 1), delay);
         });
     };
 
@@ -107,6 +113,7 @@ export function useCollab(nodeId: string) {
 
     return () => {
       cancelled = true;
+      clearTimeout(retry);
       provider?.destroy();
       ydoc.destroy();
     };

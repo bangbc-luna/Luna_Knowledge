@@ -6,12 +6,13 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { describeError, tokenSecondsLeft } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { cn } from "@/lib/cn";
 import { Avatar } from "../ui/misc";
 import { MenuItem, MenuSeparator, PopoverPanel, usePopover } from "../ui/popover";
 import { useToast } from "../ui/toast";
 import { IS_DEV, PERSONAS } from "./personas";
 
-export function AccountMenu() {
+export function AccountMenu({ compact = false }: { compact?: boolean }) {
   const { me, loginDev, logout, refreshToken } = useAuth();
   const { open, setOpen, toggle, rootRef } = usePopover();
   const [switching, setSwitching] = useState<string | null>(null);
@@ -27,11 +28,12 @@ export function AccountMenu() {
         type="button"
         aria-expanded={open}
         aria-haspopup="menu"
+        aria-label={me.name}
         onClick={toggle}
         className="flex h-10 max-w-72 cursor-pointer items-center gap-2.5 rounded-xl py-1 pr-2 pl-1 outline-hidden transition-colors hover:bg-foreground/5 aria-expanded:bg-foreground/5"
       >
         <Avatar name={me.name} src={me.avatarUrl} />
-        <span className="hidden min-w-0 flex-col text-left xl:flex">
+        <span className={cn("hidden min-w-0 flex-col text-left", compact ? "xl:flex" : "sm:flex")}>
           <span className="truncate text-sm font-medium text-foreground">{me.name}</span>
           <span className="truncate text-xs text-muted">{me.isSystemAdmin ? "System Admin" : me.email}</span>
         </span>

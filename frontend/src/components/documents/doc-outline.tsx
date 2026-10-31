@@ -1,6 +1,7 @@
 "use client";
 
-import { type Editor, useEditorState } from "@tiptap/react";
+import type { Editor } from "@tiptap/react";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/cn";
 import { EmptyState } from "../ui/misc";
 
@@ -26,13 +27,32 @@ function readHeadings(editor: Editor | null) {
   return list;
 }
 
+function same(a: Heading[], b: Heading[]) {
+  return a.length === b.length && a.every((h, i) => h.pos === b[i]!.pos && h.level === b[i]!.level && h.text === b[i]!.text);
+}
+
 export function DocOutline({ editor, onNavigate }: { editor: Editor | null; onNavigate?: () => void }) {
-  const headings =
-    useEditorState({
-      editor,
-      selector: ({ editor: e }) => readHeadings(e),
-      equalityFn: (a, b) => !!a && !!b && a.length === b.length && a.every((h, i) => h.pos === b[i]!.pos && h.level === b[i]!.level && h.text === b[i]!.text),
-    }) ?? [];
+  const [state, setState] = useState<{ editor: Editor | null; list: Heading[] }>({ editor: null, list: [] });
+  useEffect(() => {
+    if (!editor) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const refresh = () => {
+      const list = readHeadings(editor);
+      setState((prev) => (prev.editor === editor && same(prev.list, list) ? prev : { editor, list }));
+    };
+    const onTransaction = ({ transaction }: { transaction: { docChanged: boolean } }) => {
+      if (!transaction.docChanged) return;
+      clearTimeout(timer);
+      timer = setTimeout(refresh, 150);
+    };
+    timer = setTimeout(refresh, 0);
+    editor.on("transaction", onTransaction);
+    return () => {
+      clearTimeout(timer);
+      editor.off("transaction", onTransaction);
+    };
+  }, [editor]);
+  const headings = state.editor === editor ? state.list : [];
 
   if (!headings.length) return <EmptyState text="Tài liệu chưa có tiêu đề mục" />;
 

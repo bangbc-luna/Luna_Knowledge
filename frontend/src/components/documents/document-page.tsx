@@ -39,7 +39,7 @@ import { InlineTitle } from "./inline-title";
 import { type CollabSession, type Peer, useCollab } from "./use-collab";
 
 function LatexLoading() {
-  return <div className="mt-4 h-[calc(100dvh-13rem)] min-h-[28rem] animate-pulse rounded-xl bg-foreground/5" aria-busy="true" aria-label="Đang tải" />;
+  return <div className="mt-3 min-h-[28rem] flex-1 animate-pulse rounded-xl bg-foreground/5" aria-busy="true" aria-label="Đang tải" />;
 }
 
 const LatexWorkspace = dynamic(() => import("./latex-workspace").then((m) => m.LatexWorkspace), { ssr: false, loading: () => <LatexLoading /> });
@@ -563,7 +563,7 @@ export function DocumentPage() {
                 </div>
               ) : null}
 
-              <div className="px-3 py-3">
+              <div className={cn("px-3 py-3", isLatex && "lg:flex lg:h-[calc(100dvh-2.75rem)] lg:flex-col")}>
                 <div className="flex items-start gap-2">
                   <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
                     <div className="min-w-0 max-w-full">
