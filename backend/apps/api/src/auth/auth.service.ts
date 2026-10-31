@@ -1,5 +1,5 @@
 import type { Session, User } from '@luna/db';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import * as oidc from 'openid-client';
 import type { Redis } from 'ioredis';
 import { AuditService } from '../audit/audit.service.js';
@@ -73,6 +73,8 @@ export function toAuthenticatedUser(user: User): AuthenticatedUser {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     @Inject(GOOGLE_IDENTITY) private readonly google: GoogleIdentityProvider,
@@ -331,7 +333,9 @@ export class AuthService {
     await Promise.all(
       sessionIds.map((sessionId) => this.collab.accessChanged({ userId, sessionId })),
     );
-    await revokePlaybackSessions(this.redis, sessionIds).catch(() => undefined);
+    await revokePlaybackSessions(this.redis, sessionIds).catch((err: unknown) => {
+      this.logger.warn({ err, sessionIds }, 'Failed to revoke playback sessions');
+    });
   }
 
   async authenticate(accessToken: string): Promise<AuthContext> {

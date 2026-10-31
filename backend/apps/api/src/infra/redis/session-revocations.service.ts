@@ -51,8 +51,18 @@ export class SessionRevocationsService implements OnModuleInit, OnModuleDestroy 
   private ensureSubscriber() {
     if (this.subscriber) return;
     this.subscriber = this.redis.duplicate();
-    this.subscriber.on('error', () => undefined);
-    void this.subscriber.subscribe(SESSION_REVOKED_CHANNEL).catch(() => undefined);
+    let down = false;
+    this.subscriber.on('error', (err: unknown) => {
+      if (down) return;
+      down = true;
+      this.logger.warn({ err }, 'Session revocation subscriber error');
+    });
+    this.subscriber.on('ready', () => {
+      down = false;
+    });
+    void this.subscriber.subscribe(SESSION_REVOKED_CHANNEL).catch((err: unknown) => {
+      this.logger.warn({ err }, 'Failed to subscribe to session revocations');
+    });
     this.subscriber.on('message', (_channel: string, message: string) => {
       let ids: unknown;
       try {

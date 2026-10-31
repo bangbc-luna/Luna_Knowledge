@@ -18,7 +18,7 @@ import {
   ruleForFileName,
 } from '@luna/shared';
 import { InjectQueue } from '@nestjs/bullmq';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Queue } from 'bullmq';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
@@ -41,6 +41,8 @@ export const UPLOAD_TTL_HOURS = 24;
 
 @Injectable()
 export class UploadsService {
+  private readonly logger = new Logger(UploadsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: ContentAccessService,
@@ -151,12 +153,22 @@ export class UploadsService {
               UploadId: s3UploadId,
             }),
           )
-          .catch(() => undefined);
+          .catch((cleanupErr: unknown) => {
+            this.logger.warn(
+              { err: cleanupErr, uploadId: id },
+              'Failed to abort the multipart upload after a failed upload start',
+            );
+          });
       }
       if (createdNode) {
         await this.prisma.client.node
           .deleteMany({ where: { id: nodeId, status: 'UPLOADING' } })
-          .catch(() => undefined);
+          .catch((cleanupErr: unknown) => {
+            this.logger.warn(
+              { err: cleanupErr, nodeId },
+              'Failed to remove the placeholder node after a failed upload start',
+            );
+          });
       }
       throw err;
     }
