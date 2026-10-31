@@ -25,6 +25,7 @@ import { Select } from "../ui/select";
 import { useToast } from "../ui/toast";
 import { CopyDialog, MoveDialog, NameDialog, NewDocumentDialog, TagsDialog } from "./node-dialogs";
 import { FolderTable } from "./folder-table";
+import { RecentUpdates } from "./recent-updates";
 import { VideoGrid } from "./video-grid";
 import { ShareSheet } from "./share-sheet";
 
@@ -123,8 +124,10 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
   const uploadTick = uploads.doneTick(wsId, folderId);
   const reloadList = list.reload;
   useEffect(() => {
-    if (uploadTick) void reloadList();
-  }, [uploadTick, reloadList]);
+    if (!uploadTick) return;
+    void reloadList();
+    invalidateTree(wsId, [folderId]);
+  }, [uploadTick, reloadList, wsId, folderId]);
   const pending = (list.data?.items ?? []).some((n) => n.status === "PROCESSING" || n.status === "UPLOADING");
   useEffect(() => {
     if (!pending) return;
@@ -168,6 +171,7 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
   const loading = current.loading || list.loading;
   const showList = !(loading && !list.data) && !loadError && items.length > 0;
   const notMemberAtRoot = !folderId && !membership;
+  const showRecent = !folderId && !!membership;
 
   return (
     <>
@@ -237,7 +241,13 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
                 ) : null}
               </div>
             </div>
-            <div className="relative @container" {...dropProps}>
+            <div className={cn(showRecent && !isVideo && "grid gap-3 xl:grid-cols-[minmax(0,1fr)_22rem] xl:items-start xl:gap-6", showRecent && isVideo && "flex flex-col gap-3")}>
+            {showRecent ? (
+              <div className={cn("min-w-0 border-b border-border pb-3 xl:border-b-0 xl:pb-0", !isVideo && "xl:order-2 xl:border-l xl:pl-6")}>
+                <RecentUpdates wsId={wsId} section={section} />
+              </div>
+            ) : null}
+            <div className={cn("relative min-w-0 @container", showRecent && !isVideo && "xl:order-1")} {...dropProps}>
               {dragging ? (
                 <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center rounded-2xl border border-dashed border-foreground/40 bg-background text-center">
                   <Upload className="size-5 text-muted" aria-hidden />
@@ -299,6 +309,7 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
                   </>
                 )}
               </div>
+            </div>
             </div>
           </>
         )}

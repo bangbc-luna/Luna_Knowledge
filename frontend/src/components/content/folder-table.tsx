@@ -52,7 +52,7 @@ export function FolderTable({
               <td className="whitespace-nowrap sm:w-px sm:px-2">
                 <div className="relative z-10 flex flex-nowrap items-center justify-end gap-0.5">
                   <FavoriteButton node={n} onChange={(fav) => onFavorite(n.id, fav)} />
-                  <RowMenu groups={menuFor(n)} className="size-10 min-h-10 sm:size-8 sm:min-h-8" />
+                  <RowMenu groups={menuFor(n)} className="max-sm:size-10 max-sm:min-h-10" />
                 </div>
               </td>
             </tr>

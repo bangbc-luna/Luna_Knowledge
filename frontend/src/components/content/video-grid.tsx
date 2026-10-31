@@ -42,7 +42,7 @@ export function VideoGrid({
   onFavorite,
 }: {
   items: NodeItem[];
-  menuFor: (n: NodeItem) => MenuAction[][];
+  menuFor?: (n: NodeItem) => MenuAction[][];
   onFavorite: (id: string, fav: boolean) => void;
 }) {
   return (
@@ -67,7 +67,7 @@ export function VideoGrid({
               </div>
               <div className="relative z-10 flex shrink-0 items-center">
                 <FavoriteButton node={n} onChange={(fav) => onFavorite(n.id, fav)} />
-                <RowMenu groups={menuFor(n)} className="size-10 min-h-10 sm:size-8 sm:min-h-8" />
+                {menuFor ? <RowMenu groups={menuFor(n)} className="max-sm:size-10 max-sm:min-h-10" /> : null}
               </div>
             </div>
           </li>

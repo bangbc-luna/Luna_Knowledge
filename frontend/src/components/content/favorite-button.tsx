@@ -24,7 +24,7 @@ export function FavoriteButton({ node, onChange }: { node: NodeItem; onChange: (
         }
       }}
       className={cn(
-        "inline-flex size-10 min-h-10 shrink-0 sm:size-8 sm:min-h-8 cursor-pointer items-center justify-center rounded-lg outline-hidden transition-colors hover:bg-foreground/8",
+        "inline-flex size-8 min-h-8 shrink-0 max-sm:size-10 max-sm:min-h-10 cursor-pointer items-center justify-center rounded-lg outline-hidden transition-colors hover:bg-foreground/8",
         node.isFavorite ? "text-foreground" : "text-muted/60 hover:text-foreground",
       )}
     >
