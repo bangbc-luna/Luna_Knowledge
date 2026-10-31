@@ -228,6 +228,8 @@ Nên chạy backup ngay trước khi nâng cấp. Nếu bản mới lỗi: `git 
 
    `APP_HOST` và `MEDIA_HOST` phải có giá trị: chúng được ghi vào CSP của frontend lúc build, thiếu thì `luna build` báo lỗi. Đổi một trong hai thì phải `luna build frontend` lại.
 
+   CSP cho phép tải ảnh, video, file từ `https://<MEDIA_HOST>`, còn api ký URL tải xuống bằng `S3_PUBLIC_ENDPOINT`. Hai giá trị phải cùng một origin (giao thức, tên miền, cổng): `MEDIA_HOST=media.knowledge.lunatech.vn` thì `S3_PUBLIC_ENDPOINT=https://media.knowledge.lunatech.vn`, không thêm cổng. Lệch nhau thì trình duyệt chặn tải lên, xem trước, ảnh, video dù link vẫn đúng.
+
 4. **Build**: `git pull` rồi `luna build`.
 
 5. **Tắt hết rồi bật lại một lần**: đợt 2 thêm mạng `luna_processing` (tika, gotenberg chỉ nằm trong mạng này) nên làm một lần như ghi chú mạng `edge` ở trên, kèm đủ profile:
