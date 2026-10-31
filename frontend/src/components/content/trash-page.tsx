@@ -9,6 +9,7 @@ import { useAuth } from "@/lib/auth";
 import { formatWhen } from "@/lib/format";
 import type { TrashItem } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
+import { invalidateTree } from "@/lib/tree-sync";
 import { PageBody, TopBar } from "../shell/shell";
 import { Button } from "../ui/button";
 import { ConfirmDialog } from "../ui/dialog";
@@ -33,6 +34,7 @@ export function TrashPage() {
     try {
       const res = await api<{ movedToRoot: boolean; renamed: boolean; name: string }>(`/nodes/${item.id}/restore`, { method: "POST" });
       toast("success", `Đã khôi phục «${res.name}»${res.movedToRoot ? " về gốc (thư mục cũ đã bị xoá)" : ""}${res.renamed ? " (đổi tên vì trùng)" : ""}`);
+      invalidateTree(wsId);
       await reload();
     } catch (err) {
       toast("error", describeError(err));
@@ -143,6 +145,7 @@ export function TrashPage() {
               await api(`/nodes/${confirm.item.id}/permanent`, { method: "DELETE" });
               toast("success", `Đã xoá vĩnh viễn «${confirm.item.name}»`);
             }
+            invalidateTree(wsId);
             await reload();
           } catch (err) {
             toast("error", describeError(err));

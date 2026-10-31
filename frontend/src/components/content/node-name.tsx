@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, Folder, LoaderCircle, Sigma } from "lucide-react";
+import { FileText, Folder, FolderOpen, LoaderCircle, Sigma } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/cn";
 import { fileKindLabel, formatBytes } from "@/lib/files";
@@ -16,9 +16,15 @@ export function nodeHref(node: Pick<NodeItem, "id" | "type" | "workspaceId" | "p
   return `/w/${node.workspaceId}/doc/${node.id}`;
 }
 
-export function NodeIcon({ node }: { node: NodeItem }) {
-  const isImage = node.type === "FILE" && node.status === "READY" && !!node.mime?.startsWith("image/");
+export function NodeIcon({ node, compact = false, open = false }: { node: NodeItem; compact?: boolean; open?: boolean }) {
+  const isImage = !compact && node.type === "FILE" && node.status === "READY" && !!node.mime?.startsWith("image/");
   const thumb = useThumbnail(node.id, isImage);
+  if (compact) {
+    const cls = cn("size-4 shrink-0", node.type === "FOLDER" ? "text-primary" : "text-foreground/60");
+    if (node.type === "FOLDER") return open ? <FolderOpen className={cls} aria-hidden /> : <Folder className={cls} aria-hidden />;
+    if (node.type === "DOCUMENT") return node.documentFormat === "LATEX" ? <Sigma className={cls} aria-hidden /> : <FileText className={cls} aria-hidden />;
+    return <FileTypeIcon name={node.name} mime={node.type === "VIDEO" ? "video/mp4" : node.mime} className={cls} />;
+  }
   if (thumb) {
     // eslint-disable-next-line @next/next/no-img-element
     return <img src={thumb} alt="" className="size-8 shrink-0 rounded-lg bg-foreground/5 object-cover" />;

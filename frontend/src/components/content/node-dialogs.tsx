@@ -10,6 +10,7 @@ import { SECTION_LABEL, WS_ROLE_LABEL } from "@/lib/format";
 import type { NodeItem, NodeSection, Page, Tag } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 import { cn } from "@/lib/cn";
+import { invalidateTree } from "@/lib/tree-sync";
 import { Button } from "../ui/button";
 import { Dialog } from "../ui/dialog";
 import { Field, Input } from "../ui/input";
@@ -393,6 +394,7 @@ export function CopyDialog({ open, onClose, source }: { open: boolean; onClose: 
         body: { workspaceId: wsId, parentId: current.id, name: name.trim() },
       });
       toast("success", "Đã tạo bản sao");
+      invalidateTree(copy.node.workspaceId);
       onClose();
       router.push(`/w/${copy.node.workspaceId}/doc/${copy.node.id}`);
     } catch (err) {

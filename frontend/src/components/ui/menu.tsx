@@ -13,14 +13,26 @@ export interface MenuAction {
   hidden?: boolean;
 }
 
-export function RowMenu({ groups, label = "Thao tác" }: { groups: MenuAction[][]; label?: string }) {
+export function RowMenu({
+  groups,
+  label = "Thao tác",
+  icon = Ellipsis,
+  className,
+  panelClassName = "min-w-56",
+}: {
+  groups: MenuAction[][];
+  label?: string;
+  icon?: LucideIcon;
+  className?: string;
+  panelClassName?: string;
+}) {
   const { open, setOpen, toggle, rootRef } = usePopover();
   const visible = groups.map((g) => g.filter((a) => !a.hidden)).filter((g) => g.length);
   if (!visible.length) return <span className="size-8 shrink-0" />;
   return (
     <div ref={rootRef} className="relative">
-      <IconButton icon={Ellipsis} label={label} aria-expanded={open} aria-haspopup="menu" onClick={toggle} />
-      <PopoverPanel open={open} align="right" className="min-w-56">
+      <IconButton icon={icon} label={label} aria-expanded={open} aria-haspopup="menu" onClick={toggle} className={className} />
+      <PopoverPanel open={open} align="right" className={panelClassName}>
         <div role="menu">
           {visible.map((group, gi) => (
             <Fragment key={gi}>

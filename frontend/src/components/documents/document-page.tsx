@@ -16,6 +16,7 @@ import { formatWhen, roleAtLeast } from "@/lib/format";
 import type { Member, NodeItem, UserSummary } from "@/lib/types";
 import { useReportSection } from "@/lib/section";
 import { useApi } from "@/lib/use-api";
+import { invalidateTree } from "@/lib/tree-sync";
 import { ActivitySheet } from "../content/activity-sheet";
 import { CopyDialog, TagsDialog } from "../content/node-dialogs";
 import { ShareSheet } from "../content/share-sheet";
@@ -524,6 +525,7 @@ export function DocumentPage() {
                       const updated = await api<NodeItem>(`/nodes/${node.id}`, { method: "PATCH", body: { name } });
                       detail.setData((prev) => (prev ? { ...prev, node: { ...prev.node, ...updated } } : prev));
                       void crumbs.reload();
+                      invalidateTree(node.workspaceId);
                       if (search.get("new")) router.replace(`/w/${wsId}/doc/${nodeId}`);
                     }}
                   />

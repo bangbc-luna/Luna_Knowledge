@@ -15,6 +15,7 @@ import { subscribeSse } from "@/lib/sse";
 import type { FileDetail, Member, NodeEvent, VideoDetail } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 import { useUploads } from "@/lib/uploads";
+import { invalidateTree } from "@/lib/tree-sync";
 import { ActivitySheet } from "../content/activity-sheet";
 import { TagsDialog } from "../content/node-dialogs";
 import { NodeIcon, TagChip } from "../content/node-name";
@@ -125,6 +126,7 @@ export function FilePage() {
     try {
       const doc = await api<DocumentDetail>(`/files/${nodeId}/convert-to-document`, { method: "POST" });
       toast("success", `Đã tạo tài liệu «${doc.node.name}»`);
+      invalidateTree(wsId);
       router.push(docHref(wsId, doc.node.id));
     } catch (err) {
       toast("error", describeError(err));
@@ -357,6 +359,7 @@ export function FilePage() {
                 try {
                   await api(`/nodes/${node.id}`, { method: "DELETE" });
                   toast("success", `Đã chuyển «${node.name}» vào thùng rác`);
+                  invalidateTree(wsId);
                   router.push(`/w/${wsId}/${sectionPath(node.section)}${node.parentId ? `/${node.parentId}` : ""}`);
                 } catch (err) {
                   toast("error", describeError(err));

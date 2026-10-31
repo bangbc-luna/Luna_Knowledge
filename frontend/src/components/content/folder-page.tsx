@@ -14,6 +14,7 @@ import { useReportSection } from "@/lib/section";
 import type { Member, NodeItem, NodeSection, Page } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 import { useUploads } from "@/lib/uploads";
+import { invalidateTree } from "@/lib/tree-sync";
 import { PageBody, TopBar } from "../shell/shell";
 import { Button } from "../ui/button";
 import { ConfirmDialog } from "../ui/dialog";
@@ -116,6 +117,7 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
   const patchItem = (id: string, patch: Partial<NodeItem>) =>
     list.setData((d) => (d ? { ...d, items: d.items.map((n) => (n.id === id ? { ...n, ...patch } : n)) } : d));
   const reloadAll = () => {
+    invalidateTree(wsId);
     void list.reload();
     if (folderId) void current.reload();
   };
@@ -368,7 +370,10 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
         onClose={() => setNewDocOpen(false)}
         workspaceId={wsId}
         parentId={folderId}
-        onCreated={(doc, named) => router.push(`${docHref(wsId, doc.node.id)}${named ? "" : "?new=1"}`)}
+        onCreated={(doc, named) => {
+          invalidateTree(wsId);
+          router.push(`${docHref(wsId, doc.node.id)}${named ? "" : "?new=1"}`);
+        }}
       />
       <NameDialog
         open={dialog?.kind === "create"}
