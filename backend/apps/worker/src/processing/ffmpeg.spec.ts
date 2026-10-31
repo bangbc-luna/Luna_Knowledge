@@ -6,6 +6,7 @@ import {
   buildSprite,
   extractPoster,
   ffmpegCommand,
+  InvalidVideoError,
   probe,
   threadArgs,
   transcodeHls,
@@ -56,7 +57,7 @@ describe('local-files-only protocol whitelist', () => {
     dir = await mkdtemp(join(tmpdir(), 'ffmpeg-spec-'));
     const log = join(dir, 'args.log');
     const probeJson = JSON.stringify({
-      format: { duration: '10' },
+      format: { duration: '10', format_name: 'mov,mp4,m4a,3gp,3g2,mj2' },
       streams: [{ codec_type: 'video', width: 640, height: 360 }],
     });
     const ffmpeg = join(dir, 'fake-ffmpeg');
@@ -100,4 +101,41 @@ describe('local-files-only protocol whitelist', () => {
     });
     expect(await lastCall()).toContain('-protocol_whitelist file -i /in.mp4');
   });
+});
+
+describe('probe container allowlist', () => {
+  let dir: string;
+  let n = 0;
+
+  beforeAll(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'ffprobe-formats-'));
+  });
+
+  afterAll(() => rm(dir, { recursive: true, force: true }));
+
+  const probeAs = async (formatName: string | undefined) => {
+    const json = JSON.stringify({
+      format: { duration: '10', format_name: formatName },
+      streams: [{ codec_type: 'video', width: 640, height: 360 }],
+    });
+    const ffprobe = join(dir, `fake-ffprobe-${++n}`);
+    await writeFile(ffprobe, `#!/bin/sh\necho '${json}'\n`);
+    await chmod(ffprobe, 0o755);
+    return probe({ ...tools, ffprobe }, '/in.bin');
+  };
+
+  it.each(['mov,mp4,m4a,3gp,3g2,mj2', 'matroska,webm'])('accepts %s', async (formatName) => {
+    await expect(probeAs(formatName)).resolves.toMatchObject({ width: 640, height: 360 });
+  });
+
+  it.each(['hls', 'concat', 'tty', 'image2', 'lavfi', 'mpegts', 'avi', 'mov', undefined])(
+    'rejects %s as not a supported video container',
+    async (formatName) => {
+      const err = await probeAs(formatName).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(InvalidVideoError);
+      expect((err as InvalidVideoError).message).toBe(
+        'This file is not in a supported video format (MP4, MOV, M4V, WebM or MKV).',
+      );
+    },
+  );
 });

@@ -79,9 +79,11 @@ function run(
   });
 }
 
+const VIDEO_CONTAINERS = new Set(['mov,mp4,m4a,3gp,3g2,mj2', 'matroska,webm']);
+
 export async function probe(tools: FfmpegTools, path: string): Promise<ProbeResult> {
   let json: {
-    format?: { duration?: string };
+    format?: { duration?: string; format_name?: string };
     streams?: Array<{
       codec_type: string;
       width?: number;
@@ -108,6 +110,12 @@ export async function probe(tools: FfmpegTools, path: string): Promise<ProbeResu
     throw new InvalidVideoError(
       'This file cannot be read as a video. It may be damaged or in an unsupported format.',
       (err as Error).message,
+    );
+  }
+  if (!VIDEO_CONTAINERS.has(json.format?.format_name ?? '')) {
+    throw new InvalidVideoError(
+      'This file is not in a supported video format (MP4, MOV, M4V, WebM or MKV).',
+      `ffprobe format: ${json.format?.format_name ?? 'unknown'}`,
     );
   }
   const video = json.streams?.find((s) => s.codec_type === 'video' && s.width && s.height);
