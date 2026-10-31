@@ -109,7 +109,7 @@ export function VideosPage() {
                           <div className="flex justify-end">
                             <IconButton icon={Download} label={`Tải file gốc ${v.name}`} disabled={v.size === null} onClick={() => setTarget(v)} className="@xl:hidden" />
                             <span className="hidden @xl:block">
-                              <Button icon={Download} disabled={v.size === null} onClick={() => setTarget(v)} className="min-h-8 rounded-lg px-3">
+                              <Button icon={Download} disabled={v.size === null} onClick={() => setTarget(v)} size="sm">
                                 Tải file gốc
                               </Button>
                             </span>

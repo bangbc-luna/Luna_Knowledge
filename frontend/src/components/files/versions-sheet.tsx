@@ -78,7 +78,7 @@ export function VersionsSheet({
                 ) : null}
               </div>
               {canRestore && !v.isCurrent ? (
-                <Button className="min-h-8 rounded-lg px-3" loading={busy === v.id} onClick={() => void restore(v)}>
+                <Button size="sm" loading={busy === v.id} onClick={() => void restore(v)}>
                   Khôi phục
                 </Button>
               ) : null}

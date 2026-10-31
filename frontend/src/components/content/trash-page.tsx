@@ -108,7 +108,7 @@ export function TrashPage() {
                           <td className="col-start-2 row-span-2 row-start-1 whitespace-nowrap sm:w-px sm:px-2 sm:pr-3">
                             <div className="flex items-center justify-end gap-1">
                               {canRestore ? (
-                                <Button icon={Undo2} className="h-8 min-h-8 rounded-lg px-3 whitespace-nowrap" onClick={() => restore(t)}>
+                                <Button icon={Undo2} size="sm" className="whitespace-nowrap" onClick={() => restore(t)}>
                                   Khôi phục
                                 </Button>
                               ) : null}

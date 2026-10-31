@@ -74,10 +74,10 @@ export function NameDialog({
       onSubmit={submit}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose} className="min-h-11 md:min-h-10">
+          <Button variant="secondary" onClick={onClose} size="touch">
             Huỷ
           </Button>
-          <Button type="submit" variant="primary" loading={busy} className="min-h-11 md:min-h-10">
+          <Button type="submit" variant="primary" loading={busy} size="touch">
             {submitLabel}
           </Button>
         </>
@@ -155,10 +155,10 @@ export function NewDocumentDialog({
       onSubmit={() => void submit()}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose} className="min-h-11 md:min-h-10">
+          <Button variant="secondary" onClick={onClose} size="touch">
             Huỷ
           </Button>
-          <Button type="submit" variant="primary" loading={busy} className="min-h-11 md:min-h-10">
+          <Button type="submit" variant="primary" loading={busy} size="touch">
             Tạo
           </Button>
         </>
@@ -320,10 +320,10 @@ export function MoveDialog({
       title={`Di chuyển «${node.name}»`}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose} className="min-h-11 md:min-h-10">
+          <Button variant="secondary" onClick={onClose} size="touch">
             Huỷ
           </Button>
-          <Button variant="primary" loading={busy} disabled={sameParent || blockedRoot} onClick={move} className="min-h-11 md:min-h-10">
+          <Button variant="primary" loading={busy} disabled={sameParent || blockedRoot} onClick={move} size="touch">
             Chuyển vào đây
           </Button>
         </>
@@ -432,10 +432,10 @@ export function CopyDialog({ open, onClose, source }: { open: boolean; onClose: 
       onSubmit={() => void submit()}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose} className="min-h-11 md:min-h-10">
+          <Button variant="secondary" onClick={onClose} size="touch">
             Huỷ
           </Button>
-          <Button type="submit" variant="primary" loading={busy} disabled={noTarget} className="min-h-11 md:min-h-10">
+          <Button type="submit" variant="primary" loading={busy} disabled={noTarget} size="touch">
             Tạo bản sao
           </Button>
         </>
@@ -551,13 +551,13 @@ export function TagsDialog({
       title={`Gắn tag cho «${node.name}»`}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose} className="min-h-11 md:min-h-10">
+          <Button variant="secondary" onClick={onClose} size="touch">
             Huỷ
           </Button>
           <Button
             variant="primary"
             loading={busy}
-            className="min-h-11 md:min-h-10"
+            size="touch"
             onClick={async () => {
               setBusy(true);
               setError(null);

@@ -84,7 +84,7 @@ export function LogsPage() {
             icon={Download}
             loading={exporting}
             aria-label="Xuất CSV"
-            className="h-9 min-h-9 shrink-0 rounded-lg px-3"
+            size="sm" className="h-9 shrink-0"
             onClick={async () => {
               setExporting(true);
               try {

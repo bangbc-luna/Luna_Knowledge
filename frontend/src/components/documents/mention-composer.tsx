@@ -133,11 +133,11 @@ export function MentionComposer({
       ) : null}
       <div className="mt-2 flex items-center justify-end gap-2">
         {onCancel ? (
-          <Button variant="secondary" className="min-h-8 rounded-lg px-3" onClick={onCancel}>
+          <Button variant="secondary" size="sm" onClick={onCancel}>
             Huỷ
           </Button>
         ) : null}
-        <Button variant="primary" className="min-h-8 rounded-lg px-3" disabled={!text.trim()} loading={busy} onClick={() => void submit()}>
+        <Button variant="primary" size="sm" disabled={!text.trim()} loading={busy} onClick={() => void submit()}>
           {submitLabel}
         </Button>
       </div>

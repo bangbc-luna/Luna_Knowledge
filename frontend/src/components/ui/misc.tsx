@@ -130,13 +130,13 @@ function CrumbOverflow({ items }: { items: Array<{ label: string; href: string }
   );
 }
 
-export function Breadcrumb({ items, tail = 2, className }: { items: Array<{ label: string; href: string }>; tail?: number; className?: string }) {
+export function Breadcrumb({ items, tail = 2 }: { items: Array<{ label: string; href: string }>; tail?: number }) {
   if (!items.length) return null;
   const collapsed = items.length > tail + 1;
   const hidden = collapsed ? items.slice(1, -tail) : [];
   const shown = collapsed ? [items[0], ...items.slice(-tail)] : items;
   return (
-    <nav aria-label="Đường dẫn" className={cn("flex h-8 min-w-0 items-center gap-1 text-sm text-muted", className)}>
+    <nav aria-label="Đường dẫn" className="flex h-8 min-w-0 items-center gap-1 text-sm text-muted">
       {shown.map((c, i) => (
         <Fragment key={c.href + i}>
           {i ? <ChevronRight className="size-3.5 shrink-0" aria-hidden /> : null}

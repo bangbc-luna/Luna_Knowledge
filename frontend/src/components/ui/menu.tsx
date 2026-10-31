@@ -2,6 +2,7 @@
 
 import { Ellipsis, type LucideIcon } from "lucide-react";
 import { Fragment } from "react";
+import { cn } from "@/lib/cn";
 import { IconButton } from "./button";
 import { MenuItem, MenuSeparator, PopoverPanel, usePopover } from "./popover";
 
@@ -28,7 +29,7 @@ export function RowMenu({
 }) {
   const { open, setOpen, toggle, rootRef } = usePopover();
   const visible = groups.map((g) => g.filter((a) => !a.hidden)).filter((g) => g.length);
-  if (!visible.length) return <span className="size-8 shrink-0" />;
+  if (!visible.length) return <span className={cn("size-8 shrink-0", className)} aria-hidden />;
   return (
     <div ref={rootRef} className="relative">
       <IconButton icon={icon} label={label} aria-expanded={open} aria-haspopup="menu" onClick={toggle} className={className} />

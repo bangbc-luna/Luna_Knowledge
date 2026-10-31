@@ -244,10 +244,10 @@ export function WorkspacesPage() {
         onSubmit={create}
         footer={
           <>
-            <Button variant="secondary" onClick={() => setCreating(false)} className="min-h-11 md:min-h-10">
+            <Button variant="secondary" onClick={() => setCreating(false)} size="touch">
               Huỷ
             </Button>
-            <Button type="submit" variant="primary" loading={busy} className="min-h-11 md:min-h-10">
+            <Button type="submit" variant="primary" loading={busy} size="touch">
               Tạo workspace
             </Button>
           </>

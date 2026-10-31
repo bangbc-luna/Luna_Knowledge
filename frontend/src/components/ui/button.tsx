@@ -16,14 +16,23 @@ function variantClasses(variant: ButtonVariant): string {
   );
 }
 
+export type ButtonSize = "sm" | "md" | "touch";
+
+const SIZES: Record<ButtonSize, string> = {
+  sm: "min-h-8 rounded-lg px-3 py-1.5",
+  md: "min-h-10 rounded-xl px-4 py-2",
+  touch: "min-h-11 rounded-xl px-4 py-2 md:min-h-10",
+};
+
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
+  size?: ButtonSize;
   icon?: LucideIcon;
   loading?: boolean;
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  { variant = "outline", icon: Icon, loading = false, className, children, onClick, type = "button", ...rest },
+  { variant = "outline", size = "md", icon: Icon, loading = false, className, children, onClick, type = "button", ...rest },
   ref,
 ) {
   return (
@@ -37,8 +46,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
         else onClick?.(event);
       }}
       className={cn(
-        "inline-flex min-h-10 max-w-full cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-2 text-center text-sm leading-tight font-medium [overflow-wrap:anywhere] outline-hidden transition-colors",
+        "inline-flex max-w-full cursor-pointer items-center justify-center gap-2 text-center text-sm leading-tight font-medium [overflow-wrap:anywhere] outline-hidden transition-colors",
         "disabled:cursor-not-allowed disabled:not-aria-busy:opacity-50 aria-busy:cursor-progress",
+        SIZES[size],
         variantClasses(variant),
         className,
       )}

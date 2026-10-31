@@ -26,11 +26,15 @@ export function usePopover() {
 export function PopoverPanel({
   open,
   align = "left",
+  offset = "sm",
+  padded = true,
   className,
   children,
 }: {
   open: boolean;
   align?: "left" | "right";
+  offset?: "sm" | "lg";
+  padded?: boolean;
   className?: string;
   children: React.ReactNode;
 }) {
@@ -46,8 +50,9 @@ export function PopoverPanel({
     <div
       ref={ref}
       className={cn(
-        "animate-pop absolute z-40 rounded-2xl border border-border bg-surface-overlay py-1 shadow-popover",
-        up ? "bottom-full mb-1" : "top-full mt-1",
+        "animate-pop absolute z-40 rounded-2xl border border-border bg-surface-overlay shadow-popover",
+        padded && "py-1",
+        up ? cn("bottom-full", offset === "lg" ? "mb-3" : "mb-1") : cn("top-full", offset === "lg" ? "mt-3" : "mt-1"),
         align === "right" ? "right-0" : "left-0",
         className,
       )}

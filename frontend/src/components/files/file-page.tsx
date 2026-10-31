@@ -195,8 +195,12 @@ export function FilePage() {
       <TopBar>
         {parents.length ? (
           <>
-            <Breadcrumb items={parents} className="hidden md:flex" />
-            <Breadcrumb items={parents.slice(-1)} className="md:hidden" />
+            <div className="hidden md:block">
+              <Breadcrumb items={parents} />
+            </div>
+            <div className="md:hidden">
+              <Breadcrumb items={parents.slice(-1)} />
+            </div>
           </>
         ) : (
           <p className="text-sm text-muted">{notFound ? "Không tìm thấy tệp" : ""}</p>
