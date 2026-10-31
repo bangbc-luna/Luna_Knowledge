@@ -2,11 +2,11 @@
 
 import { type Editor, EditorContent, useEditor, useEditorState } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
-import { Activity, Bold, CircleAlert, Copy, Download, Eye, History, Italic, Link2, MessageSquare, MessageSquarePlus, Share2, Sigma, Tag as TagIcon, WifiOff } from "lucide-react";
+import { Activity, Bold, CircleAlert, Copy, Download, Eye, History, Italic, Link2, MessageSquarePlus, Share2, Sigma, Tag as TagIcon, WifiOff } from "lucide-react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ApiError, api, describeError, downloadFile } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
@@ -20,6 +20,7 @@ import { invalidateTree } from "@/lib/tree-sync";
 import { ActivitySheet } from "../content/activity-sheet";
 import { CopyDialog, TagsDialog } from "../content/node-dialogs";
 import { ShareSheet } from "../content/share-sheet";
+import { setMembersOpen, useMembersOpen } from "../shell/members-panel";
 import { TopBar } from "../shell/shell";
 import { Button } from "../ui/button";
 import { Dialog, Sheet } from "../ui/dialog";
@@ -28,6 +29,8 @@ import { RowMenu } from "../ui/menu";
 import { Avatar, Badge, Breadcrumb, Card, ErrorBanner } from "../ui/misc";
 import { useToast } from "../ui/toast";
 import { CommentsPanel, type ThreadFilter } from "./comments-panel";
+import { DocOutline } from "./doc-outline";
+import { type DocPanelTab, DocPanelTabs, DocPanelToggle, DocSidePanel, useDocPanel } from "./doc-side-panel";
 import { DocVersionsSheet } from "./doc-versions-sheet";
 import { EditorToolbar, ToolButton } from "./editor-toolbar";
 import { buildExtensions } from "./extensions";
@@ -54,6 +57,18 @@ function useMediaQuery(query: string) {
     return () => mq.removeEventListener("change", update);
   }, [query]);
   return matches;
+}
+
+function useWide() {
+  return useSyncExternalStore(
+    (l) => {
+      const mq = matchMedia("(min-width: 80rem)");
+      mq.addEventListener("change", l);
+      return () => mq.removeEventListener("change", l);
+    },
+    () => matchMedia("(min-width: 80rem)").matches,
+    () => true,
+  );
 }
 
 function Presence({ peers }: { peers: Peer[] }) {
@@ -289,7 +304,10 @@ export function DocumentPage() {
   const collab = useCollab(nodeId);
 
   const [editor, setEditor] = useState<Editor | null>(null);
-  const [commentsOpen, setCommentsOpen] = useState(false);
+  const docPanel = useDocPanel();
+  const membersOpen = useMembersOpen();
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [panelRequest, setPanelRequest] = useState<{ tab: DocPanelTab; wide: boolean; n: number } | null>(null);
   const [filter, setFilter] = useState<ThreadFilter>("OPEN");
   const [activeThread, setActiveThread] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ quotedText: string; from: number; to: number } | null>(null);
@@ -300,7 +318,7 @@ export function DocumentPage() {
   const [tagsOpen, setTagsOpen] = useState(false);
   const [copyOpen, setCopyOpen] = useState(false);
   useReportSection("DOCS");
-  const wide = useMediaQuery("(min-width: 80rem)");
+  const wide = useWide();
   const desktop = useMediaQuery("(min-width: 64rem)");
   const imageInput = useRef<HTMLInputElement>(null);
 
@@ -310,6 +328,20 @@ export function DocumentPage() {
       .then(rememberAssets)
       .catch(() => undefined);
   }, [nodeId]);
+
+  const setDocPanelOpen = docPanel.setOpen;
+  const setDocPanelTab = docPanel.setTab;
+  useEffect(() => {
+    if (!panelRequest) return;
+    setMembersOpen(false);
+    setDocPanelTab(panelRequest.tab);
+    if (panelRequest.wide) setDocPanelOpen(true);
+  }, [panelRequest, setDocPanelOpen, setDocPanelTab]);
+
+  const showPanel = (tab: DocPanelTab) => {
+    setPanelRequest((r) => ({ tab, wide, n: (r?.n ?? 0) + 1 }));
+    if (!wide) setSheetOpen(true);
+  };
 
   const reloadThreads = threadsApi.reload;
   useEffect(() => {
@@ -328,7 +360,8 @@ export function DocumentPage() {
     setHandledThread(threadParam);
     const t = threadsApi.data.find((x) => x.id === threadParam);
     if (t) {
-      setCommentsOpen(true);
+      setPanelRequest((r) => ({ tab: "comments", wide, n: (r?.n ?? 0) + 1 }));
+      if (!wide) setSheetOpen(true);
       setFilter(t.status);
       setActiveThread(t.id);
     }
@@ -386,7 +419,7 @@ export function DocumentPage() {
     setDraft({ quotedText, from, to });
     setFilter("OPEN");
     setActiveThread(null);
-    setCommentsOpen(true);
+    showPanel("comments");
   };
 
   const selectThread = (id: string, scrollDoc: boolean) => {
@@ -395,7 +428,7 @@ export function DocumentPage() {
       const el = editor?.view.dom.querySelector(`[data-thread-id="${id}"]`);
       el?.scrollIntoView({ behavior: "smooth", block: "center" });
     } else {
-      setCommentsOpen(true);
+      showPanel("comments");
       const t = threads?.find((x) => x.id === id);
       if (t) setFilter(t.status);
       requestAnimationFrame(() => document.querySelector(`[data-thread="${id}"]`)?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
@@ -428,7 +461,7 @@ export function DocumentPage() {
   const notFound = (detail.error instanceof ApiError && detail.error.status === 404) || collab.status === "denied";
   const collabFailed = !!collab.error && !notFound;
 
-  const panel = (
+  const comments = (
     <CommentsPanel
       threads={threads}
       error={threadsApi.error}
@@ -466,10 +499,25 @@ export function DocumentPage() {
     />
   );
 
+  const hasPanel = !!d && !isLatex && !notFound && !detail.error;
+  const columnOpen = hasPanel && wide && docPanel.open && !membersOpen;
+  const togglePressed = wide ? columnOpen : sheetOpen;
+  const togglePanel = () => {
+    if (togglePressed) {
+      if (wide) docPanel.setOpen(false);
+      else setSheetOpen(false);
+      return;
+    }
+    setMembersOpen(false);
+    if (wide) docPanel.setOpen(true);
+    else setSheetOpen(true);
+  };
+  const outline = <DocOutline editor={editor} onNavigate={wide ? undefined : () => setSheetOpen(false)} />;
+
   return (
     <>
       <style>{commentStyle}</style>
-      <TopBar>
+      <TopBar actions={hasPanel ? <DocPanelToggle pressed={togglePressed} onToggle={togglePanel} /> : null}>
         {parents.length ? (
           <>
             <Breadcrumb items={parents} className="hidden md:flex" />
@@ -507,123 +555,125 @@ export function DocumentPage() {
         </div>
       ) : (
         <>
-          {editable && editor && !isLatex ? (
-            <div className="sticky top-11 z-20 border-b border-border bg-surface px-2 py-1.5 sm:px-3">
-              <EditorToolbar editor={editor} canComment onLink={() => setLinkOpen(true)} onImage={() => imageInput.current?.click()} onComment={startComment} />
-            </div>
-          ) : null}
-
-          <div className="flex flex-1 gap-3 px-3 py-3">
-            <main className="w-full min-w-0">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-                <div className="min-w-0 flex-1">
-                  <InlineTitle
-                    value={node.name}
-                    editable={editable}
-                    startEditing={search.get("new") === "1"}
-                    onSave={async (name) => {
-                      const updated = await api<NodeItem>(`/nodes/${node.id}`, { method: "PATCH", body: { name } });
-                      detail.setData((prev) => (prev ? { ...prev, node: { ...prev.node, ...updated } } : prev));
-                      void crumbs.reload();
-                      invalidateTree(node.workspaceId, [node.parentId]);
-                      if (search.get("new")) router.replace(`/w/${wsId}/doc/${nodeId}`);
-                    }}
-                  />
-                  <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted tabular-nums">
-                    {isLatex ? (
-                      <Badge small>
-                        <Sigma className="size-3" aria-hidden />
-                        LaTeX
-                      </Badge>
-                    ) : null}
-                    {readOnly ? (
-                      <Badge small>
-                        <Eye className="size-3" aria-hidden />
-                        Chỉ xem
-                      </Badge>
-                    ) : null}
-                    <SaveState status={collab.status} synced={collab.synced} unsynced={collab.unsynced} readOnly={readOnly} />
-                    {d.lastEditedAt ? (
-                      <>
-                        {!readOnly || collab.status === "offline" || !collab.synced ? <span aria-hidden>·</span> : null}
-                        <span>
-                          Sửa lần cuối {formatWhen(d.lastEditedAt, { withTime: true }).toLowerCase()}
-                          {d.lastEditedBy ? ` bởi ${d.lastEditedBy.name}` : ""}
-                        </span>
-                      </>
-                    ) : null}
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <Presence peers={collab.peers} />
-                  {isLatex ? null : (
-                    <Button icon={MessageSquare} aria-expanded={commentsOpen} onClick={() => setCommentsOpen((v) => !v)} className={cn(commentsOpen && "bg-button-hover")}>
-                      Bình luận
-                      {openCount ? <span className="text-muted tabular-nums">{openCount}</span> : null}
-                    </Button>
-                  )}
-                  {canShare ? (
-                    <Button icon={Share2} variant="primary" onClick={() => setShareOpen(true)}>
-                      Chia sẻ
-                    </Button>
-                  ) : null}
-                  <RowMenu
-                    label="Thêm thao tác"
-                    groups={[
-                      [
-                        { icon: History, label: "Lịch sử phiên bản", onSelect: () => setVersionsOpen(true) },
-                        { icon: Activity, label: "Hoạt động", onSelect: () => setActivityOpen(true), hidden: !roleAtLeast(node.myRole, "OWNER") && !me?.isSystemAdmin },
-                        { icon: TagIcon, label: "Gắn tag", onSelect: () => setTagsOpen(true), hidden: !membership || !roleAtLeast(node.myRole, "EDITOR") },
-                        { icon: Copy, label: "Tạo bản sao", onSelect: () => setCopyOpen(true) },
-                      ],
-                      isLatex
-                        ? [{ icon: Download, label: "Tải về tệp .tex", onSelect: () => void exportAs("tex") }]
-                        : [
-                            { icon: Download, label: "Tải về dạng HTML", onSelect: () => void exportAs("html") },
-                            { icon: Download, label: "Tải về dạng Markdown", onSelect: () => void exportAs("md") },
-                          ],
-                    ]}
-                  />
-                </div>
-              </div>
-
-              {collabFailed ? (
-                <div role="alert" className="mt-4 flex items-start gap-3 rounded-xl border border-border-strong bg-warn-bg p-4">
-                  <CircleAlert className="mt-0.5 size-4 shrink-0 text-warn" aria-hidden />
-                  <p className="min-w-0 text-sm text-pretty text-foreground">
-                    <span className="font-medium">Không kết nối được máy chủ soạn thảo.</span> Tải lại trang để thử lại. {describeError(collab.error)}
-                  </p>
+          <div className="flex flex-1">
+            <main className="min-w-0 flex-1">
+              {editable && editor && !isLatex ? (
+                <div className="sticky top-11 z-20 border-b border-border bg-surface px-2 py-1.5 sm:px-3">
+                  <EditorToolbar editor={editor} canComment onLink={() => setLinkOpen(true)} onImage={() => imageInput.current?.click()} onComment={startComment} />
                 </div>
               ) : null}
 
-              {isLatex ? (
-                <LatexWorkspace session={session} initialSource={latexSource(d.contentJson) ?? ""} editable={editable} wide={desktop} />
-              ) : (
-                <Card className="mt-3 px-3 py-3 sm:px-6 sm:py-4">
-                  {session ? (
-                    <DocEditor session={session} editable={editable} onReady={setEditor} onCommentClick={(id) => selectThread(id, false)} onAddComment={startComment} onLink={() => editable && setLinkOpen(true)} onImage={(f) => void insertImages(f)} />
-                  ) : (
-                    <div className="h-[50vh] animate-pulse rounded-xl bg-foreground/5" aria-busy="true" aria-label="Đang tải" />
-                  )}
-                </Card>
-              )}
+              <div className="px-3 py-3">
+                <div className="flex items-start gap-2">
+                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+                    <div className="min-w-0 max-w-full">
+                      <InlineTitle
+                        value={node.name}
+                        editable={editable}
+                        startEditing={search.get("new") === "1"}
+                        onSave={async (name) => {
+                          const updated = await api<NodeItem>(`/nodes/${node.id}`, { method: "PATCH", body: { name } });
+                          detail.setData((prev) => (prev ? { ...prev, node: { ...prev.node, ...updated } } : prev));
+                          void crumbs.reload();
+                          invalidateTree(node.workspaceId, [node.parentId]);
+                          if (search.get("new")) router.replace(`/w/${wsId}/doc/${nodeId}`);
+                        }}
+                      />
+                    </div>
+                    <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted tabular-nums">
+                      {isLatex ? (
+                        <Badge small>
+                          <Sigma className="size-3" aria-hidden />
+                          LaTeX
+                        </Badge>
+                      ) : null}
+                      {readOnly ? (
+                        <Badge small>
+                          <Eye className="size-3" aria-hidden />
+                          Chỉ xem
+                        </Badge>
+                      ) : null}
+                      <SaveState status={collab.status} synced={collab.synced} unsynced={collab.unsynced} readOnly={readOnly} />
+                      {d.lastEditedAt ? (
+                        <>
+                          {!readOnly || collab.status === "offline" || !collab.synced ? <span aria-hidden>·</span> : null}
+                          <span>
+                            Sửa lần cuối {formatWhen(d.lastEditedAt, { withTime: true }).toLowerCase()}
+                            {d.lastEditedBy ? ` bởi ${d.lastEditedBy.name}` : ""}
+                          </span>
+                        </>
+                      ) : null}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Presence peers={collab.peers} />
+                    {canShare ? (
+                      <Button icon={Share2} variant="primary" onClick={() => setShareOpen(true)}>
+                        Chia sẻ
+                      </Button>
+                    ) : null}
+                    <RowMenu
+                      label="Thêm thao tác"
+                      groups={[
+                        [
+                          { icon: History, label: "Lịch sử phiên bản", onSelect: () => setVersionsOpen(true) },
+                          { icon: Activity, label: "Hoạt động", onSelect: () => setActivityOpen(true), hidden: !roleAtLeast(node.myRole, "OWNER") && !me?.isSystemAdmin },
+                          { icon: TagIcon, label: "Gắn tag", onSelect: () => setTagsOpen(true), hidden: !membership || !roleAtLeast(node.myRole, "EDITOR") },
+                          { icon: Copy, label: "Tạo bản sao", onSelect: () => setCopyOpen(true) },
+                        ],
+                        isLatex
+                          ? [{ icon: Download, label: "Tải về tệp .tex", onSelect: () => void exportAs("tex") }]
+                          : [
+                              { icon: Download, label: "Tải về dạng HTML", onSelect: () => void exportAs("html") },
+                              { icon: Download, label: "Tải về dạng Markdown", onSelect: () => void exportAs("md") },
+                            ],
+                      ]}
+                    />
+                  </div>
+                </div>
+
+                {collabFailed ? (
+                  <div role="alert" className="mt-3 flex items-start gap-3 rounded-xl border border-border-strong bg-warn-bg p-4">
+                    <CircleAlert className="mt-0.5 size-4 shrink-0 text-warn" aria-hidden />
+                    <p className="min-w-0 text-sm text-pretty text-foreground">
+                      <span className="font-medium">Không kết nối được máy chủ soạn thảo.</span> Tải lại trang để thử lại. {describeError(collab.error)}
+                    </p>
+                  </div>
+                ) : null}
+
+                {isLatex ? (
+                  <LatexWorkspace session={session} initialSource={latexSource(d.contentJson) ?? ""} editable={editable} wide={desktop} />
+                ) : (
+                  <Card className="mt-3 px-3 py-3 sm:px-6 sm:py-4">
+                    {session ? (
+                      <DocEditor session={session} editable={editable} onReady={setEditor} onCommentClick={(id) => selectThread(id, false)} onAddComment={startComment} onLink={() => editable && setLinkOpen(true)} onImage={(f) => void insertImages(f)} />
+                    ) : (
+                      <div className="h-[50vh] animate-pulse rounded-xl bg-foreground/5" aria-busy="true" aria-label="Đang tải" />
+                    )}
+                  </Card>
+                )}
+              </div>
             </main>
 
-            {commentsOpen && wide && !isLatex ? (
-              <aside aria-label="Bình luận" className="sticky top-24 hidden max-h-[calc(100dvh-7rem)] w-80 shrink-0 self-start overflow-y-auto pb-6 xl:block">
-                <div className="mb-3 flex items-center justify-between">
-                  <h2 className="text-sm font-semibold">Bình luận</h2>
-                  <Button variant="ghost" className="min-h-8 rounded-lg px-3" onClick={() => setCommentsOpen(false)}>
-                    Đóng
-                  </Button>
-                </div>
-                {panel}
-              </aside>
+            {columnOpen ? (
+              <DocSidePanel
+                tab={docPanel.tab}
+                onTab={docPanel.setTab}
+                onClose={() => docPanel.setOpen(false)}
+                outline={outline}
+                comments={comments}
+                commentCount={openCount}
+              />
             ) : null}
           </div>
 
-          <Sheet open={commentsOpen && !wide && !isLatex} onClose={() => setCommentsOpen(false)} title="Bình luận" subtitle={<span className="block truncate">{node.name}</span>}>
-            <div className="px-3 py-3">{panel}</div>
+          <Sheet open={hasPanel && !wide && sheetOpen} onClose={() => setSheetOpen(false)} title={docPanel.tab === "outline" ? "Mục lục" : "Bình luận"} subtitle={<span className="block truncate">{node.name}</span>}>
+            <div className="flex flex-col gap-3 px-3 py-3">
+              <DocPanelTabs tab={docPanel.tab} onTab={docPanel.setTab} commentCount={openCount} />
+              <div role="tabpanel" aria-label={docPanel.tab === "outline" ? "Mục lục" : "Bình luận"}>
+                {docPanel.tab === "outline" ? outline : comments}
+              </div>
+            </div>
           </Sheet>
 
           <input

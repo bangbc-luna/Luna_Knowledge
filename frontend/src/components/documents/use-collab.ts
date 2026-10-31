@@ -8,6 +8,8 @@ import { type CollabToken, userColor } from "@/lib/documents";
 
 export type CollabStatus = "connecting" | "online" | "offline" | "denied";
 
+const LOST_ACCESS = new Set(["Forbidden", "Session ended"]);
+
 export interface Peer {
   clientId: number;
   id: string;
@@ -47,6 +49,17 @@ export function useCollab(nodeId: string) {
       }
     };
 
+    const recheck = () => {
+      provider?.disconnect();
+      fetchToken()
+        .then(() => {
+          if (!cancelled) void provider?.connect();
+        })
+        .catch((err) => {
+          if (!cancelled && !(err instanceof ApiError)) void provider?.connect();
+        });
+    };
+
     void (async () => {
       let first: CollabToken | null;
       try {
@@ -75,7 +88,7 @@ export function useCollab(nodeId: string) {
         onUnsyncedChanges: ({ number }) => setUnsynced(number),
         onAuthenticationFailed: () => void fetchToken().catch(() => undefined),
         onClose: ({ event }) => {
-          if (event.code === 4403) void fetchToken().catch(() => undefined);
+          if (event.code === 4403 || event.code === 4401 || LOST_ACCESS.has(event.reason)) recheck();
         },
         onAwarenessUpdate: ({ states }) => {
           const seen = new Set<string>();

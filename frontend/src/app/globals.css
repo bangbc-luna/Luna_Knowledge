@@ -150,6 +150,7 @@ summary:focus-visible,
   overflow-wrap: anywhere;
 }
 .luna-editor { min-height: 50vh; outline: none; }
+.luna-editor h1, .luna-editor h2, .luna-editor h3 { scroll-margin-top: 6.5rem; }
 .luna-prose > * + * { margin-top: 0.75em; }
 .luna-prose h1 { font-size: 1.75rem; line-height: 2.25rem; font-weight: 650; margin-top: 1.5em; letter-spacing: -0.01em; }
 .luna-prose h2 { font-size: 1.375rem; line-height: 1.875rem; font-weight: 650; margin-top: 1.4em; }

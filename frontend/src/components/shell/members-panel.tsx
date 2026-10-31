@@ -86,7 +86,7 @@ export function MembersToggle() {
       className="inline-flex h-10 shrink-0 cursor-pointer items-center gap-2 rounded-xl px-3 text-sm font-medium text-foreground/70 outline-hidden transition-colors hover:bg-foreground/5 hover:text-foreground aria-pressed:bg-foreground/5 aria-pressed:text-foreground"
     >
       <Users className="size-4" aria-hidden />
-      <span className="hidden sm:inline">Thành viên</span>
+      <span className="hidden xl:inline">Thành viên</span>
     </button>
   );
 }
