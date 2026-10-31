@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import pg from 'pg';
 import {
   capRecentViews,
   createPrismaClient,
@@ -6,6 +7,9 @@ import {
   purgeDeletedWorkspaces,
   purgeOldAuditLogs,
   purgeReadNotifications,
+  RetentionError,
+  TREE_LOCK_NAMESPACE,
+  WorkspacePurgeError,
   runRetention,
   thinAutoVersions,
 } from '@luna/db';
@@ -292,6 +296,102 @@ describe('Retention (e2e, chạy bằng app role)', () => {
       'ret-old2/hls',
       'ret-old2/original',
     ]);
+  });
+
+  it('workspace công ty xoá mềm quá hạn không bao giờ bị xoá hẳn', async () => {
+    const company = (
+      await owner.workspace.create({
+        data: {
+          name: 'Company',
+          slug: 'ret-company',
+          kind: 'COMPANY',
+          createdById: userA,
+          deletedAt: daysAgo(400),
+        },
+      })
+    ).id;
+    await makeNode(company, 'FOLDER');
+    expect(await purgeDeletedWorkspaces(app, { olderThanDays: 30 })).toBe(0);
+    expect(await owner.workspace.count({ where: { id: company } })).toBe(1);
+    expect(await owner.node.count({ where: { workspaceId: company } })).toBe(1);
+  });
+
+  it('một workspace dọn lỗi không chặn các workspace sau; lỗi được báo lại', async () => {
+    const seed = async (slug: string, deletedAt: Date) => {
+      const ws = (
+        await owner.workspace.create({ data: { name: slug, slug, createdById: userA, deletedAt } })
+      ).id;
+      await makeNode(ws, 'FOLDER');
+      return ws;
+    };
+    const stuck = await seed('ret-stuck', daysAgo(60));
+    const next = await seed('ret-next', daysAgo(45));
+    const holder = new pg.Client({ connectionString: process.env.DATABASE_URL! });
+    await holder.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT pg_advisory_xact_lock($1::int, hashtext($2))', [
+        TREE_LOCK_NAMESPACE,
+        stuck,
+      ]);
+      const reported: Array<{ step: string; workspaceId?: string }> = [];
+      const err = await purgeDeletedWorkspaces(app, {
+        olderThanDays: 30,
+        lockTimeoutMs: 200,
+        onError: (_e, context) => reported.push(context),
+      }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(WorkspacePurgeError);
+      expect((err as WorkspacePurgeError).purged).toBe(1);
+      expect((err as WorkspacePurgeError).failedWorkspaceIds).toEqual([stuck]);
+      expect(reported).toEqual([{ step: 'workspaces', workspaceId: stuck }]);
+      expect(await owner.workspace.count({ where: { id: next } })).toBe(0);
+      expect(await owner.workspace.count({ where: { id: stuck } })).toBe(1);
+      expect(await owner.node.count({ where: { workspaceId: stuck } })).toBe(1);
+    } finally {
+      await holder.query('ROLLBACK');
+      await holder.end();
+    }
+    expect(await purgeDeletedWorkspaces(app, { olderThanDays: 30 })).toBe(1);
+    expect(await owner.workspace.count({ where: { id: stuck } })).toBe(0);
+  });
+
+  it('runRetention: bước lỗi không chặn các bước sau, kết quả từng phần nằm trong lỗi', async () => {
+    await owner.notification.create({
+      data: {
+        userId: userA,
+        type: 'ret.partial',
+        payload: {},
+        createdAt: daysAgo(200),
+        readAt: daysAgo(100),
+      },
+    });
+    const gone = (
+      await owner.workspace.create({
+        data: { name: 'p', slug: 'ret-partial', createdById: userA, deletedAt: daysAgo(40) },
+      })
+    ).id;
+    await owner.$executeRawUnsafe(
+      'REVOKE EXECUTE ON FUNCTION purge_audit_logs(integer) FROM luna_app',
+    );
+    const reported: string[] = [];
+    try {
+      const err = await runRetention(app, {
+        workspacePurgeDays: 30,
+        autoVersionThinDays: 30,
+        onError: (_e, context) => reported.push(context.step),
+      }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(RetentionError);
+      expect((err as RetentionError).failedSteps).toEqual(['auditLogs']);
+      expect((err as RetentionError).result).toEqual(
+        expect.objectContaining({ auditLogs: 0, notifications: 1, workspaces: 1 }),
+      );
+      expect(reported).toEqual(['auditLogs']);
+      expect(await owner.workspace.count({ where: { id: gone } })).toBe(0);
+    } finally {
+      await owner.$executeRawUnsafe(
+        'GRANT EXECUTE ON FUNCTION purge_audit_logs(integer) TO luna_app',
+      );
+    }
   });
 
   it('chạy lại lần hai không xoá thêm gì', async () => {

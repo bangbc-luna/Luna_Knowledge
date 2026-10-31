@@ -2,7 +2,7 @@ import { readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AbortMultipartUploadCommand } from '@aws-sdk/client-s3';
-import { purgeExpiredTrash, runRetention } from '@luna/db';
+import { purgeExpiredTrash, RetentionError, type RetentionResult, runRetention } from '@luna/db';
 import { JOBS, QUEUES } from '@luna/shared';
 import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger, type OnApplicationBootstrap } from '@nestjs/common';
@@ -61,17 +61,8 @@ export class MaintenanceProcessor extends WorkerHost implements OnApplicationBoo
         const gc = await this.collectGarbage();
         return { purged, ...gc };
       }
-      case JOBS.RETENTION: {
-        const result = await runRetention(this.prisma.client, {
-          workspacePurgeDays: this.config.WORKSPACE_PURGE_DAYS,
-          autoVersionThinDays: this.config.AUTO_VERSION_THIN_DAYS,
-        });
-        this.logger.log(
-          `Retention: ${result.auditLogs} audit log(s), ${result.notifications} notification(s), ${result.recentViews} recent view(s), ${result.documentVersions} auto version(s), ${result.workspaces} workspace(s)`,
-        );
-        const gc = await this.collectGarbage();
-        return { ...result, ...gc };
-      }
+      case JOBS.RETENTION:
+        return this.retention();
       case JOBS.CLEAN_UPLOADS:
         return { ...(await this.cleanUploads()), staleWorkDirs: await this.cleanWorkDirs() };
       case JOBS.BLOB_GC:
@@ -79,6 +70,30 @@ export class MaintenanceProcessor extends WorkerHost implements OnApplicationBoo
       default:
         throw new Error(`Unknown job "${job.name}" on queue ${QUEUES.MAINTENANCE}`);
     }
+  }
+
+  async retention() {
+    let result: RetentionResult | undefined;
+    let failure: unknown;
+    try {
+      result = await runRetention(this.prisma.client, {
+        workspacePurgeDays: this.config.WORKSPACE_PURGE_DAYS,
+        autoVersionThinDays: this.config.AUTO_VERSION_THIN_DAYS,
+        onError: (err, context) =>
+          this.logger.error({ ...context, err }, `Retention step ${context.step} failed`),
+      });
+    } catch (err) {
+      failure = err;
+      if (err instanceof RetentionError) result = err.result;
+    }
+    if (result) {
+      this.logger.log(
+        `Retention: ${result.auditLogs} audit log(s), ${result.notifications} notification(s), ${result.recentViews} recent view(s), ${result.documentVersions} auto version(s), ${result.workspaces} workspace(s)`,
+      );
+    }
+    const gc = await this.collectGarbage();
+    if (failure) throw failure;
+    return { ...result, ...gc };
   }
 
   async collectGarbage() {

@@ -692,4 +692,64 @@ describe('Worker file-process (e2e)', () => {
     ).rejects.toThrow();
     expect(await prisma.workspace.findUnique({ where: { id: workspaceId } })).not.toBeNull();
   });
+
+  it('job retention: workspace dọn lỗi thì job báo lỗi nhưng vẫn dọn các workspace khác và vẫn GC', async () => {
+    const old = new Date(Date.now() - 50 * 86_400_000);
+    const broken = await prisma.workspace.create({
+      data: { name: 'Broken', slug: 'retention-broken', createdById: userId, deletedAt: old },
+    });
+    const later = await prisma.workspace.create({
+      data: {
+        name: 'Later',
+        slug: 'retention-later',
+        createdById: userId,
+        deletedAt: new Date(old.getTime() + 86_400_000),
+      },
+    });
+    const node = await prisma.node.create({
+      data: {
+        workspaceId: later.id,
+        type: 'FILE',
+        name: 'l.bin',
+        nameNormalized: 'l.bin',
+        createdById: userId,
+      },
+    });
+    const key = `retention-later/${Date.now()}`;
+    await s3.send(
+      new PutObjectCommand({ Bucket: BUCKETS.S3_BUCKET_ORIGINALS, Key: key, Body: 'x' }),
+    );
+    await prisma.blob.create({
+      data: {
+        nodeId: node.id,
+        kind: 'ORIGINAL',
+        provider: 'S3',
+        container: BUCKETS.S3_BUCKET_ORIGINALS,
+        key,
+        sizeBytes: 1n,
+        mime: 'application/octet-stream',
+      },
+    });
+    await prisma.$executeRawUnsafe(`
+      CREATE FUNCTION e2e_block_ws_delete() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'e2e blocked workspace delete'; END $$`);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER e2e_block_ws_delete BEFORE DELETE ON workspaces
+        FOR EACH ROW WHEN (OLD.slug = 'retention-broken') EXECUTE FUNCTION e2e_block_ws_delete()`);
+    try {
+      await expect(maintenance.process({ name: JOBS.RETENTION } as Job)).rejects.toThrow(
+        /Retention failed in: workspaces/,
+      );
+    } finally {
+      await prisma.$executeRawUnsafe('DROP TRIGGER e2e_block_ws_delete ON workspaces');
+      await prisma.$executeRawUnsafe('DROP FUNCTION e2e_block_ws_delete()');
+    }
+    expect(await prisma.workspace.findUnique({ where: { id: broken.id } })).not.toBeNull();
+    expect(await prisma.workspace.findUnique({ where: { id: later.id } })).toBeNull();
+    expect(await prisma.blobGc.count({ where: { key } })).toBe(0);
+    await expect(
+      s3.send(new HeadObjectCommand({ Bucket: BUCKETS.S3_BUCKET_ORIGINALS, Key: key })),
+    ).rejects.toThrow();
+    await prisma.workspace.delete({ where: { id: broken.id } });
+  });
 });

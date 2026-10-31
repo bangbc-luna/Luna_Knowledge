@@ -128,49 +128,127 @@ export async function thinAutoVersions(
   );
 }
 
+export type RetentionStep = keyof RetentionResult;
+
+export type RetentionErrorHandler = (
+  err: unknown,
+  context: { step: RetentionStep; workspaceId?: string },
+) => void;
+
+export class WorkspacePurgeError extends AggregateError {
+  constructor(
+    errors: unknown[],
+    readonly purged: number,
+    readonly failedWorkspaceIds: string[],
+  ) {
+    super(errors, `Failed to purge ${failedWorkspaceIds.length} workspace(s)`);
+    this.name = 'WorkspacePurgeError';
+  }
+}
+
+export class RetentionError extends AggregateError {
+  constructor(
+    errors: unknown[],
+    readonly result: RetentionResult,
+    readonly failedSteps: RetentionStep[],
+  ) {
+    super(errors, `Retention failed in: ${failedSteps.join(', ')}`);
+    this.name = 'RetentionError';
+  }
+}
+
 export async function purgeDeletedWorkspaces(
   prisma: PrismaClient,
-  { olderThanDays, now = new Date() }: { olderThanDays: number; now?: Date },
+  {
+    olderThanDays,
+    now = new Date(),
+    lockTimeoutMs = WORKSPACE_PURGE_LOCK_TIMEOUT_MS,
+    onError,
+  }: {
+    olderThanDays: number;
+    now?: Date;
+    lockTimeoutMs?: number;
+    onError?: RetentionErrorHandler;
+  },
 ): Promise<number> {
   const cutoff = daysBefore(now, olderThanDays);
   const candidates = await prisma.workspace.findMany({
-    where: { deletedAt: { not: null, lt: cutoff } },
+    where: { deletedAt: { not: null, lt: cutoff }, kind: { not: 'COMPANY' } },
     select: { id: true },
     orderBy: { deletedAt: 'asc' },
   });
   let purged = 0;
+  const errors: unknown[] = [];
+  const failed: string[] = [];
   for (const { id } of candidates) {
-    purged += await prisma.$transaction(
-      async (tx) => {
-        await tx.$executeRaw`SELECT set_config('statement_timeout', ${`${WORKSPACE_PURGE_STATEMENT_TIMEOUT_MS}ms`}, true)`;
-        await lockWorkspaceTree(tx, id, { lockTimeoutMs: WORKSPACE_PURGE_LOCK_TIMEOUT_MS });
-        return tx.$executeRaw`
-          DELETE FROM workspaces
-           WHERE id = ${id}::uuid AND deleted_at IS NOT NULL AND deleted_at < ${cutoff}`;
-      },
-      {
-        maxWait: WORKSPACE_PURGE_LOCK_TIMEOUT_MS,
-        timeout: WORKSPACE_PURGE_STATEMENT_TIMEOUT_MS + 60_000,
-      },
-    );
+    try {
+      purged += await prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT set_config('statement_timeout', ${`${WORKSPACE_PURGE_STATEMENT_TIMEOUT_MS}ms`}, true)`;
+          await lockWorkspaceTree(tx, id, { lockTimeoutMs });
+          return tx.$executeRaw`
+            DELETE FROM workspaces
+             WHERE id = ${id}::uuid
+               AND kind <> 'COMPANY'
+               AND deleted_at IS NOT NULL
+               AND deleted_at < ${cutoff}`;
+        },
+        {
+          maxWait: WORKSPACE_PURGE_LOCK_TIMEOUT_MS,
+          timeout: WORKSPACE_PURGE_STATEMENT_TIMEOUT_MS + 60_000,
+        },
+      );
+    } catch (err) {
+      errors.push(err);
+      failed.push(id);
+      onError?.(err, { step: 'workspaces', workspaceId: id });
+    }
   }
+  if (errors.length) throw new WorkspacePurgeError(errors, purged, failed);
   return purged;
 }
 
 export async function runRetention(
   prisma: PrismaClient,
-  { workspacePurgeDays, autoVersionThinDays, now = new Date() }: RetentionOptions,
+  {
+    workspacePurgeDays,
+    autoVersionThinDays,
+    now = new Date(),
+    onError,
+  }: RetentionOptions & { onError?: RetentionErrorHandler },
 ): Promise<RetentionResult> {
-  const auditLogs = await purgeOldAuditLogs(prisma);
-  const notifications = await purgeReadNotifications(prisma, { now });
-  const recentViews = await capRecentViews(prisma);
-  const documentVersions = await thinAutoVersions(prisma, {
-    olderThanDays: autoVersionThinDays,
-    now,
-  });
-  const workspaces = await purgeDeletedWorkspaces(prisma, {
-    olderThanDays: workspacePurgeDays,
-    now,
-  });
-  return { auditLogs, notifications, recentViews, documentVersions, workspaces };
+  const result: RetentionResult = {
+    auditLogs: 0,
+    notifications: 0,
+    recentViews: 0,
+    documentVersions: 0,
+    workspaces: 0,
+  };
+  const errors: unknown[] = [];
+  const failedSteps: RetentionStep[] = [];
+  const steps: Array<[RetentionStep, () => Promise<number>]> = [
+    ['auditLogs', () => purgeOldAuditLogs(prisma)],
+    ['notifications', () => purgeReadNotifications(prisma, { now })],
+    ['recentViews', () => capRecentViews(prisma)],
+    [
+      'documentVersions',
+      () => thinAutoVersions(prisma, { olderThanDays: autoVersionThinDays, now }),
+    ],
+    [
+      'workspaces',
+      () => purgeDeletedWorkspaces(prisma, { olderThanDays: workspacePurgeDays, now, onError }),
+    ],
+  ];
+  for (const [step, run] of steps) {
+    try {
+      result[step] = await run();
+    } catch (err) {
+      errors.push(err);
+      failedSteps.push(step);
+      if (err instanceof WorkspacePurgeError) result[step] = err.purged;
+      else onError?.(err, { step });
+    }
+  }
+  if (errors.length) throw new RetentionError(errors, result, failedSteps);
+  return result;
 }
