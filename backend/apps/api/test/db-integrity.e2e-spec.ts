@@ -155,4 +155,69 @@ describe('Database integrity (e2e)', () => {
     const doc = await ctx.prisma.document.findUniqueOrThrow({ where: { nodeId: node.id } });
     expect(doc.lastEditedBy).toBeNull();
   });
+
+  const createThread = async () => {
+    const node = await createNode('DOCUMENT');
+    return ctx.prisma.commentThread.create({
+      data: { nodeId: node.id, quotedText: 'q', createdById: userId },
+    });
+  };
+
+  it('comments.mentions không nhận NULL', async () => {
+    const thread = await createThread();
+    const comment = await ctx.prisma.comment.create({
+      data: { threadId: thread.id, authorId: userId, body: 'b' },
+    });
+    await expect(
+      ctx.prisma.$executeRaw`UPDATE comments SET mentions = NULL WHERE id = ${comment.id}::uuid`,
+    ).rejects.toThrow();
+  });
+
+  it('thread RESOLVED phải có resolved_at, OPEN thì không', async () => {
+    const thread = await createThread();
+    await expect(
+      ctx.prisma
+        .$executeRaw`UPDATE comment_threads SET status = 'RESOLVED' WHERE id = ${thread.id}::uuid`,
+    ).rejects.toThrow(/comment_threads_resolved_consistent/);
+    await expect(
+      ctx.prisma
+        .$executeRaw`UPDATE comment_threads SET resolved_at = now() WHERE id = ${thread.id}::uuid`,
+    ).rejects.toThrow(/comment_threads_resolved_consistent/);
+    await ctx.prisma.commentThread.update({
+      where: { id: thread.id },
+      data: { status: 'RESOLVED', resolvedAt: new Date(), resolvedById: userId },
+    });
+  });
+
+  it('vị trí xem âm và kích thước âm bị chặn', async () => {
+    const g = await createVideoGraph();
+    await expect(
+      ctx.prisma.videoWatch.create({
+        data: { userId, nodeId: g.node.id, positionSec: -3 },
+      }),
+    ).rejects.toThrow();
+    await expect(
+      ctx.prisma.blob.update({ where: { id: g.original.id }, data: { sizeBytes: -1n } }),
+    ).rejects.toThrow();
+    await expect(
+      ctx.prisma.fileVersion.update({ where: { id: g.version.id }, data: { versionNo: 0 } }),
+    ).rejects.toThrow();
+  });
+
+  it('nodes.path không nhận NULL', async () => {
+    const node = await createNode('DOCUMENT');
+    await expect(
+      ctx.prisma.$executeRaw`UPDATE nodes SET path = NULL WHERE id = ${node.id}::uuid`,
+    ).rejects.toThrow(/nodes_path_present/);
+  });
+
+  it('deleted_at và deleted_root_id luôn đi cùng nhau', async () => {
+    const node = await createNode('DOCUMENT');
+    await expect(
+      ctx.prisma.$executeRaw`UPDATE nodes SET deleted_at = now() WHERE id = ${node.id}::uuid`,
+    ).rejects.toThrow(/nodes_trash_consistent/);
+    await expect(
+      ctx.prisma.$executeRaw`UPDATE nodes SET deleted_root_id = id WHERE id = ${node.id}::uuid`,
+    ).rejects.toThrow(/nodes_trash_consistent/);
+  });
 });

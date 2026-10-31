@@ -260,7 +260,10 @@ describe('Collab server (e2e)', () => {
 
   it('từ chối tài liệu đã vào thùng rác và tài khoản bị khoá', async () => {
     const trashed = await newDocument();
-    await prisma.node.update({ where: { id: trashed }, data: { deletedAt: new Date() } });
+    await prisma.node.update({
+      where: { id: trashed },
+      data: { deletedAt: new Date(), deletedRootId: trashed },
+    });
     expect((await connect(users.editor, trashed)).result).not.toBe('synced');
 
     const nodeId = await newDocument();

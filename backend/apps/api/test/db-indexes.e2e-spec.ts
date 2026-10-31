@@ -45,9 +45,9 @@ describe('Database indexes (e2e)', () => {
         FROM generate_series(1, 3000) g`;
     await ctx.prisma.$executeRaw`
       INSERT INTO nodes (id, workspace_id, type, name, name_normalized, created_by, updated_at, deleted_at, deleted_root_id)
-      SELECT gen_random_uuid(), ${ws.id}::uuid, 'DOCUMENT', 'n' || g, 'n' || g, ${user.id}::uuid, now(),
-             CASE WHEN g % 100 = 0 THEN now() END, NULL
-        FROM generate_series(1, 3000) g`;
+      SELECT s.id, ${ws.id}::uuid, 'DOCUMENT', 'n' || s.g, 'n' || s.g, ${user.id}::uuid, now(),
+             CASE WHEN s.g % 100 = 0 THEN now() END, CASE WHEN s.g % 100 = 0 THEN s.id END
+        FROM (SELECT g, gen_random_uuid() AS id FROM generate_series(1, 3000) g) s`;
     for (const table of ['audit_logs', 'notifications', 'nodes'])
       await ctx.prisma.$executeRawUnsafe(`ANALYZE ${table}`);
   });
