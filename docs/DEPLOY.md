@@ -181,7 +181,7 @@ luna --profile remote --profile monitoring ps
 
 Dịch vụ gián đoạn trong lúc đó.
 
-Nên chạy backup ngay trước khi nâng cấp. Nếu bản mới lỗi: `git checkout <commit cũ>`, `luna build && luna up -d`; nếu migration đã đổi DB thì khôi phục từ bản backup vừa chạy.
+Nên chạy backup ngay trước khi nâng cấp. Nếu bản mới lỗi: `git checkout <commit cũ>`, `luna build && luna up -d`; nếu migration đã đổi DB thì khôi phục từ bản backup vừa chạy. Riêng nâng cấp lên đợt 2 còn phải trả lại `.env.prod` cũ, làm theo bước 8 bên dưới.
 
 ### Nâng cấp lên đợt 2 (gia cố DB và bảo mật)
 
@@ -198,7 +198,13 @@ Nên chạy backup ngay trước khi nâng cấp. Nếu bản mới lỗi: `git 
 
    Nếu có dòng, migration sẽ dừng (`blobs: several rows share one object key` hoặc `versions: non-positive version_no found`), `migrate` thoát lỗi và api, worker, collab không khởi động. App không tự tạo ra hai trường hợp này. Gặp thì dừng nâng cấp, sửa tay các dòng đó: gộp các bản ghi `blobs` trùng key về một bản, hoặc đánh lại `version_no` thành số dương chưa dùng trong cùng `node_id`. Nếu đã lỡ chạy `luna up -d` và migration báo lỗi, sau khi sửa phải đánh dấu migration lỗi là đã rollback rồi mới chạy lại: `luna run --rm migrate pnpm --filter @luna/db exec prisma migrate resolve --rolled-back <tên migration trong luna logs migrate>`, sau đó `luna up -d`.
 
-3. **Sửa `.env.prod`** (so với `.env.prod.example`):
+3. **Giữ bản `.env.prod` cũ** để quay lại được (bước 8), rồi mới sửa:
+
+   ```bash
+   cp -p .env.prod .env.prod.wave1
+   ```
+
+   **Sửa `.env.prod`** (so với `.env.prod.example`):
 
    | Biến | Giá trị |
    |---|---|
@@ -257,6 +263,34 @@ Nên chạy backup ngay trước khi nâng cấp. Nếu bản mới lỗi: `git 
    ```
 
    Rồi mở trình duyệt: tải một PDF lên và xem trước, mở một tài liệu ở hai máy và gõ thử, phát một video, tạo, xoá, khôi phục một thư mục.
+
+8. **Quay lại đợt 1 nếu bản mới lỗi** (cần bản backup ở bước 1 và `.env.prod.wave1` ở bước 3):
+
+   ```bash
+   luna --profile remote --profile monitoring down
+   git checkout <commit ghi lại ở bước 1>
+   cp -p .env.prod.wave1 .env.prod
+   luna build
+   ```
+
+   Nếu `migrate` của đợt 2 đã chạy (dù thành công hay lỗi giữa chừng), DB đã đổi, phải khôi phục DB từ bản backup ở bước 1 trước khi bật app cũ. Bật riêng Postgres, tạo lại DB trống rồi khôi phục (thay `luna` nếu `POSTGRES_USER`/`POSTGRES_DB` khác, `<POSTGRES_PASSWORD>` lấy trong `.env.prod`, cổng theo `POSTGRES_HOST_PORT`, mặc định 5432):
+
+   ```bash
+   luna up -d postgres
+   luna exec postgres psql -U luna -d postgres -c "DROP DATABASE luna WITH (FORCE)" -c "CREATE DATABASE luna OWNER luna"
+   ENV_FILE=.env.prod bash scripts/backup/restore.sh list
+   ENV_FILE=.env.prod bash scripts/backup/restore.sh db <bản dump của bước 1> postgresql://luna:<POSTGRES_PASSWORD>@localhost:5432/luna --force
+   ```
+
+   Rồi mới bật lại:
+
+   ```bash
+   luna up -d
+   luna --profile remote up -d cloudflared       # nếu dùng truy cập từ xa
+   luna --profile monitoring up -d               # nếu dùng giám sát
+   ```
+
+   File đã tải lên trong MinIO không cần khôi phục: đợt 2 không đổi dữ liệu file. Dữ liệu nhập vào app sau bước 1 sẽ mất.
 
 Lưu ý sau đợt 2:
 
