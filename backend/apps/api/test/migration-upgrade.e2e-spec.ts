@@ -8,7 +8,7 @@ const MIGRATIONS = fileURLToPath(
   new URL('../../../packages/db/prisma/migrations', import.meta.url),
 );
 
-const WAVE2: string[] = ['20261031123247_tree_guard'];
+const WAVE2: string[] = ['20261031123247_tree_guard', '20261031125329_indexes'];
 
 describe('Wave 2 migrations upgrade existing data (e2e)', () => {
   let container: StartedPostgreSqlContainer;
@@ -64,6 +64,14 @@ describe('Wave 2 migrations upgrade existing data (e2e)', () => {
       'UPDATE nodes SET deleted_at = now(), deleted_by = $2, deleted_root_id = $1 WHERE id = $1',
       [trashedFolder, userId],
     );
+    await client.query(
+      `INSERT INTO audit_logs (action, target_id, workspace_id, actor_id) VALUES ('node.move', 'x', $1, $2)`,
+      [wsId, userId],
+    );
+    await client.query(
+      `INSERT INTO notifications (id, user_id, type, payload) VALUES (gen_random_uuid(), $1, 'mention', '{}')`,
+      [userId],
+    );
   });
 
   afterAll(async () => {
@@ -74,6 +82,37 @@ describe('Wave 2 migrations upgrade existing data (e2e)', () => {
   it('các migration đợt 2 chạy được trên dữ liệu cũ', async () => {
     for (const name of WAVE2)
       await client.query(await readFile(join(MIGRATIONS, name, 'migration.sql'), 'utf8'));
+  });
+
+  it('index mới thay index cũ và dữ liệu cũ còn nguyên', async () => {
+    const names = (
+      await client.query<{ indexname: string }>(
+        `SELECT indexname FROM pg_indexes
+          WHERE indexname = ANY($1)`,
+        [
+          [
+            'audit_logs_workspace_id_created_at_idx',
+            'notifications_user_id_read_at_created_at_idx',
+            'nodes_workspace_id_deleted_root_id_idx',
+            'audit_logs_target_id_id_idx',
+            'notifications_unread_idx',
+            'nodes_deleted_root_id_idx',
+          ],
+        ],
+      )
+    ).rows
+      .map((r) => r.indexname)
+      .sort();
+    expect(names).toEqual([
+      'audit_logs_target_id_id_idx',
+      'nodes_deleted_root_id_idx',
+      'notifications_unread_idx',
+    ]);
+    const counts = await one<{ audit: number; notifications: number }>(
+      `SELECT (SELECT count(*)::int FROM audit_logs) AS audit,
+              (SELECT count(*)::int FROM notifications) AS notifications`,
+    );
+    expect(counts).toEqual({ audit: 1, notifications: 1 });
   });
 
   it('mục còn sống dưới folder đã xoá được đưa vào thùng rác cùng folder đó', async () => {

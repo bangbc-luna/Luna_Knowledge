@@ -43,3 +43,30 @@ export async function treeInvariants(
     cycles: row?.cycles ?? 0,
   };
 }
+
+export async function indexesUsed(
+  prisma: PrismaClient,
+  sql: string,
+  ...params: unknown[]
+): Promise<string[]> {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe('SET LOCAL enable_seqscan = off');
+    const rows = await tx.$queryRawUnsafe<Array<{ 'QUERY PLAN': unknown }>>(
+      `EXPLAIN (FORMAT JSON) ${sql}`,
+      ...params,
+    );
+    const names: string[] = [];
+    const walk = (node: unknown): void => {
+      if (Array.isArray(node)) {
+        node.forEach(walk);
+      } else if (node && typeof node === 'object') {
+        for (const [key, value] of Object.entries(node)) {
+          if (key === 'Index Name' && typeof value === 'string') names.push(value);
+          else walk(value);
+        }
+      }
+    };
+    walk(rows[0]?.['QUERY PLAN']);
+    return names;
+  });
+}

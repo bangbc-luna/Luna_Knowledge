@@ -186,9 +186,11 @@ model AuditLog {
   userAgent   String?  @map("user_agent")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
-  @@index([workspaceId, createdAt(sort: Desc)])
-  @@index([actorId, createdAt(sort: Desc)])
-  @@index([action, createdAt(sort: Desc)])
+  @@index([targetId, id(sort: Desc)])
+  @@index([workspaceId, id(sort: Desc)])
+  @@index([actorId, id(sort: Desc)])
+  @@index([action, id(sort: Desc)])
+  @@index([createdAt], type: Brin)
   @@map("audit_logs")
 }
 
@@ -236,7 +238,8 @@ model Node {
   @@unique([workspaceId, section, nameNormalized], map: "nodes_unique_name_at_root", where: raw("deleted_at IS NULL AND parent_id IS NULL"))
   @@index([path], type: Gist)
   @@index([parentId])
-  @@index([workspaceId, deletedRootId])
+  @@index([workspaceId])
+  @@index([deletedRootId], map: "nodes_deleted_root_id_idx", where: raw("deleted_root_id IS NOT NULL"))
   @@map("nodes")
 }
 
@@ -293,6 +296,7 @@ model Favorite {
   node Node @relation(fields: [nodeId], references: [id], onDelete: Cascade)
 
   @@id([userId, nodeId])
+  @@index([nodeId])
   @@map("favorites")
 }
 
@@ -306,6 +310,7 @@ model RecentView {
 
   @@id([userId, nodeId])
   @@index([userId, viewedAt(sort: Desc)])
+  @@index([nodeId])
   @@map("recent_views")
 }
 
@@ -365,6 +370,9 @@ model FileVersion {
   currentOf  FileInfo? @relation("currentVersion")
 
   @@unique([nodeId, versionNo])
+  @@index([originalBlobId])
+  @@index([previewBlobId])
+  @@index([thumbnailBlobId])
   @@map("file_versions")
 }
 
@@ -389,6 +397,7 @@ model UploadSession {
   createdBy User @relation(fields: [createdById], references: [id])
 
   @@index([status, expiresAt])
+  @@index([nodeId])
   @@map("upload_sessions")
 }
 
@@ -434,6 +443,7 @@ model VideoWatch {
   node Node @relation(fields: [nodeId], references: [id], onDelete: Cascade)
 
   @@id([userId, nodeId])
+  @@index([nodeId])
   @@map("video_watch_progress")
 }
 
@@ -533,7 +543,8 @@ model Notification {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId, readAt, createdAt])
+  @@index([userId, id(sort: Desc)])
+  @@index([userId], map: "notifications_unread_idx", where: raw("read_at IS NULL"))
   @@map("notifications")
 }
 
