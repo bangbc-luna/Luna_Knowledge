@@ -303,7 +303,8 @@ Theo [spec gia cố](superpowers/specs/2026-10-30-hardening-design.md) mục 5 v
 - [ ] Nâng cấp server thật theo DEPLOY.md mục 8 "Nâng cấp lên đợt 2" (backup, kiểm tra trước, env mới) và chạy lại checklist sau nâng cấp.
 - [ ] FE chưa phản ứng với mã đóng collab (Hocuspocus đóng theo tài liệu với mã 1000, lý do `Session ended`): tài liệu bị ngắt sau đăng xuất chỉ ngừng đồng bộ, chưa báo cho người dùng.
 - [ ] `backend/.env` dev vẫn chạy app bằng user chủ DB; muốn thử như production thì thêm `DATABASE_MIGRATE_URL` và đổi `DATABASE_URL` sang `luna_app_user` (xem `.env.example`).
-- [ ] Các mục nhỏ hoãn lại trong lúc review (log khi dọn upload lỗi, test cho `collabEnvSchema` refine, `restore.sh` chưa giải mã username trong URL, playlist upload vẫn cho tham chiếu file cục bộ trong `protocol_whitelist`).
+- [ ] Các mục nhỏ hoãn lại trong lúc review (test cho `collabEnvSchema` refine, `restore.sh` chưa giải mã username trong URL).
+- [ ] Nguy cơ deadlock có từ trước đợt 2: collab `createDocumentVersion` khoá dòng `documents` (FOR UPDATE) rồi mới lấy KEY SHARE trên dòng `nodes` (khi chèn `document_versions`), còn xoá vĩnh viễn (`deletePermanently`, dọn sạch thùng rác) xoá `nodes` trước rồi cascade sang `documents`. Hai việc chạy cùng lúc trên một tài liệu có thể deadlock, Postgres huỷ một bên. Đợt sau: cho `createDocumentVersion` khoá `nodes` trước (hoặc cùng thứ tự với xoá), kèm test chạy đua.
 
 ---
 
