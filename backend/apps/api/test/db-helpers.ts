@@ -17,9 +17,7 @@ export async function waitForLockWait(
   }
 }
 
-export async function treeInvariants(
-  prisma: PrismaClient,
-): Promise<{
+export async function treeInvariants(prisma: PrismaClient): Promise<{
   liveUnderDeleted: number;
   strandedInTrash: number;
   badPaths: number;

@@ -397,7 +397,9 @@ describe('Retention (e2e, chạy bằng app role)', () => {
 
   it('dọn thùng rác: workspace đang bị khoá không chặn workspace khác; lỗi được báo lại', async () => {
     const otherWs = (
-      await owner.workspace.create({ data: { name: 'Trash B', slug: 'ret-trash-b', createdById: userA } })
+      await owner.workspace.create({
+        data: { name: 'Trash B', slug: 'ret-trash-b', createdById: userA },
+      })
     ).id;
     const stuck = await trashedRoot(liveWs, daysAgo(40));
     const freed = await trashedRoot(otherWs, daysAgo(40));
