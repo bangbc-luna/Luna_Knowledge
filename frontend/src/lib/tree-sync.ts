@@ -1,8 +1,11 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import { useAuth } from "./auth";
+import type { NodeSection } from "./types";
 
-const ticks = new Map<string, number>();
+const workspaceTicks = new Map<string, number>();
+const branchTicks = new Map<string, number>();
 const listeners = new Set<() => void>();
 
 function subscribe(listener: () => void) {
@@ -12,16 +15,29 @@ function subscribe(listener: () => void) {
   };
 }
 
-export function invalidateTree(wsId: string) {
-  ticks.set(wsId, (ticks.get(wsId) ?? 0) + 1);
+const branchKey = (wsId: string, parentId: string | null) => `${wsId}:${parentId ?? ""}`;
+const bump = (map: Map<string, number>, key: string) => map.set(key, (map.get(key) ?? 0) + 1);
+
+export function invalidateTree(wsId: string, parentIds?: Array<string | null>) {
+  if (parentIds?.length) new Set(parentIds).forEach((id) => bump(branchTicks, branchKey(wsId, id)));
+  else bump(workspaceTicks, wsId);
   listeners.forEach((l) => l());
 }
 
 export function useTreeTick(wsId: string | null): number {
   return useSyncExternalStore(
     subscribe,
-    () => (wsId ? (ticks.get(wsId) ?? 0) : 0),
+    () => (wsId ? (workspaceTicks.get(wsId) ?? 0) : 0),
     () => 0,
+  );
+}
+
+export function useBranchTick(wsId: string, parentId: string | null): string {
+  const key = branchKey(wsId, parentId);
+  return useSyncExternalStore(
+    subscribe,
+    () => `${workspaceTicks.get(wsId) ?? 0}:${branchTicks.get(key) ?? 0}`,
+    () => "0:0",
   );
 }
 
@@ -72,4 +88,16 @@ export function useExpandedTree(scope: string): ReadonlySet<string> {
     () => 0,
   );
   return setOf(scope);
+}
+
+export function pruneExpandedExcept(prefix: string) {
+  [...expanded.keys()].filter((k) => !k.startsWith(prefix)).forEach((k) => expanded.delete(k));
+}
+
+export function useTreeUser(): string {
+  return useAuth().me?.id ?? "anon";
+}
+
+export function useTreeScope(wsId: string, section: NodeSection): string {
+  return `${useTreeUser()}:${wsId}:${section}`;
 }

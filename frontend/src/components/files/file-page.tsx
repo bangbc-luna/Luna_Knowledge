@@ -126,7 +126,7 @@ export function FilePage() {
     try {
       const doc = await api<DocumentDetail>(`/files/${nodeId}/convert-to-document`, { method: "POST" });
       toast("success", `Đã tạo tài liệu «${doc.node.name}»`);
-      invalidateTree(wsId);
+      invalidateTree(wsId, [doc.node.parentId]);
       router.push(docHref(wsId, doc.node.id));
     } catch (err) {
       toast("error", describeError(err));
@@ -336,6 +336,7 @@ export function FilePage() {
 
             {isVideo ? <EditVideoInfoDialog node={node} open={panel === "info"} onClose={() => setPanel(null)} onSaved={() => {
               toast("success", "Đã lưu thông tin video");
+              invalidateTree(wsId, [node.parentId]);
               void detail.reload();
             }} /> : null}
             <ActivitySheet node={node} open={panel === "activity"} onClose={() => setPanel(null)} />
@@ -359,7 +360,7 @@ export function FilePage() {
                 try {
                   await api(`/nodes/${node.id}`, { method: "DELETE" });
                   toast("success", `Đã chuyển «${node.name}» vào thùng rác`);
-                  invalidateTree(wsId);
+                  invalidateTree(wsId, [node.parentId]);
                   router.push(`/w/${wsId}/${sectionPath(node.section)}${node.parentId ? `/${node.parentId}` : ""}`);
                 } catch (err) {
                   toast("error", describeError(err));

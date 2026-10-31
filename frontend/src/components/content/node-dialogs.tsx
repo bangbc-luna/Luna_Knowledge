@@ -283,7 +283,7 @@ export function MoveDialog({
   workspaceId: string;
   canUseRoot: boolean;
   section: NodeSection;
-  onMoved: () => void;
+  onMoved: (targetParentId: string | null) => void;
 }) {
   const [trail, setTrail] = useState<Crumb[]>([{ id: null, name: SECTION_LABEL[section] }]);
   const [busy, setBusy] = useState(false);
@@ -305,7 +305,7 @@ export function MoveDialog({
     setError(null);
     try {
       await api(`/nodes/${node.id}/move`, { method: "POST", body: { targetParentId: current.id } });
-      onMoved();
+      onMoved(current.id);
       onClose();
     } catch (err) {
       setError(err instanceof ApiError && err.code === "CONFLICT" ? "Thư mục đích đã có mục cùng tên. Đổi tên trước khi chuyển." : describeError(err));
@@ -394,7 +394,7 @@ export function CopyDialog({ open, onClose, source }: { open: boolean; onClose: 
         body: { workspaceId: wsId, parentId: current.id, name: name.trim() },
       });
       toast("success", "Đã tạo bản sao");
-      invalidateTree(copy.node.workspaceId);
+      invalidateTree(copy.node.workspaceId, [copy.node.parentId]);
       onClose();
       router.push(`/w/${copy.node.workspaceId}/doc/${copy.node.id}`);
     } catch (err) {

@@ -2,11 +2,11 @@
 
 import { ChevronRight } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useReducer, useRef } from "react";
+import { useEffect, useId, useReducer, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { roleAtLeast, sectionPath } from "@/lib/format";
-import { expandTreeNodes, toggleTreeNode, useExpandedTree, useTreeTick } from "@/lib/tree-sync";
+import { expandTreeNodes, pruneExpandedExcept, toggleTreeNode, useBranchTick, useExpandedTree, useTreeScope, useTreeUser } from "@/lib/tree-sync";
 import type { NodeItem, NodeSection, Page } from "@/lib/types";
 import { useUploads } from "@/lib/uploads";
 import { NodeIcon, nodeHref } from "../content/node-name";
@@ -20,27 +20,43 @@ interface BranchEntry {
   data: Page<NodeItem> | null;
   error: unknown;
   pending: Promise<void> | null;
+  stale: boolean;
 }
 
 const branches = new Map<string, BranchEntry>();
 const crumbRequests = new Map<string, Promise<Array<{ id: string }> | null>>();
 
+function markWorkspaceStale(user: string, wsId: string) {
+  const prefix = `${user}:${wsId}:`;
+  branches.forEach((entry, key) => {
+    if (key.startsWith(prefix)) entry.stale = true;
+  });
+}
+
+function pruneOtherUsers(user: string) {
+  const prefix = `${user}:`;
+  [...branches.keys()].filter((k) => !k.startsWith(prefix)).forEach((k) => branches.delete(k));
+  [...crumbRequests.keys()].filter((k) => !k.startsWith(prefix)).forEach((k) => crumbRequests.delete(k));
+  pruneExpandedExcept(prefix);
+}
+
 const indent = (depth: number) => ({ paddingLeft: 4 + Math.min(depth, MAX_INDENT_DEPTH) * 12 });
 
 function useBranch(wsId: string, section: NodeSection, parentId: string | null) {
-  const tick = useTreeTick(wsId);
+  const user = useTreeUser();
+  const tick = useBranchTick(wsId, parentId);
   const done = useUploads().doneTick(wsId, parentId);
-  const key = `${wsId}:${section}:${parentId ?? ""}`;
+  const key = `${user}:${wsId}:${section}:${parentId ?? ""}`;
   const version = `${tick}:${done}`;
   const [attempt, rerender] = useReducer((n: number) => n + 1, 0);
 
   useEffect(() => {
     const current = branches.get(key);
-    if (current && current.version === version) {
+    if (current && current.version === version && (!current.stale || current.pending)) {
       if (current.pending) void current.pending.then(rerender);
       return;
     }
-    const entry: BranchEntry = { version, data: current?.data ?? null, error: null, pending: null };
+    const entry: BranchEntry = { version, data: current?.data ?? null, error: null, pending: null, stale: false };
     entry.pending = api<Page<NodeItem>>(`/workspaces/${wsId}/nodes`, {
       query: { parentId: parentId ?? undefined, section: parentId ? undefined : section, sort: "name", order: "asc", limit: LIMIT },
     }).then(
@@ -88,7 +104,7 @@ function Branch({
 
   if (!data && error) {
     return (
-      <li role="none" className="flex h-7 items-center gap-1 text-xs text-muted" style={textPad}>
+      <li className="flex h-7 items-center gap-1 text-xs text-muted" style={textPad}>
         Không tải được ·
         <button type="button" onClick={retry} className="cursor-pointer rounded font-medium text-foreground underline-offset-2 outline-hidden hover:underline focus-visible:ring-2 focus-visible:ring-primary">
           Thử lại
@@ -98,7 +114,7 @@ function Branch({
   }
   if (!data) {
     return (
-      <li role="none">
+      <li>
         <div role="status" aria-busy="true" aria-label="Đang tải" className="flex flex-col">
           {[64, 48, 56].map((w, i) => (
             <span key={i} className="flex h-7 items-center gap-2" style={{ paddingLeft: indent(depth).paddingLeft + 20 }}>
@@ -112,7 +128,7 @@ function Branch({
   }
   if (!data.items.length) {
     return (
-      <li role="none" className="flex h-7 items-center text-xs text-muted" style={textPad}>
+      <li className="flex h-7 items-center text-xs text-muted" style={textPad}>
         {parentId ? "Thư mục trống" : section === "VIDEOS" ? "Chưa có video nào" : "Chưa có tài liệu nào"}
       </li>
     );
@@ -124,14 +140,14 @@ function Branch({
         <TreeRow key={node.id} node={node} wsId={wsId} section={section} depth={depth} activeId={activeId} />
       ))}
       {data.nextCursor ? (
-        <li role="none" style={textPad}>
+        <li style={textPad}>
           <Link href={parentId ? `${base}/${parentId}` : base} className="flex h-7 items-center rounded-md text-xs font-medium text-primary outline-hidden hover:underline focus-visible:ring-2 focus-visible:ring-primary">
             Xem tất cả
           </Link>
         </li>
       ) : null}
       {error ? (
-        <li role="none" className="flex h-7 items-center gap-1 text-xs text-muted" style={textPad}>
+        <li className="flex h-7 items-center gap-1 text-xs text-muted" style={textPad}>
           Không tải được ·
           <button type="button" onClick={retry} className="cursor-pointer rounded font-medium text-foreground outline-hidden hover:underline focus-visible:ring-2 focus-visible:ring-primary">
             Thử lại
@@ -143,8 +159,9 @@ function Branch({
 }
 
 function TreeRow({ node, wsId, section, depth, activeId }: { node: NodeItem; wsId: string; section: NodeSection; depth: number; activeId: string | null }) {
-  const scope = `${wsId}:${section}`;
+  const scope = useTreeScope(wsId, section);
   const expanded = useExpandedTree(scope);
+  const groupId = useId();
   const isFolder = node.type === "FOLDER";
   const open = isFolder && expanded.has(node.id);
   const active = node.id === activeId;
@@ -155,7 +172,7 @@ function TreeRow({ node, wsId, section, depth, activeId }: { node: NodeItem; wsI
   const canCreate = isFolder && roleAtLeast(node.myRole, "EDITOR");
 
   return (
-    <li role="treeitem" aria-level={depth + 1} aria-expanded={isFolder ? open : undefined} aria-selected={active} className="flex flex-col">
+    <li className="flex flex-col">
       <div
         ref={rowRef}
         className={cn("group relative flex h-7 items-center gap-1 rounded-lg pr-1", active ? "bg-primary-light" : "hover:bg-item-hover")}
@@ -166,6 +183,7 @@ function TreeRow({ node, wsId, section, depth, activeId }: { node: NodeItem; wsI
             type="button"
             aria-label={open ? `Thu gọn «${node.name}»` : `Mở «${node.name}»`}
             aria-expanded={open}
+            aria-controls={open ? groupId : undefined}
             onClick={() => toggleTreeNode(scope, node.id)}
             className="inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted outline-hidden hover:bg-foreground/8 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary"
           >
@@ -189,12 +207,12 @@ function TreeRow({ node, wsId, section, depth, activeId }: { node: NodeItem; wsI
         </Link>
         {canCreate ? (
           <div className="pointer-events-none absolute inset-y-0 right-1 flex items-center opacity-0 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 has-[[aria-expanded=true]]:pointer-events-auto has-[[aria-expanded=true]]:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
-            <TreeCreateMenu wsId={wsId} section={section} parentId={node.id} label={`Tạo mới trong «${node.name}»`} />
+            <TreeCreateMenu wsId={wsId} section={section} parentId={node.id} label={`Tạo trong «${node.name}»`} />
           </div>
         ) : null}
       </div>
       {open ? (
-        <ul role="group" className="flex flex-col">
+        <ul id={groupId} className="flex flex-col">
           <Branch wsId={wsId} section={section} parentId={node.id} depth={depth + 1} activeId={activeId} />
         </ul>
       ) : null}
@@ -203,10 +221,11 @@ function TreeRow({ node, wsId, section, depth, activeId }: { node: NodeItem; wsI
 }
 
 function useRevealActive(wsId: string, section: NodeSection, activeId: string | null) {
-  const tick = useTreeTick(wsId);
+  const user = useTreeUser();
+  const scope = useTreeScope(wsId, section);
   useEffect(() => {
     if (!activeId) return;
-    const key = `${activeId}:${tick}`;
+    const key = `${user}:${activeId}`;
     let request = crumbRequests.get(key);
     if (!request) {
       request = api<Array<{ id: string }>>(`/nodes/${activeId}/breadcrumb`).catch(() => null);
@@ -214,19 +233,29 @@ function useRevealActive(wsId: string, section: NodeSection, activeId: string | 
     }
     let live = true;
     void request.then((crumbs) => {
-      if (live && crumbs && crumbs.length > 1) expandTreeNodes(`${wsId}:${section}`, crumbs.slice(0, -1).map((c) => c.id));
+      if (live && crumbs && crumbs.length > 1) expandTreeNodes(scope, crumbs.slice(0, -1).map((c) => c.id));
     });
     return () => {
       live = false;
     };
-  }, [wsId, section, activeId, tick]);
+  }, [user, scope, activeId]);
 }
 
 export function ContentTree({ wsId, section, activeId }: { wsId: string; section: NodeSection; activeId: string | null }) {
+  const user = useTreeUser();
+  const [seen, setSeen] = useState<string | null>(null);
+  const seenKey = `${user}:${wsId}`;
+  if (seen !== seenKey) {
+    setSeen(seenKey);
+    markWorkspaceStale(user, wsId);
+  }
+  useEffect(() => pruneOtherUsers(user), [user]);
   useRevealActive(wsId, section, activeId);
   return (
-    <ul role="tree" aria-label={section === "VIDEOS" ? "Cây video" : "Cây tài liệu"} className="flex flex-col">
-      <Branch key={`${wsId}:${section}`} wsId={wsId} section={section} parentId={null} depth={0} activeId={activeId} />
-    </ul>
+    <nav aria-label="Cây thư mục">
+      <ul className="flex flex-col">
+        <Branch key={`${user}:${wsId}:${section}`} wsId={wsId} section={section} parentId={null} depth={0} activeId={activeId} />
+      </ul>
+    </nav>
   );
 }

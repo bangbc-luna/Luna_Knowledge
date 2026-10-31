@@ -7,7 +7,7 @@ import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { docHref } from "@/lib/documents";
 import { DOC_ACCEPT_ATTR, extensionOf, VIDEO_ACCEPT_ATTR, VIDEO_EXTENSIONS } from "@/lib/files";
-import { expandTreeNodes, invalidateTree } from "@/lib/tree-sync";
+import { expandTreeNodes, invalidateTree, useTreeScope } from "@/lib/tree-sync";
 import type { NodeSection } from "@/lib/types";
 import { useUploads } from "@/lib/uploads";
 import { NameDialog, NewDocumentDialog } from "../content/node-dialogs";
@@ -33,7 +33,7 @@ export function TreeCreateMenu({
   const fileInput = useRef<HTMLInputElement>(null);
   const [dialog, setDialog] = useState<"doc" | "folder" | null>(null);
   const isVideo = section === "VIDEOS";
-  const scope = `${wsId}:${section}`;
+  const scope = useTreeScope(wsId, section);
   const revealParent = () => {
     if (parentId) expandTreeNodes(scope, [parentId]);
   };
@@ -87,7 +87,7 @@ export function TreeCreateMenu({
           onCreated={(doc, named) => {
             setDialog(null);
             revealParent();
-            invalidateTree(wsId);
+            invalidateTree(wsId, [parentId]);
             router.push(`${docHref(wsId, doc.node.id)}${named ? "" : "?new=1"}`);
           }}
         />
@@ -101,7 +101,7 @@ export function TreeCreateMenu({
           await api(`/workspaces/${wsId}/folders`, { method: "POST", body: { name, parentId, section } });
           toast("success", `Đã tạo thư mục «${name}»`);
           revealParent();
-          invalidateTree(wsId);
+          invalidateTree(wsId, [parentId]);
         }}
       />
     </>

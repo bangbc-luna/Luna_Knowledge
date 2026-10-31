@@ -117,9 +117,12 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
   const patchItem = (id: string, patch: Partial<NodeItem>) =>
     list.setData((d) => (d ? { ...d, items: d.items.map((n) => (n.id === id ? { ...n, ...patch } : n)) } : d));
   const reloadAll = () => {
-    invalidateTree(wsId);
     void list.reload();
     if (folderId) void current.reload();
+  };
+  const changed = (extraParents: Array<string | null> = []) => {
+    invalidateTree(wsId, [folderId, ...extraParents]);
+    reloadAll();
   };
 
   const uploads = useUploads();
@@ -371,7 +374,7 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
         workspaceId={wsId}
         parentId={folderId}
         onCreated={(doc, named) => {
-          invalidateTree(wsId);
+          invalidateTree(wsId, [folderId]);
           router.push(`${docHref(wsId, doc.node.id)}${named ? "" : "?new=1"}`);
         }}
       />
@@ -383,7 +386,7 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
         onSubmit={async (name) => {
           await api(`/workspaces/${wsId}/folders`, { method: "POST", body: { name, parentId: folderId, section } });
           toast("success", `Đã tạo thư mục «${name}»`);
-          reloadAll();
+          changed();
         }}
       />
       <NameDialog
@@ -396,7 +399,7 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
           if (!dialog || !("node" in dialog)) return;
           await api(`/nodes/${dialog.node.id}`, { method: "PATCH", body: { name } });
           toast("success", "Đã đổi tên");
-          reloadAll();
+          changed();
         }}
       />
       <MoveDialog
@@ -406,9 +409,9 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
         workspaceId={wsId}
         canUseRoot={!!membership && membership.role !== "VIEWER"}
         section={section}
-        onMoved={() => {
+        onMoved={(targetParentId) => {
           toast("success", "Đã di chuyển");
-          reloadAll();
+          changed([targetParentId]);
         }}
       />
       <CopyDialog
@@ -436,7 +439,7 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
           try {
             await api(`/nodes/${dialog.node.id}`, { method: "DELETE" });
             toast("success", `Đã chuyển «${dialog.node.name}» vào thùng rác`);
-            reloadAll();
+            changed();
           } catch (err) {
             toast("error", describeError(err));
           }

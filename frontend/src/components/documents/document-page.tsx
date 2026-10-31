@@ -525,7 +525,7 @@ export function DocumentPage() {
                       const updated = await api<NodeItem>(`/nodes/${node.id}`, { method: "PATCH", body: { name } });
                       detail.setData((prev) => (prev ? { ...prev, node: { ...prev.node, ...updated } } : prev));
                       void crumbs.reload();
-                      invalidateTree(node.workspaceId);
+                      invalidateTree(node.workspaceId, [node.parentId]);
                       if (search.get("new")) router.replace(`/w/${wsId}/doc/${nodeId}`);
                     }}
                   />
