@@ -94,9 +94,15 @@ export class MaintenanceProcessor extends WorkerHost implements OnApplicationBoo
         `Retention: ${result.auditLogs} audit log(s), ${result.notifications} notification(s), ${result.recentViews} recent view(s), ${result.documentVersions} auto version(s), ${result.workspaces} workspace(s)`,
       );
     }
-    const gc = await this.collectGarbage();
-    if (failure) throw failure;
-    return { ...result, ...gc };
+    if (!failure) return { ...result, ...(await this.collectGarbage()) };
+    this.logger.error({ err: failure }, 'Retention failed');
+    try {
+      await this.collectGarbage();
+    } catch (gcError) {
+      this.logger.error({ err: gcError }, 'Blob GC failed after a retention failure');
+      throw new AggregateError([failure, gcError], 'Retention and blob GC both failed');
+    }
+    throw failure;
   }
 
   async collectGarbage() {
