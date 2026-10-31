@@ -56,7 +56,7 @@ export function TopBar({ children, actions }: { children: React.ReactNode; actio
   const pathname = usePathname();
   const inAdmin = pathname.startsWith("/admin");
   return (
-    <header className="sticky top-0 z-30 flex h-11 shrink-0 items-center gap-3 border-b border-border bg-surface px-3">
+    <header className="sticky top-0 z-30 flex h-11 shrink-0 items-center gap-1.5 border-b border-border bg-surface px-3 sm:gap-3">
       <button
         type="button"
         aria-label="Mở menu"
