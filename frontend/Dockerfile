@@ -10,6 +10,9 @@ RUN --mount=type=cache,id=pnpm-fe,target=/pnpm/store pnpm install --frozen-lockf
 COPY . .
 ARG API_ORIGIN=http://api:4000
 ENV API_ORIGIN=$API_ORIGIN
+ARG MEDIA_ORIGIN
+ARG COLLAB_ORIGIN
+ENV MEDIA_ORIGIN=$MEDIA_ORIGIN COLLAB_ORIGIN=$COLLAB_ORIGIN
 RUN pnpm build
 
 FROM node:22-bookworm-slim AS runtime
