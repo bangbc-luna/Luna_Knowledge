@@ -55,8 +55,8 @@ services:
       context: ../../frontend
       args:
         API_ORIGIN: http://api:4000
-        MEDIA_ORIGIN: https://${MEDIA_HOST}
-        COLLAB_ORIGIN: wss://${APP_HOST}
+        MEDIA_ORIGIN: https://${MEDIA_HOST:?MEDIA_HOST must be set in .env.prod}
+        COLLAB_ORIGIN: wss://${APP_HOST:?APP_HOST must be set in .env.prod}
     image: luna-frontend:${LUNA_VERSION:-latest}
     restart: unless-stopped
     depends_on: [api]

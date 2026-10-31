@@ -1,5 +1,6 @@
 const url = process.env.CHECK_URL ?? "http://127.0.0.1:5173/login";
 const media = process.env.MEDIA_ORIGIN;
+const collab = process.env.COLLAB_ORIGIN;
 const errors = [];
 
 const res = await fetch(url);
@@ -16,6 +17,7 @@ if (media) {
     if (!directive(name).split(" ").includes(media)) errors.push(`CSP ${name} missing ${media}`);
   }
 }
+if (collab && !directive("connect-src").split(" ").includes(collab)) errors.push(`CSP connect-src missing ${collab}`);
 if (csp.includes("'unsafe-eval'")) errors.push("CSP contains 'unsafe-eval'");
 
 if (res.headers.get("x-content-type-options") !== "nosniff") errors.push("x-content-type-options is not nosniff");
