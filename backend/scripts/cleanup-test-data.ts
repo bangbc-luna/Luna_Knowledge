@@ -16,7 +16,10 @@ if (env.NODE_ENV !== 'development') {
   process.exit(1);
 }
 
-const prisma = createPrismaClient({ connectionString: env.DATABASE_URL, max: 1 });
+const prisma = createPrismaClient({
+  connectionString: process.env.DATABASE_MIGRATE_URL || env.DATABASE_URL,
+  max: 1,
+});
 const ids = (rows: { id: string }[]) => rows.map((r) => r.id);
 
 try {

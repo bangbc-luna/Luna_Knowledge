@@ -11,7 +11,8 @@ Trình duyệt ──https──> Traefik :443 ──> frontend (Next.js)       
                               └────────> minio :9000                   media.knowledge.lunatech.vn
                                          (tải file, xem video bằng URL ký sẵn)
 
-Mạng nội bộ Docker (không mở ra ngoài): postgres, redis, meilisearch, tika, gotenberg, worker
+Mạng nội bộ Docker (không mở ra ngoài): postgres, redis, meilisearch, worker
+Mạng `luna_processing` (internal, không ra internet): tika, gotenberg; chỉ worker nối vào được cả hai mạng. Redis đặt mật khẩu qua `REDIS_PASSWORD` và `REDIS_URL=redis://:<mật khẩu>@redis:6379` (mật khẩu chỉ dùng ký tự an toàn trong URL)
 Truy cập từ xa (tuỳ chọn): cloudflared ──tunnel──> Traefik
 ```
 
@@ -69,12 +70,20 @@ chmod 600 .env.prod
 Điền các ô trống. Sinh secret:
 
 ```bash
-openssl rand -base64 48   # POSTGRES_PASSWORD, MINIO_ROOT_PASSWORD, MEILI_MASTER_KEY, JWT_ACCESS_SECRET,
+openssl rand -hex 32      # POSTGRES_PASSWORD, APP_DB_PASSWORD, REDIS_PASSWORD (nằm trong URL nên chỉ dùng chữ và số)
+openssl rand -base64 48   # MINIO_ROOT_PASSWORD, MEILI_MASTER_KEY, JWT_ACCESS_SECRET,
                           # COLLAB_TOKEN_SECRET, COLLAB_INTERNAL_SECRET, METRICS_TOKEN, BACKUP_PASSWORD
 openssl rand -base64 32   # VIDEO_MASTER_KEY (đúng 32 byte)
 ```
 
-- Thay `<POSTGRES_PASSWORD>` trong `DATABASE_URL` và `<MINIO_ROOT_PASSWORD>` ở `S3_SECRET_KEY` bằng mật khẩu thật.
+- Thay `<POSTGRES_PASSWORD>` trong `DATABASE_MIGRATE_URL` bằng mật khẩu thật.
+- `S3_ACCESS_KEY`/`S3_SECRET_KEY` là key của user MinIO riêng cho app (`luna_app`), sinh mới bằng `openssl rand -base64 48`, khác hẳn `MINIO_ROOT_PASSWORD`.
+- Thay `<APP_DB_PASSWORD>` trong `DATABASE_URL` bằng một mật khẩu riêng, khác `POSTGRES_PASSWORD`.
+- Hai user Postgres: `DATABASE_MIGRATE_URL` là user chủ DB (`POSTGRES_USER`), chỉ dùng cho `migrate` và script backup, restore chạy trên server; compose xoá trắng `DATABASE_MIGRATE_URL`, `POSTGRES_PASSWORD`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `BACKUP_PASSWORD` và các token Cloudflare, Grafana trong container api, worker, collab. `DATABASE_URL` là login riêng của app (`luna_app_user`, thuộc role `luna_app`): đọc ghi dữ liệu được nhưng không tạo hay sửa bảng, không sửa, xoá hay TRUNCATE được `audit_logs`. Bước `migrate` tự tạo login này, và mỗi lần khởi động lại đặt lại mật khẩu theo `DATABASE_URL`, nên đổi mật khẩu chỉ cần sửa `DATABASE_URL` rồi `luna up -d`.
+- MinIO: root (`MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD`) chỉ dùng cho `infra:init` (trong `migrate`: tạo bucket, lifecycle) và `minio-init`. `minio-init` chạy mỗi lần `luna up`, tạo user `S3_ACCESS_KEY` với policy `luna-app` (đọc, ghi, xoá object, multipart, liệt kê, chỉ trong sáu bucket `S3_BUCKET_*`). api, worker, collab chỉ có key này: không tạo được bucket, không dùng được lệnh quản trị MinIO.
+- Xoay key app MinIO: sinh `S3_SECRET_KEY` mới, sửa `.env.prod`, chạy `luna up -d` (minio-init đặt lại secret của user, rồi api, worker, collab khởi động lại với key mới). Script backup đọc `S3_*` trong `.env.prod` nên dùng luôn key mới. Đổi `S3_ACCESS_KEY` sang tên khác thì user cũ vẫn còn: xoá bằng `docker compose exec minio mc admin user remove` sau khi đặt alias bằng root.
+- Host media (`MEDIA_HOST`) chỉ nhận GET, HEAD, PUT, OPTIONS (OPTIONS cho CORS preflight); phương thức khác (POST, DELETE) bị Traefik trả 404.
+- Mọi bảng phải do user chủ DB tạo (qua migration): quyền mặc định cấp cho `luna_app` gắn với user đó, bảng do user khác tạo thì app không đọc ghi được.
 - **Cất `VIDEO_MASTER_KEY` và `BACKUP_PASSWORD` ra một nơi an toàn khác server** (két, trình quản lý mật khẩu của công ty). Mất `VIDEO_MASTER_KEY` thì mọi video đã transcode không phát được nữa; mất `BACKUP_PASSWORD` thì bản backup vô dụng.
 - `.env.prod` không bao giờ đưa lên git (đã có trong `.gitignore`).
 
@@ -129,6 +138,8 @@ Công thức: số người xem từ xa cùng lúc ≈ upload (Mbps) / 3. Ví d�
 
 Backup gồm dump Postgres và bucket `originals`, `assets` (preview, thumbnail, HLS tạo lại được từ file gốc), mã hoá bằng `BACKUP_PASSWORD`, giữ `BACKUP_KEEP_DAYS` ngày.
 
+Backup và restore kết nối Postgres bằng `DATABASE_MIGRATE_URL` (user chủ DB); thiếu biến này thì dùng `DATABASE_URL`. Restore tạo sẵn role `luna_app` ở DB đích nếu chưa có, để giữ nguyên quyền của app trong bản dump.
+
 Chạy thử một lần, rồi đặt lịch:
 
 ```bash
@@ -170,7 +181,133 @@ luna --profile remote --profile monitoring ps
 
 Dịch vụ gián đoạn trong lúc đó.
 
-Nên chạy backup ngay trước khi nâng cấp. Nếu bản mới lỗi: `git checkout <commit cũ>`, `luna build && luna up -d`; nếu migration đã đổi DB thì khôi phục từ bản backup vừa chạy.
+Nên chạy backup ngay trước khi nâng cấp. Nếu bản mới lỗi: `git checkout <commit cũ>`, `luna build && luna up -d`; nếu migration đã đổi DB thì khôi phục từ bản backup vừa chạy. Riêng nâng cấp lên đợt 2 còn phải trả lại `.env.prod` cũ, làm theo bước 8 bên dưới.
+
+### Nâng cấp lên đợt 2 (gia cố DB và bảo mật)
+
+Đợt 2 thêm ràng buộc và khoá ngoại cho DB, chạy app bằng login Postgres và user MinIO riêng, đặt mật khẩu Redis, bắt buộc `METRICS_TOKEN`, thêm header bảo mật (CSP, HSTS). Làm đúng thứ tự dưới đây; dịch vụ gián đoạn vài phút.
+
+1. **Backup** ngay trước khi nâng cấp (`ENV_FILE=.env.prod bash scripts/backup/backup.sh`, mục 7) và ghi lại commit đang chạy (`git rev-parse HEAD`) để quay lại nếu cần.
+
+2. **Kiểm tra trước** trên DB đang chạy (thay `luna` nếu `POSTGRES_USER`/`POSTGRES_DB` khác). Cả hai lệnh phải trả về 0 dòng:
+
+   ```bash
+   luna exec postgres psql -U luna -d luna -c "SELECT provider, container, key, count(*) FROM blobs GROUP BY 1,2,3 HAVING count(*) > 1"
+   luna exec postgres psql -U luna -d luna -c "SELECT 'file_versions' AS t, id, node_id, version_no FROM file_versions WHERE version_no <= 0 UNION ALL SELECT 'document_versions', id, node_id, version_no FROM document_versions WHERE version_no <= 0"
+   ```
+
+   Nếu có dòng, migration sẽ dừng (`blobs: several rows share one object key` hoặc `versions: non-positive version_no found`), `migrate` thoát lỗi và api, worker, collab không khởi động. App không tự tạo ra hai trường hợp này. Gặp thì dừng nâng cấp, sửa tay các dòng đó: gộp các bản ghi `blobs` trùng key về một bản, hoặc đánh lại `version_no` thành số dương chưa dùng trong cùng `node_id`. Nếu đã lỡ chạy `luna up -d` và migration báo lỗi, sau khi sửa phải đánh dấu migration lỗi là đã rollback rồi mới chạy lại: `luna run --rm migrate pnpm --filter @luna/db exec prisma migrate resolve --rolled-back <tên migration trong luna logs migrate>`, sau đó `luna up -d`.
+
+   Kiểm tra thêm cây thư mục (chỉ đọc, không sửa gì). Hai lệnh này cũng phải trả về 0 dòng; lệnh đầu tìm mục có `path` không khớp với cha, lệnh sau tìm mục mà đi ngược lên theo `parent_id` lại gặp chính nó (vòng):
+
+   ```bash
+   luna exec postgres psql -U luna -d luna -c "SELECT c.id, c.name, c.parent_id FROM nodes c LEFT JOIN nodes p ON p.id = c.parent_id WHERE c.path IS DISTINCT FROM CASE WHEN c.parent_id IS NULL THEN text2ltree(replace(c.id::text, '-', '')) ELSE p.path || text2ltree(replace(c.id::text, '-', '')) END"
+   luna exec postgres psql -U luna -d luna -c "WITH RECURSIVE up(start_id, id, depth) AS (SELECT id, parent_id, 1 FROM nodes WHERE parent_id IS NOT NULL UNION ALL SELECT u.start_id, n.parent_id, u.depth + 1 FROM up u JOIN nodes n ON n.id = u.id WHERE n.parent_id IS NOT NULL AND u.id <> u.start_id AND u.depth < 1000) SELECT DISTINCT start_id AS id FROM up WHERE id = start_id"
+   ```
+
+   Nếu có dòng: dừng nâng cấp, không tự sửa, gửi kết quả hai lệnh cho developer. Migration đợt 2 dựa vào `path` đúng để chuyển các mục con của thư mục đã xoá vào thùng rác; dữ liệu cây hỏng thì kết quả không đoán trước được.
+
+3. **Giữ bản `.env.prod` cũ** để quay lại được (bước 8), rồi mới sửa:
+
+   ```bash
+   cp -p .env.prod .env.prod.wave1
+   ```
+
+   **Sửa `.env.prod`** (so với `.env.prod.example`):
+
+   | Biến | Giá trị |
+   |---|---|
+   | `DATABASE_MIGRATE_URL` | đúng giá trị `DATABASE_URL` cũ (user chủ DB). Dùng cho `migrate`, backup, restore |
+   | `DATABASE_URL` | `postgresql://luna_app_user:<APP_DB_PASSWORD>@postgres:5432/luna?schema=public`. `APP_DB_PASSWORD` không phải biến riêng, chỉ là mật khẩu mới điền vào URL (`openssl rand -hex 32`, khác `POSTGRES_PASSWORD`) |
+   | `S3_ACCESS_KEY`, `S3_SECRET_KEY` | `luna_app` và một secret mới (`openssl rand -base64 48`), khác `MINIO_ROOT_PASSWORD`. Không dùng key root nữa |
+   | `REDIS_PASSWORD` | `openssl rand -hex 32`. Để trống thì Compose từ chối chạy |
+   | `REDIS_URL` | `redis://:<REDIS_PASSWORD>@redis:6379`, cùng mật khẩu với `REDIS_PASSWORD` |
+   | `METRICS_TOKEN` | bắt buộc (`openssl rand -base64 32`); thiếu thì collab không khởi động |
+   | `WORKSPACE_PURGE_DAYS` | số ngày giữ dữ liệu của workspace đã xoá trước khi xoá hẳn, mặc định 30 |
+   | `AUTO_VERSION_THIN_DAYS` | phiên bản tự lưu của tài liệu cũ hơn số ngày này chỉ giữ bản cuối mỗi ngày, mặc định 30 |
+
+   `APP_HOST` và `MEDIA_HOST` phải có giá trị: chúng được ghi vào CSP của frontend lúc build, thiếu thì `luna build` báo lỗi. Đổi một trong hai thì phải `luna build frontend` lại.
+
+   CSP cho phép tải ảnh, video, file từ `https://<MEDIA_HOST>`, còn api ký URL tải xuống bằng `S3_PUBLIC_ENDPOINT`. Hai giá trị phải cùng một origin (giao thức, tên miền, cổng): `MEDIA_HOST=media.knowledge.lunatech.vn` thì `S3_PUBLIC_ENDPOINT=https://media.knowledge.lunatech.vn`, không thêm cổng. Lệch nhau thì trình duyệt chặn tải lên, xem trước, ảnh, video dù link vẫn đúng.
+
+4. **Build**: `git pull` rồi `luna build`.
+
+5. **Tắt hết rồi bật lại một lần**: đợt 2 thêm mạng `luna_processing` (tika, gotenberg chỉ nằm trong mạng này) nên làm một lần như ghi chú mạng `edge` ở trên, kèm đủ profile:
+
+   ```bash
+   luna --profile remote --profile monitoring down
+   luna up -d
+   luna --profile remote up -d cloudflared       # nếu dùng truy cập từ xa
+   luna --profile monitoring up -d               # nếu dùng giám sát
+   ```
+
+   `migrate` chạy các migration mới, tạo role `luna_app` và login `luna_app_user` (log có `App login luna_app_user created as a member of luna_app.`), rồi tạo bucket. `minio-init` tạo user MinIO (log có `MinIO user luna_app ready with policy luna-app`). Sau đó api, worker, collab mới khởi động, bằng login app, key MinIO app và mật khẩu Redis. Không cần tạo user bằng tay. Nếu chưa thêm `DATABASE_MIGRATE_URL`, app vẫn chạy bằng user chủ DB (log báo `share the login`), chỉ là chưa có lớp bảo vệ này.
+
+6. **Khoá ngoại của `videos`**: migration thêm khoá ngoại `videos.hls_blob_id` và `videos.version_id`. Nếu có video trỏ tới blob hoặc phiên bản file không còn, migration vẫn chạy xong nhưng để hai khoá này ở trạng thái NOT VALID và in `WARNING: videos.hls_blob_id has orphans; constraint left NOT VALID` (hoặc `videos.version_id ...`) vào `luna logs postgres`. Kiểm tra:
+
+   ```bash
+   luna exec postgres psql -U luna -d luna -c "SELECT conname, convalidated FROM pg_constraint WHERE conname IN ('videos_hls_blob_id_fkey', 'videos_version_id_fkey')"
+   ```
+
+   Cả hai phải là `t`. Nếu có `f`, tìm video lỗi:
+
+   ```bash
+   luna exec postgres psql -U luna -d luna -c "SELECT v.node_id, n.name, b.id IS NULL AS hls_missing, f.id IS NULL AS version_missing FROM videos v JOIN nodes n ON n.id = v.node_id LEFT JOIN blobs b ON b.id = v.hls_blob_id LEFT JOIN file_versions f ON f.id = v.version_id WHERE b.id IS NULL OR f.id IS NULL"
+   ```
+
+   Với từng video: bấm **Transcode lại** trên trang video (hoặc `POST /api/v1/videos/<node_id>/retranscode`). Transcode xong thì video trỏ sang HLS mới và phiên bản hiện tại của file. Video không còn file gốc thì xoá vĩnh viễn trong thùng rác. Khi truy vấn trên không còn dòng nào, chạy bằng user chủ DB:
+
+   ```bash
+   luna exec postgres psql -U luna -d luna -c "ALTER TABLE videos VALIDATE CONSTRAINT videos_hls_blob_id_fkey" -c "ALTER TABLE videos VALIDATE CONSTRAINT videos_version_id_fkey"
+   ```
+
+7. **Kiểm tra sau nâng cấp**:
+
+   ```bash
+   luna ps                                                   # migrate, minio-init: Exited (0); còn lại running/healthy
+   luna exec postgres psql -U luna -d luna -c "SELECT usename, count(*) FROM pg_stat_activity WHERE datname = 'luna' GROUP BY 1"   # app dùng luna_app_user
+   luna exec redis redis-cli ping                            # phải báo NOAUTH
+   curl -s -o /dev/null -w '%{http_code}\n' https://knowledge.lunatech.vn/collab/metrics          # 404
+   curl -s -o /dev/null -w '%{http_code}\n' -X POST https://media.knowledge.lunatech.vn/luna-tmp/x   # 404
+   curl -sI https://knowledge.lunatech.vn/login | grep -i -e content-security-policy -e strict-transport-security
+   luna logs api worker collab | grep -i -e 'permission denied' -e NOAUTH -e AccessDenied   # không có dòng nào
+   ```
+
+   Rồi mở trình duyệt: tải một PDF lên và xem trước, mở một tài liệu ở hai máy và gõ thử, phát một video, tạo, xoá, khôi phục một thư mục.
+
+8. **Quay lại đợt 1 nếu bản mới lỗi** (cần bản backup ở bước 1 và `.env.prod.wave1` ở bước 3):
+
+   ```bash
+   luna --profile remote --profile monitoring down
+   git checkout <commit ghi lại ở bước 1>
+   cp -p .env.prod.wave1 .env.prod
+   luna build
+   ```
+
+   Nếu `migrate` của đợt 2 đã chạy (dù thành công hay lỗi giữa chừng), DB đã đổi, phải khôi phục DB từ bản backup ở bước 1 trước khi bật app cũ. Bật riêng Postgres, tạo lại DB trống rồi khôi phục (thay `luna` nếu `POSTGRES_USER`/`POSTGRES_DB` khác, `<POSTGRES_PASSWORD>` lấy trong `.env.prod`, cổng theo `POSTGRES_HOST_PORT`, mặc định 5432):
+
+   ```bash
+   luna up -d postgres
+   luna exec postgres psql -U luna -d postgres -c "DROP DATABASE luna WITH (FORCE)" -c "CREATE DATABASE luna OWNER luna"
+   ENV_FILE=.env.prod bash scripts/backup/restore.sh list
+   ENV_FILE=.env.prod bash scripts/backup/restore.sh db <bản dump của bước 1> postgresql://luna:<POSTGRES_PASSWORD>@localhost:5432/luna --force
+   ```
+
+   Rồi mới bật lại:
+
+   ```bash
+   luna up -d
+   luna --profile remote up -d cloudflared       # nếu dùng truy cập từ xa
+   luna --profile monitoring up -d               # nếu dùng giám sát
+   ```
+
+   File đã tải lên trong MinIO không cần khôi phục: đợt 2 không đổi dữ liệu file. Dữ liệu nhập vào app sau bước 1 sẽ mất.
+
+Lưu ý sau đợt 2:
+
+- **Chỉ phục vụ qua HTTPS**: frontend gửi HSTS và CSP `upgrade-insecure-requests`. Không mở app bằng `http://<IP LAN>` hay tên miền không có chứng chỉ: trình duyệt sẽ ép mọi request lên https và chặn upload, xem video. Trong LAN luôn dùng `https://knowledge.lunatech.vn` (split DNS, mục 3).
+- **Log truy cập Traefik cố ý không có đường dẫn** (mục 9). Xem đường dẫn trong log của `api`.
+- **Đăng xuất** ngắt luồng thông báo, kết nối soạn thảo và phiên xem video của đúng phiên đó; các phiên khác của cùng người vẫn chạy.
 
 ## 9. Theo dõi và xử lý sự cố
 
@@ -178,8 +315,9 @@ Nên chạy backup ngay trước khi nâng cấp. Nếu bản mới lỗi: `git 
 |---|---|
 | Trạng thái dịch vụ | `luna ps` |
 | Log một dịch vụ | `luna logs -f --tail 200 api` (thay `api` bằng `worker`, `collab`, `traefik`…) |
+| Log truy cập Traefik | `luna logs traefik` ra JSON, cố ý không có đường dẫn (`RequestPath`, `RequestLine`) vì token phiên xem video nằm trong query string `?s=` mà Traefik không có tuỳ chọn chỉ bỏ query. Vẫn còn `RouterName`, `RequestMethod`, `RequestHost`, `DownstreamStatus`, `Duration`, `ClientHost` để gỡ lỗi; xem đường dẫn trong log của `api` (đã bỏ query) |
 | Sức khoẻ API, collab | `luna ps` (có `healthy`), chi tiết: `luna exec api node -e "fetch('http://127.0.0.1:4000/health').then(r=>r.text()).then(console.log)"` |
-| Metrics Prometheus | Chỉ đọc được trong mạng Docker `luna_internal`: `http://api:4000/metrics`, `http://collab:4001/metrics`, `http://worker:9464/metrics`, kèm header `Authorization: Bearer <METRICS_TOKEN>` |
+| Metrics Prometheus | Chỉ đọc được trong mạng Docker `luna_internal`: `http://api:4000/metrics`, `http://collab:4001/metrics`, `http://worker:9464/metrics`, kèm header `Authorization: Bearer <METRICS_TOKEN>`. `METRICS_TOKEN` bắt buộc ở production (sinh bằng `openssl rand -base64 32`, collab không khởi động nếu thiếu). Traefik không chuyển tiếp `/collab/metrics` và `/collab/internal/*` ra ngoài |
 | Dung lượng ổ | `df -h /srv/luna /var/lib/docker` |
 | Dựng lại chỉ mục tìm kiếm | Đăng nhập bằng System Admin rồi gọi `POST /api/v1/admin/search/reindex`; tự chạy lúc 03:30 hằng đêm |
 

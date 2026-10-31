@@ -5,6 +5,7 @@ export interface CollabClaims {
   userId: string;
   nodeId: string;
   name: string;
+  sessionId?: string;
 }
 
 export async function verifyCollabToken(token: string, secret: string): Promise<CollabClaims> {
@@ -19,5 +20,6 @@ export async function verifyCollabToken(token: string, secret: string): Promise<
     userId: payload.sub,
     nodeId: payload.doc,
     name: typeof payload.name === 'string' ? payload.name : '',
+    sessionId: typeof payload.sid === 'string' ? payload.sid : undefined,
   };
 }

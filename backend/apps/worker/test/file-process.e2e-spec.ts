@@ -7,12 +7,19 @@ import { createDecipheriv } from 'node:crypto';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createS3Client, ensureBuckets, loadEnv, openVideoKey, s3EnvSchema } from '@luna/shared';
+import {
+  createS3Client,
+  ensureBuckets,
+  JOBS,
+  loadEnv,
+  openVideoKey,
+  s3EnvSchema,
+} from '@luna/shared';
 import type { INestApplicationContext } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { RedisContainer } from '@testcontainers/redis';
-import { UnrecoverableError } from 'bullmq';
+import { type Job, UnrecoverableError } from 'bullmq';
 import { GenericContainer, type StartedTestContainer, Wait } from 'testcontainers';
 import type { FileProcessProcessor } from '../src/processors/file-process.processor.js';
 import type { MaintenanceProcessor } from '../src/processors/maintenance.processor.js';
@@ -52,7 +59,7 @@ describe('Worker file-process (e2e)', () => {
         .withExposedPorts(3000)
         .withWaitStrategy(Wait.forHttp('/health', 3000))
         .start(),
-      new GenericContainer('apache/tika:latest-full')
+      new GenericContainer('apache/tika:4.1.0-full')
         .withExposedPorts(9998)
         .withWaitStrategy(Wait.forHttp('/version', 9998))
         .start(),
@@ -164,6 +171,19 @@ describe('Worker file-process (e2e)', () => {
       () => false,
     );
 
+  async function waitForLockWait(timeoutMs: number): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const [row] = await prisma.$queryRaw<Array<{ waiting: number }>>`
+        SELECT count(*)::int AS waiting FROM pg_locks
+         WHERE NOT granted
+           AND (locktype IN ('advisory', 'transactionid', 'tuple') OR relation = 'nodes'::regclass)`;
+      if (row && row.waiting >= 1) return;
+      if (Date.now() > deadline) throw new Error(`no lock wait within ${timeoutMs}ms`);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+
   const versionOf = (id: string) =>
     prisma.fileVersion.findUniqueOrThrow({
       where: { id },
@@ -225,9 +245,8 @@ describe('Worker file-process (e2e)', () => {
   }, 60_000);
 
   it('worker dùng statement_timeout riêng cho việc dài', async () => {
-    const [row] = await prisma.$queryRawUnsafe<Array<{ statement_timeout: string }>>(
-      'SHOW statement_timeout',
-    );
+    const [row] =
+      await prisma.$queryRawUnsafe<Array<{ statement_timeout: string }>>('SHOW statement_timeout');
     expect(row.statement_timeout).toBe('5min');
   });
 
@@ -265,6 +284,43 @@ describe('Worker file-process (e2e)', () => {
 
     const exe = await completedUpload('fake-exe.pdf', { as: 'readme.txt' });
     await expect(processor.processUpload(exe.uploadId)).rejects.toBeInstanceOf(UnrecoverableError);
+  });
+
+  it('hai phiên bản mới ghi cùng lúc nhận số liên tiếp, không lỗi trùng', async () => {
+    const first = await completedUpload('sample.txt');
+    await processor.processUpload(first.uploadId);
+    const second = await completedUpload('sample.txt', { as: 'v3.txt', nodeId: first.nodeId });
+    let running!: Promise<unknown>;
+    await prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT id FROM nodes WHERE id = ${first.nodeId}::uuid FOR NO KEY UPDATE`;
+        const blob = await tx.blob.create({
+          data: {
+            nodeId: first.nodeId,
+            kind: 'ORIGINAL',
+            provider: 'S3',
+            container: 'w-originals',
+            key: `race/${crypto.randomUUID()}`,
+            sizeBytes: 1n,
+            mime: 'text/plain',
+          },
+        });
+        await tx.fileVersion.create({
+          data: {
+            nodeId: first.nodeId,
+            versionNo: 2,
+            fileName: 'v2.txt',
+            originalBlobId: blob.id,
+            uploadedById: userId,
+          },
+        });
+        running = processor.processUpload(second.uploadId);
+        await waitForLockWait(30_000);
+      },
+      { timeout: 60_000 },
+    );
+    await running;
+    expect((await versionOf(second.uploadId)).versionNo).toBe(3);
   });
 
   it('phiên bản lỗi không làm mất phiên bản đang dùng', async () => {
@@ -585,5 +641,115 @@ describe('Worker file-process (e2e)', () => {
     const result = await maintenance.cleanUploads();
     expect(result.aborted).toBe(1);
     expect(await prisma.node.findUnique({ where: { id: pending.id } })).toBeNull();
+  });
+
+  it('job retention chạy các bước dọn rồi GC', async () => {
+    const gone = await prisma.workspace.create({
+      data: {
+        name: 'Gone',
+        slug: 'retention-gone',
+        createdById: userId,
+        deletedAt: new Date(Date.now() - 40 * 86_400_000),
+      },
+    });
+    const node = await prisma.node.create({
+      data: {
+        workspaceId: gone.id,
+        type: 'FILE',
+        name: 'g.bin',
+        nameNormalized: 'g.bin',
+        createdById: userId,
+      },
+    });
+    const key = `retention/${Date.now()}`;
+    await s3.send(
+      new PutObjectCommand({ Bucket: BUCKETS.S3_BUCKET_ORIGINALS, Key: key, Body: 'x' }),
+    );
+    await prisma.blob.create({
+      data: {
+        nodeId: node.id,
+        kind: 'ORIGINAL',
+        provider: 'S3',
+        container: BUCKETS.S3_BUCKET_ORIGINALS,
+        key,
+        sizeBytes: 1n,
+        mime: 'application/octet-stream',
+      },
+    });
+    const r = await maintenance.process({ name: JOBS.RETENTION } as Job);
+    expect(r).toEqual(
+      expect.objectContaining({
+        auditLogs: expect.any(Number),
+        workspaces: expect.any(Number),
+        deleted: expect.any(Number),
+      }),
+    );
+    expect(r).toEqual(expect.objectContaining({ workspaces: 1 }));
+    expect(await prisma.workspace.findUnique({ where: { id: gone.id } })).toBeNull();
+    expect(await prisma.blobGc.count({ where: { key } })).toBe(0);
+    await expect(
+      s3.send(new HeadObjectCommand({ Bucket: BUCKETS.S3_BUCKET_ORIGINALS, Key: key })),
+    ).rejects.toThrow();
+    expect(await prisma.workspace.findUnique({ where: { id: workspaceId } })).not.toBeNull();
+  });
+
+  it('job retention: workspace dọn lỗi thì job báo lỗi nhưng vẫn dọn các workspace khác và vẫn GC', async () => {
+    const old = new Date(Date.now() - 50 * 86_400_000);
+    const broken = await prisma.workspace.create({
+      data: { name: 'Broken', slug: 'retention-broken', createdById: userId, deletedAt: old },
+    });
+    const later = await prisma.workspace.create({
+      data: {
+        name: 'Later',
+        slug: 'retention-later',
+        createdById: userId,
+        deletedAt: new Date(old.getTime() + 86_400_000),
+      },
+    });
+    const node = await prisma.node.create({
+      data: {
+        workspaceId: later.id,
+        type: 'FILE',
+        name: 'l.bin',
+        nameNormalized: 'l.bin',
+        createdById: userId,
+      },
+    });
+    const key = `retention-later/${Date.now()}`;
+    await s3.send(
+      new PutObjectCommand({ Bucket: BUCKETS.S3_BUCKET_ORIGINALS, Key: key, Body: 'x' }),
+    );
+    await prisma.blob.create({
+      data: {
+        nodeId: node.id,
+        kind: 'ORIGINAL',
+        provider: 'S3',
+        container: BUCKETS.S3_BUCKET_ORIGINALS,
+        key,
+        sizeBytes: 1n,
+        mime: 'application/octet-stream',
+      },
+    });
+    await prisma.$executeRawUnsafe(`
+      CREATE FUNCTION e2e_block_ws_delete() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'e2e blocked workspace delete'; END $$`);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER e2e_block_ws_delete BEFORE DELETE ON workspaces
+        FOR EACH ROW WHEN (OLD.slug = 'retention-broken') EXECUTE FUNCTION e2e_block_ws_delete()`);
+    try {
+      await expect(maintenance.process({ name: JOBS.RETENTION } as Job)).rejects.toThrow(
+        /Retention failed in: workspaces/,
+      );
+    } finally {
+      await prisma.$executeRawUnsafe('DROP TRIGGER e2e_block_ws_delete ON workspaces');
+      await prisma.$executeRawUnsafe('DROP FUNCTION e2e_block_ws_delete()');
+    }
+    expect(await prisma.workspace.findUnique({ where: { id: broken.id } })).not.toBeNull();
+    expect(await prisma.workspace.findUnique({ where: { id: later.id } })).toBeNull();
+    expect(await prisma.blobGc.count({ where: { key } })).toBe(0);
+    await expect(
+      s3.send(new HeadObjectCommand({ Bucket: BUCKETS.S3_BUCKET_ORIGINALS, Key: key })),
+    ).rejects.toThrow();
+    await prisma.workspace.delete({ where: { id: broken.id } });
   });
 });

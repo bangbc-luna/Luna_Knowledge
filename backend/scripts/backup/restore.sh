@@ -18,10 +18,16 @@ case "$cmd" in
     dump="${2:?Thiếu tên bản dump (hoặc latest)}"
     target="${3:?Thiếu DATABASE_URL đích}"
     [[ "$dump" == latest ]] && dump="$(rclone_run lsf "safe:db" | sort | tail -1)"
-    if [[ "$(pg_url "$target")" == "$(pg_url "${DATABASE_URL:-}")" && "${4:-}" != --force ]]; then
-      echo "Đích trùng DATABASE_URL đang chạy. Thêm --force nếu thật sự muốn ghi đè." >&2; exit 1
+    running="$(pg_url "${DATABASE_MIGRATE_URL:-$DATABASE_URL}")"
+    if [[ ( "$(pg_url "$target")" == "$running" || "$(pg_url "$target")" == "$(pg_url "${DATABASE_URL:-}")" ) && "${4:-}" != --force ]]; then
+      echo "Đích trùng DB đang chạy. Thêm --force nếu thật sự muốn ghi đè." >&2; exit 1
     fi
     echo "Khôi phục $dump → $(pg_url "$target" | sed -E 's#://([^:]+):[^@]+@#://\1:***@#')"
+    owner="$(sed -E 's#^[a-z]+://([^:@/]+).*#\1#' <<<"$running")"
+    docker run --rm -i --network host "$PG_IMAGE" psql -q -v ON_ERROR_STOP=1 -v owner="$owner" -d "$(pg_url "$target")" <<'SQL'
+SELECT format('CREATE ROLE %I NOLOGIN', r) FROM unnest(ARRAY['luna_app', :'owner']) AS r
+ WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) \gexec
+SQL
     rclone_run cat "safe:db/$dump" \
       | docker run --rm -i --network host "$PG_IMAGE" pg_restore --no-owner --clean --if-exists --exit-on-error -d "$(pg_url "$target")"
     echo "Xong."

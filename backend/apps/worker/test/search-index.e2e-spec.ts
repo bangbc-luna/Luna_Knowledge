@@ -145,7 +145,7 @@ describe('Search index worker (e2e)', () => {
 
     await prisma.node.updateMany({
       where: { id: { in: [parent.id, child.id] } },
-      data: { deletedAt: new Date() },
+      data: { deletedAt: new Date(), deletedRootId: parent.id },
     });
     expect(await run(SEARCH_JOBS.INDEX_TREE, { nodeId: parent.id })).toEqual({
       indexed: 0,

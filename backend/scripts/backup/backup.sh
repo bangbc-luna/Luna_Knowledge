@@ -18,7 +18,7 @@ log() { echo "[$(date '+%F %T')] $*"; }
 log "Backup $STAMP → $BACKUP_DEST"
 
 log "Dump Postgres"
-docker run --rm --network host "$PG_IMAGE" pg_dump --format=custom --no-owner "$(pg_url "$DATABASE_URL")" \
+docker run --rm --network host "$PG_IMAGE" pg_dump --format=custom --no-owner "$(pg_url "${DATABASE_MIGRATE_URL:-$DATABASE_URL}")" \
   | rclone_run rcat "safe:db/luna-$STAMP.dump"
 
 # Thư mục trong kho mang tên cố định (originals, assets), không theo tên bucket: restore.sh tìm đúng

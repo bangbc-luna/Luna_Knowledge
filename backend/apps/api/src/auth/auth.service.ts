@@ -1,5 +1,5 @@
 import type { Session, User } from '@luna/db';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import * as oidc from 'openid-client';
 import type { Redis } from 'ioredis';
 import { AuditService } from '../audit/audit.service.js';
@@ -7,7 +7,10 @@ import { AppError } from '../common/errors/app-error.js';
 import type { RequestContext } from '../common/http/request-context.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
+import { CollabEventsService } from '../infra/redis/collab-events.service.js';
 import { REDIS } from '../infra/redis/redis.module.js';
+import { SessionRevocationsService } from '../infra/redis/session-revocations.service.js';
+import { revokePlaybackSessions } from '../videos/playback-keys.js';
 import {
   GOOGLE_IDENTITY,
   type GoogleClaims,
@@ -70,6 +73,8 @@ export function toAuthenticatedUser(user: User): AuthenticatedUser {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     @Inject(GOOGLE_IDENTITY) private readonly google: GoogleIdentityProvider,
@@ -77,6 +82,8 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly tokens: TokenService,
     private readonly audit: AuditService,
+    private readonly revocations: SessionRevocationsService,
+    private readonly collab: CollabEventsService,
   ) {}
 
   async startGoogleLogin(): Promise<{ url: URL; state: string }> {
@@ -294,6 +301,7 @@ export class AuthService {
         where: { id: sessionId },
         select: { userId: true },
       });
+      if (session) await this.closeRevoked(session.userId, [sessionId]);
       await this.audit.log({
         actorId: actorId ?? session?.userId ?? null,
         action: reason === 'logout' ? 'auth.logout' : 'auth.session_revoked',
@@ -306,11 +314,28 @@ export class AuthService {
   }
 
   async revokeAllSessions(userId: string, reason: string): Promise<number> {
-    const { count } = await this.prisma.client.session.updateMany({
+    const active = await this.prisma.client.session.findMany({
       where: { userId, revokedAt: null },
+      select: { id: true },
+    });
+    const ids = active.map((s) => s.id);
+    if (ids.length === 0) return 0;
+    const { count } = await this.prisma.client.session.updateMany({
+      where: { id: { in: ids }, revokedAt: null },
       data: { revokedAt: new Date(), revokedReason: reason },
     });
+    await this.closeRevoked(userId, ids);
     return count;
+  }
+
+  private async closeRevoked(userId: string, sessionIds: string[]): Promise<void> {
+    await this.revocations.publish(sessionIds);
+    await Promise.all(
+      sessionIds.map((sessionId) => this.collab.accessChanged({ userId, sessionId })),
+    );
+    await revokePlaybackSessions(this.redis, sessionIds).catch((err: unknown) => {
+      this.logger.warn({ err, sessionIds }, 'Failed to revoke playback sessions');
+    });
   }
 
   async authenticate(accessToken: string): Promise<AuthContext> {

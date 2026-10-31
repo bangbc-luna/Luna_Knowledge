@@ -18,7 +18,7 @@ import {
   ruleForFileName,
 } from '@luna/shared';
 import { InjectQueue } from '@nestjs/bullmq';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Queue } from 'bullmq';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
@@ -41,6 +41,8 @@ export const UPLOAD_TTL_HOURS = 24;
 
 @Injectable()
 export class UploadsService {
+  private readonly logger = new Logger(UploadsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: ContentAccessService,
@@ -63,6 +65,7 @@ export class UploadsService {
     this.checkFile(body);
 
     let nodeId: string;
+    let createdNode = false;
     if (body.replaceNodeId) {
       const node = await this.access.requireNode(user, body.replaceNodeId, 'EDITOR');
       if (node.workspaceId !== workspaceId) throw AppError.notFound('Item not found');
@@ -83,21 +86,24 @@ export class UploadsService {
       const section = body.kind === 'VIDEO' ? 'VIDEOS' : 'DOCS';
       await this.nodes.requireContainer(user, workspaceId, parentId, section);
       try {
-        const node = await this.prisma.client.node.create({
-          data: {
-            workspaceId,
-            parentId,
-            section,
-            type: body.kind,
-            name,
-            nameNormalized: nameKey(name),
-            description: body.description ?? null,
-            status: 'UPLOADING',
-            createdById: user.id,
-            updatedById: user.id,
-          },
-        });
+        const node = await this.nodes.withTreeLock(workspaceId, (tx) =>
+          tx.node.create({
+            data: {
+              workspaceId,
+              parentId,
+              section,
+              type: body.kind,
+              name,
+              nameNormalized: nameKey(name),
+              description: body.description ?? null,
+              status: 'UPLOADING',
+              createdById: user.id,
+              updatedById: user.id,
+            },
+          }),
+        );
         nodeId = node.id;
+        createdNode = true;
       } catch (err) {
         throw await this.nodes.mapNameConflict(
           err,
@@ -112,27 +118,60 @@ export class UploadsService {
 
     const id = randomUUID();
     const tmpKey = `uploads/${id}`;
-    const multipart = await this.s3.send(
-      new CreateMultipartUploadCommand({ Bucket: this.buckets.tmp, Key: tmpKey }),
-    );
     const partCount = Math.max(1, Math.ceil(body.size / PART_SIZE));
-    const session = await this.prisma.client.uploadSession.create({
-      data: {
-        id,
-        nodeId,
-        workspaceId,
-        s3UploadId: multipart.UploadId!,
-        tmpKey,
-        fileName: body.fileName,
-        sizeBytes: BigInt(body.size),
-        partSize: PART_SIZE,
-        partCount,
-        mimeDeclared: body.mime,
-        isNewVersion: Boolean(body.replaceNodeId),
-        createdById: user.id,
-        expiresAt: new Date(Date.now() + UPLOAD_TTL_HOURS * 3600_000),
-      },
-    });
+    let s3UploadId: string | undefined;
+    let session: UploadSession;
+    try {
+      const multipart = await this.s3.send(
+        new CreateMultipartUploadCommand({ Bucket: this.buckets.tmp, Key: tmpKey }),
+      );
+      s3UploadId = multipart.UploadId;
+      session = await this.prisma.client.uploadSession.create({
+        data: {
+          id,
+          nodeId,
+          workspaceId,
+          s3UploadId: multipart.UploadId!,
+          tmpKey,
+          fileName: body.fileName,
+          sizeBytes: BigInt(body.size),
+          partSize: PART_SIZE,
+          partCount,
+          mimeDeclared: body.mime,
+          isNewVersion: Boolean(body.replaceNodeId),
+          createdById: user.id,
+          expiresAt: new Date(Date.now() + UPLOAD_TTL_HOURS * 3600_000),
+        },
+      });
+    } catch (err) {
+      if (s3UploadId) {
+        await this.s3
+          .send(
+            new AbortMultipartUploadCommand({
+              Bucket: this.buckets.tmp,
+              Key: tmpKey,
+              UploadId: s3UploadId,
+            }),
+          )
+          .catch((cleanupErr: unknown) => {
+            this.logger.warn(
+              { err: cleanupErr, uploadId: id },
+              'Failed to abort the multipart upload after a failed upload start',
+            );
+          });
+      }
+      if (createdNode) {
+        await this.prisma.client.node
+          .deleteMany({ where: { id: nodeId, status: 'UPLOADING' } })
+          .catch((cleanupErr: unknown) => {
+            this.logger.warn(
+              { err: cleanupErr, nodeId },
+              'Failed to remove the placeholder node after a failed upload start',
+            );
+          });
+      }
+      throw err;
+    }
     await this.audit.log({
       actorId: user.id,
       action: 'upload.start',

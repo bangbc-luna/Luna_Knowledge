@@ -275,6 +275,37 @@ Ghi chú: k6 và collab chạy trên cùng máy với stack nên tranh CPU với
 - [ ] Chạy lại kịch bản peak (tests/load/peak.js + load-collab) trên server thật, k6 chạy từ một máy khác trong LAN; chỉnh cpus/mem_limit trong docker-compose.prod.yml và DEPLOY.md theo cấu hình thật.
 - [ ] Chọn kênh gửi cảnh báo (Alertmanager/Telegram/email) cho các luật trong docker/monitoring/alerts.yml.
 
+
+## Gia cố đợt 2 — DB và bảo mật ✅ (2026-10-31)
+
+Theo [spec gia cố](superpowers/specs/2026-10-30-hardening-design.md) mục 5 và [kế hoạch](superpowers/plans/2026-10-30-hardening-wave2-db-security.md). Cách nâng cấp server đang chạy: DEPLOY.md mục 8, "Nâng cấp lên đợt 2".
+
+- [x] 2.1 Trigger `LT001` chặn tạo/di chuyển vào cha đã xoá, sai workspace/khu hoặc tạo vòng; API khoá cây theo workspace (advisory lock) cho tạo, di chuyển, xoá, khôi phục.
+- [x] 2.2, 2.3, 2.8 Index cho `audit_logs`, thông báo, `nodes` và mọi khoá ngoại.
+- [x] 2.4, 2.5 Khoá ngoại còn thiếu của `videos`, `documents`, `document_versions`; unique `blobs(provider, container, key)`.
+- [x] 2.6 Khoá node trước khi đánh số phiên bản file.
+- [x] 2.7 Job dọn dữ liệu: audit > 1 năm, thông báo đã đọc, lượt xem gần đây, tỉa phiên bản tự lưu (`AUTO_VERSION_THIN_DAYS`), xoá hẳn workspace đã xoá (`WORKSPACE_PURGE_DAYS`).
+- [x] 2.9 Ràng buộc CHECK/NOT NULL nhỏ; tạo multipart lỗi không để lại node UPLOADING.
+- [x] 2.10 User MinIO riêng `luna_app` (policy chỉ sáu bucket); media host chỉ nhận GET, HEAD, PUT, OPTIONS.
+- [x] 2.11 CSP, `frame-ancestors 'none'`, nosniff, HSTS, Referrer-Policy từ Next; `pnpm check:headers`.
+- [x] 2.12 Tika/Gotenberg trong mạng `luna_processing` không ra internet; Redis có mật khẩu; pin Tika.
+- [x] 2.13 Đăng xuất/thu hồi phiên đóng SSE, kết nối collab và phiên xem video của đúng phiên đó.
+- [x] 2.14 `METRICS_TOKEN` bắt buộc ở production; Traefik không chuyển `/collab/metrics`, `/collab/internal/*`.
+- [x] 2.15 DOMPurify cho HTML phiên bản tài liệu.
+- [x] 2.16 Access log Traefik bỏ đường dẫn; log của api bỏ query.
+- [x] 2.17 App chạy bằng login `luna_app_user` (role `luna_app`, không phải owner): không sửa, xoá, TRUNCATE được `audit_logs`; dọn audit qua hàm `purge_audit_logs`.
+- [x] 2.18 Image migrate chạy bằng user `node`; ffmpeg `-protocol_whitelist file`; CSV escape `\t`, `\r`.
+
+**Kiểm tra cuối đợt (2026-10-31)**: backend lint, typecheck, unit (72 test), e2e (api 280, worker 23, collab 16) xanh; `pnpm test:http` 373/373 request xanh với api, collab, worker chạy bằng login app trên stack dev. Prod compose dựng lại toàn bộ image, chạy trên máy dev (project riêng, chứng chỉ tự ký, `knowledge.lunatech.test`): migrate tạo login app, minio-init tạo user MinIO; api, collab, worker chạy bằng `luna_app_user`, key MinIO app, mật khẩu Redis. Qua Traefik bằng Chrome headless với CSP production: tạo thư mục, upload PDF (PUT ký sẵn tới media host) và xem trước, hai phiên cùng soạn một tài liệu qua `wss`, upload và phát video HLS sau transcode, xoá rồi khôi phục thư mục, đăng xuất ở một tab làm tài liệu của phiên đó ngừng đồng bộ còn phiên khác vẫn chạy; không có vi phạm CSP. `/collab/metrics`, `/collab/internal/*` trả 404; media host trả 404 cho POST, DELETE.
+
+**Còn mở**
+
+- [ ] Nâng cấp server thật theo DEPLOY.md mục 8 "Nâng cấp lên đợt 2" (backup, kiểm tra trước, env mới) và chạy lại checklist sau nâng cấp.
+- [ ] FE chưa phản ứng với mã đóng collab (Hocuspocus đóng theo tài liệu với mã 1000, lý do `Session ended`): tài liệu bị ngắt sau đăng xuất chỉ ngừng đồng bộ, chưa báo cho người dùng.
+- [ ] `backend/.env` dev vẫn chạy app bằng user chủ DB; muốn thử như production thì thêm `DATABASE_MIGRATE_URL` và đổi `DATABASE_URL` sang `luna_app_user` (xem `.env.example`).
+- [ ] Các mục nhỏ hoãn lại trong lúc review (test cho `collabEnvSchema` refine, `restore.sh` chưa giải mã username trong URL).
+- [ ] Nguy cơ deadlock có từ trước đợt 2: collab `createDocumentVersion` khoá dòng `documents` (FOR UPDATE) rồi mới lấy KEY SHARE trên dòng `nodes` (khi chèn `document_versions`), còn xoá vĩnh viễn (`deletePermanently`, dọn sạch thùng rác) xoá `nodes` trước rồi cascade sang `documents`. Hai việc chạy cùng lúc trên một tài liệu có thể deadlock, Postgres huỷ một bên. Đợt sau: cho `createDocumentVersion` khoá `nodes` trước (hoặc cùng thứ tự với xoá), kèm test chạy đua.
+
 ---
 
 ## Phụ lục — Cấu trúc thư mục dự kiến

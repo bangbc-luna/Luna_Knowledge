@@ -2,7 +2,7 @@ import { readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AbortMultipartUploadCommand } from '@aws-sdk/client-s3';
-import { purgeExpiredTrash } from '@luna/db';
+import { purgeExpiredTrash, RetentionError, type RetentionResult, runRetention } from '@luna/db';
 import { JOBS, QUEUES } from '@luna/shared';
 import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger, type OnApplicationBootstrap } from '@nestjs/common';
@@ -37,6 +37,11 @@ export class MaintenanceProcessor extends WorkerHost implements OnApplicationBoo
       { name: JOBS.PURGE_TRASH, opts },
     );
     await this.queue.upsertJobScheduler(
+      JOBS.RETENTION,
+      { pattern: '30 3 * * *', tz: 'Asia/Ho_Chi_Minh' },
+      { name: JOBS.RETENTION, opts },
+    );
+    await this.queue.upsertJobScheduler(
       JOBS.CLEAN_UPLOADS,
       { pattern: '17 * * * *' },
       { name: JOBS.CLEAN_UPLOADS, opts },
@@ -51,11 +56,16 @@ export class MaintenanceProcessor extends WorkerHost implements OnApplicationBoo
   async process(job: Job): Promise<unknown> {
     switch (job.name) {
       case JOBS.PURGE_TRASH: {
-        const purged = await purgeExpiredTrash(this.prisma.client);
+        const purged = await purgeExpiredTrash(this.prisma.client, {
+          onError: (err, context) =>
+            this.logger.error({ ...context, err }, 'Trash purge failed for a workspace'),
+        });
         this.logger.log(`Purged ${purged} expired trash item(s)`);
         const gc = await this.collectGarbage();
         return { purged, ...gc };
       }
+      case JOBS.RETENTION:
+        return this.retention();
       case JOBS.CLEAN_UPLOADS:
         return { ...(await this.cleanUploads()), staleWorkDirs: await this.cleanWorkDirs() };
       case JOBS.BLOB_GC:
@@ -63,6 +73,36 @@ export class MaintenanceProcessor extends WorkerHost implements OnApplicationBoo
       default:
         throw new Error(`Unknown job "${job.name}" on queue ${QUEUES.MAINTENANCE}`);
     }
+  }
+
+  async retention() {
+    let result: RetentionResult | undefined;
+    let failure: unknown;
+    try {
+      result = await runRetention(this.prisma.client, {
+        workspacePurgeDays: this.config.WORKSPACE_PURGE_DAYS,
+        autoVersionThinDays: this.config.AUTO_VERSION_THIN_DAYS,
+        onError: (err, context) =>
+          this.logger.error({ ...context, err }, `Retention step ${context.step} failed`),
+      });
+    } catch (err) {
+      failure = err;
+      if (err instanceof RetentionError) result = err.result;
+    }
+    if (result) {
+      this.logger.log(
+        `Retention: ${result.auditLogs} audit log(s), ${result.notifications} notification(s), ${result.recentViews} recent view(s), ${result.documentVersions} auto version(s), ${result.workspaces} workspace(s)`,
+      );
+    }
+    if (!failure) return { ...result, ...(await this.collectGarbage()) };
+    this.logger.error({ err: failure }, 'Retention failed');
+    try {
+      await this.collectGarbage();
+    } catch (gcError) {
+      this.logger.error({ err: gcError }, 'Blob GC failed after a retention failure');
+      throw new AggregateError([failure, gcError], 'Retention and blob GC both failed');
+    }
+    throw failure;
   }
 
   async collectGarbage() {

@@ -65,17 +65,25 @@ export class TrashService {
       );
     }
 
-    const result = await this.prisma.client.$transaction(async (tx) => {
-      const parent = node.parentId
-        ? await tx.node.findUnique({ where: { id: node.parentId }, select: { deletedAt: true } })
-        : null;
-      const parentId = parent && !parent.deletedAt ? node.parentId : null;
+    const result = await this.nodes.withTreeLock(node.workspaceId, async (tx) => {
+      const [current] = await tx.$queryRaw<{ deleted_root_id: string | null }[]>`
+        SELECT deleted_root_id FROM nodes WHERE id = ${nodeId}::uuid FOR UPDATE`;
+      if (!current) throw AppError.notFound('Item not found');
+      if (current.deleted_root_id !== nodeId) {
+        throw AppError.validation('Item is not in the trash');
+      }
+      const [parent] = node.parentId
+        ? await tx.$queryRaw<{ deleted_at: Date | null }[]>`
+            SELECT deleted_at FROM nodes WHERE id = ${node.parentId}::uuid FOR SHARE`
+        : [];
+      const parentId = parent && !parent.deleted_at ? node.parentId : null;
 
       const taken = await this.nodes.siblingKeys(
         node.workspaceId,
         parentId,
         undefined,
         node.section,
+        tx,
       );
       const name = taken.has(nameKey(node.name)) ? suggestName(node.name, taken) : node.name;
 
@@ -117,7 +125,13 @@ export class TrashService {
     if (!user.isSystemAdmin && node.memberRole !== 'ADMIN') {
       throw AppError.forbidden('Only a workspace admin can delete permanently');
     }
-    await this.prisma.client.node.delete({ where: { id: nodeId } });
+    await this.nodes.withTreeLock(node.workspaceId, async (tx) => {
+      const { count } = await tx.node.deleteMany({ where: { id: nodeId, deletedRootId: nodeId } });
+      if (count > 0) return;
+      const current = await tx.node.findUnique({ where: { id: nodeId }, select: { id: true } });
+      if (!current) throw AppError.notFound('Item not found');
+      throw AppError.validation('Item is not in the trash');
+    });
     await this.collectGarbageSoon();
     await this.audit.log({
       actorId: user.id,
@@ -132,8 +146,11 @@ export class TrashService {
 
   async empty(user: AuthenticatedUser, workspaceId: string, ctx: RequestContext) {
     if (!user.isSystemAdmin) await this.access.requireMember(user, workspaceId, 'ADMIN');
-    const count = await this.prisma.client.$executeRaw`
-      DELETE FROM nodes WHERE workspace_id = ${workspaceId}::uuid AND deleted_root_id = id`;
+    const count = await this.nodes.withTreeLock(
+      workspaceId,
+      (tx) => tx.$executeRaw`
+        DELETE FROM nodes WHERE workspace_id = ${workspaceId}::uuid AND deleted_root_id = id`,
+    );
     await this.collectGarbageSoon();
     await this.audit.log({
       actorId: user.id,

@@ -33,9 +33,13 @@ export async function createTestApp(
 }
 
 export async function resetDatabase(prisma: TestContext['prisma']) {
-  await prisma.$executeRawUnsafe(
-    'TRUNCATE notifications, blob_gc, audit_logs, recent_views, favorites, node_tags, tags, node_shares, nodes, refresh_tokens, sessions, workspace_members, workspaces, users CASCADE',
-  );
+  await prisma.$transaction([
+    prisma.$executeRawUnsafe('ALTER TABLE audit_logs DISABLE TRIGGER audit_logs_no_truncate'),
+    prisma.$executeRawUnsafe(
+      'TRUNCATE notifications, blob_gc, audit_logs, recent_views, favorites, node_tags, tags, node_shares, nodes, refresh_tokens, sessions, workspace_members, workspaces, users CASCADE',
+    ),
+    prisma.$executeRawUnsafe('ALTER TABLE audit_logs ENABLE TRIGGER audit_logs_no_truncate'),
+  ]);
 }
 
 export interface LoggedIn {

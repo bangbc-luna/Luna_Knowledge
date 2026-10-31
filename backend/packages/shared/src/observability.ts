@@ -10,6 +10,12 @@ export const observabilityEnvSchema = z.object({
   SENTRY_ENVIRONMENT: optionalEnv(z.string()),
 });
 
+export function requireMetricsTokenInProduction(env: { NODE_ENV?: string; METRICS_TOKEN?: string }, ctx: z.RefinementCtx) {
+  if (env.NODE_ENV === 'production' && !env.METRICS_TOKEN) {
+    ctx.addIssue({ code: 'custom', path: ['METRICS_TOKEN'], message: 'METRICS_TOKEN is required in production' });
+  }
+}
+
 export function createMetricsRegistry(service: string) {
   const registry = new Registry();
   registry.setDefaultLabels({ service });
