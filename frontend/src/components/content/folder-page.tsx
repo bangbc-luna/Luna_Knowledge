@@ -14,7 +14,7 @@ import { useReportSection } from "@/lib/section";
 import type { Member, NodeItem, NodeSection, Page } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 import { useUploads } from "@/lib/uploads";
-import { invalidateTree } from "@/lib/tree-sync";
+import { invalidateTree, useBranchTick } from "@/lib/tree-sync";
 import { PageBody, TopBar } from "../shell/shell";
 import { Button } from "../ui/button";
 import { ConfirmDialog } from "../ui/dialog";
@@ -57,12 +57,13 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
     () => (folderId ? Promise.all([api<NodeItem>(`/nodes/${folderId}`), api<Array<{ id: string; name: string }>>(`/nodes/${folderId}/breadcrumb`)]) : Promise.resolve(null)),
     [folderId],
   );
+  const branchTick = useBranchTick(wsId, folderId);
   const list = useApi(
     () =>
       api<Page<NodeItem>>(`/workspaces/${wsId}/nodes`, {
         query: { parentId: folderId ?? undefined, section: folderId ? undefined : routeSection, sort, order: sort === "name" ? "asc" : "desc", limit: 200 },
       }),
-    [wsId, folderId, sort, routeSection],
+    [wsId, folderId, sort, routeSection, branchTick],
   );
   const members = useApi(() => api<Member[]>(`/workspaces/${wsId}/members`), [wsId], { enabled: !!membership });
   const memberEmails = useMemo(() => new Set((members.data ?? []).map((m) => m.user.email)), [members.data]);
@@ -108,12 +109,10 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
   const onFavorite = (id: string, fav: boolean) => patchItem(id, { isFavorite: fav });
   const reloadAll = () => {
     invalidateTree(wsId);
-    void list.reload();
     if (folderId) void current.reload();
   };
   const changed = (extraParents: Array<string | null> = []) => {
     invalidateTree(wsId, [folderId, ...extraParents], { moved: extraParents.length > 0 });
-    void list.reload();
     if (folderId) void current.reload();
   };
 
@@ -125,9 +124,8 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
   const reloadList = list.reload;
   useEffect(() => {
     if (!uploadTick) return;
-    void reloadList();
     invalidateTree(wsId, [folderId]);
-  }, [uploadTick, reloadList, wsId, folderId]);
+  }, [uploadTick, wsId, folderId]);
   const pending = (list.data?.items ?? []).some((n) => n.status === "PROCESSING" || n.status === "UPLOADING");
   useEffect(() => {
     if (!pending) return;
