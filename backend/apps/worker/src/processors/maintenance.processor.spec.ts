@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 import type { Job, Queue } from 'bullmq';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkerConfig } from '../config/worker-config.js';
 import type { PrismaService } from '../infra/prisma.provider.js';
 import type { StorageService } from '../infra/storage.provider.js';
@@ -28,6 +28,14 @@ const makeProcessor = () =>
   );
 
 describe('MaintenanceProcessor retention', () => {
+  beforeEach(() => {
+    vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('keeps both the retention error and the garbage collection error when both fail', async () => {
     const processor = makeProcessor();
     const gcError = new Error('storage down');
