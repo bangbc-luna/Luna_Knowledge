@@ -198,6 +198,15 @@ Nên chạy backup ngay trước khi nâng cấp. Nếu bản mới lỗi: `git 
 
    Nếu có dòng, migration sẽ dừng (`blobs: several rows share one object key` hoặc `versions: non-positive version_no found`), `migrate` thoát lỗi và api, worker, collab không khởi động. App không tự tạo ra hai trường hợp này. Gặp thì dừng nâng cấp, sửa tay các dòng đó: gộp các bản ghi `blobs` trùng key về một bản, hoặc đánh lại `version_no` thành số dương chưa dùng trong cùng `node_id`. Nếu đã lỡ chạy `luna up -d` và migration báo lỗi, sau khi sửa phải đánh dấu migration lỗi là đã rollback rồi mới chạy lại: `luna run --rm migrate pnpm --filter @luna/db exec prisma migrate resolve --rolled-back <tên migration trong luna logs migrate>`, sau đó `luna up -d`.
 
+   Kiểm tra thêm cây thư mục (chỉ đọc, không sửa gì). Hai lệnh này cũng phải trả về 0 dòng; lệnh đầu tìm mục có `path` không khớp với cha, lệnh sau tìm mục mà đi ngược lên theo `parent_id` lại gặp chính nó (vòng):
+
+   ```bash
+   luna exec postgres psql -U luna -d luna -c "SELECT c.id, c.name, c.parent_id FROM nodes c LEFT JOIN nodes p ON p.id = c.parent_id WHERE c.path IS DISTINCT FROM CASE WHEN c.parent_id IS NULL THEN text2ltree(replace(c.id::text, '-', '')) ELSE p.path || text2ltree(replace(c.id::text, '-', '')) END"
+   luna exec postgres psql -U luna -d luna -c "WITH RECURSIVE up(start_id, id, depth) AS (SELECT id, parent_id, 1 FROM nodes WHERE parent_id IS NOT NULL UNION ALL SELECT u.start_id, n.parent_id, u.depth + 1 FROM up u JOIN nodes n ON n.id = u.id WHERE n.parent_id IS NOT NULL AND u.id <> u.start_id AND u.depth < 1000) SELECT DISTINCT start_id AS id FROM up WHERE id = start_id"
+   ```
+
+   Nếu có dòng: dừng nâng cấp, không tự sửa, gửi kết quả hai lệnh cho developer. Migration đợt 2 dựa vào `path` đúng để chuyển các mục con của thư mục đã xoá vào thùng rác; dữ liệu cây hỏng thì kết quả không đoán trước được.
+
 3. **Giữ bản `.env.prod` cũ** để quay lại được (bước 8), rồi mới sửa:
 
    ```bash
