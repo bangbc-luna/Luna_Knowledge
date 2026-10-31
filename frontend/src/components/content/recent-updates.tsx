@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api, ApiError, describeError } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { formatWhen } from "@/lib/format";
@@ -35,6 +35,14 @@ export function RecentUpdates({ wsId, section, className }: { wsId: string; sect
     const favorites = favState.base === first.data ? favState.map : {};
     return merged.map((n) => (n.id in favorites ? { ...n, isFavorite: favorites[n.id]! } : n));
   }, [first.data, extra, fresh, favState]);
+
+  const pending = items.some((n) => n.status === "PROCESSING" || n.status === "UPLOADING");
+  const reloadFirst = first.reload;
+  useEffect(() => {
+    if (!pending) return;
+    const timer = setInterval(() => void reloadFirst(), 4000);
+    return () => clearInterval(timer);
+  }, [pending, reloadFirst]);
 
   const loadMore = async () => {
     if (!cursor || !first.data) return;
