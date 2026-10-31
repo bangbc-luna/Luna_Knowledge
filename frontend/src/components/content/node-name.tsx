@@ -9,6 +9,7 @@ import type { NodeItem, Tag } from "@/lib/types";
 import { useInView } from "@/lib/use-in-view";
 import { useThumbnail } from "@/lib/use-thumbnail";
 import { FileTypeIcon } from "../files/file-type-icon";
+import { focusRing, stretchedFocusRing } from "../ui/focus";
 import { Badge } from "../ui/misc";
 
 export function nodeHref(node: Pick<NodeItem, "id" | "type" | "workspaceId" | "parentId" | "section">) {
@@ -57,7 +58,7 @@ export function NodeName({ node, sub, stretched = false, dense = false }: { node
       <NodeIcon node={node} />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">
-          <Link href={nodeHref(node)} title={node.name} className={cn("block min-h-6 min-w-0 truncate py-0.5 text-sm/5 font-medium text-foreground hover:underline", stretched && "after:absolute after:inset-0 after:content-['']")}>
+          <Link href={nodeHref(node)} title={node.name} className={cn("block min-h-6 min-w-0 truncate py-0.5 text-sm/5 font-medium text-foreground hover:underline", stretched ? cn("after:absolute after:inset-0 after:content-['']", stretchedFocusRing) : focusRing)}>
             {node.name}
           </Link>
           {node.status === "PROCESSING" || node.status === "UPLOADING" ? (

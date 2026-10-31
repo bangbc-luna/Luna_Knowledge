@@ -8,6 +8,7 @@ import { useBranchTick } from "@/lib/tree-sync";
 import type { NodeItem, NodeSection, Page } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 import { Button } from "../ui/button";
+import { focusRing } from "../ui/focus";
 import { ErrorBanner, SkeletonRows } from "../ui/misc";
 import { useToast } from "../ui/toast";
 import { NodeName } from "./node-name";
@@ -87,7 +88,7 @@ export function RecentUpdates({ wsId, section, className }: { wsId: string; sect
       {first.error && first.data ? (
         <p role="status" className="mt-2 px-1 text-sm text-muted sm:px-3">
           Chưa làm mới được danh sách.{" "}
-          <button type="button" onClick={() => void first.reload()} className="cursor-pointer rounded font-medium text-foreground underline-offset-2 outline-hidden hover:underline focus-visible:ring-2 focus-visible:ring-primary">
+          <button type="button" onClick={() => void first.reload()} className={cn("cursor-pointer rounded font-medium text-foreground underline-offset-2 hover:underline", focusRing)}>
             Thử lại
           </button>
         </p>

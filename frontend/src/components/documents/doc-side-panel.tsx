@@ -2,6 +2,8 @@
 
 import { PanelRight, X } from "lucide-react";
 import { useSyncExternalStore } from "react";
+import { cn } from "@/lib/cn";
+import { focusRing } from "../ui/focus";
 import { Tabs } from "../ui/misc";
 
 export type DocPanelTab = "outline" | "comments";
@@ -63,7 +65,7 @@ export function DocPanelToggle({ pressed, onToggle }: { pressed: boolean; onTogg
       aria-label="Mục lục và bình luận"
       title="Mục lục và bình luận"
       onClick={onToggle}
-      className="inline-flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-xl text-foreground/70 outline-hidden transition-colors hover:bg-foreground/5 hover:text-foreground aria-pressed:bg-foreground/5 aria-pressed:text-foreground"
+      className={cn("inline-flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-xl text-foreground/70 transition-colors hover:bg-foreground/5 hover:text-foreground aria-pressed:bg-foreground/5 aria-pressed:text-foreground", focusRing)}
     >
       <PanelRight className="size-4" aria-hidden />
     </button>
@@ -109,7 +111,7 @@ export function DocSidePanel({
           type="button"
           aria-label="Đóng cột mục lục và bình luận"
           onClick={onClose}
-          className="inline-flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-xl text-muted outline-hidden hover:bg-foreground/5 hover:text-foreground"
+          className={cn("inline-flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-xl text-muted hover:bg-foreground/5 hover:text-foreground", focusRing)}
         >
           <X className="size-4" aria-hidden />
         </button>

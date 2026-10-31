@@ -5,6 +5,7 @@ import { api, describeError } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import type { NodeItem } from "@/lib/types";
 import { ICON_BUTTON_SIZES } from "../ui/button";
+import { focusRing } from "../ui/focus";
 import { useToast } from "../ui/toast";
 
 export function FavoriteButton({ node, onChange }: { node: NodeItem; onChange: (fav: boolean) => void }) {
@@ -25,8 +26,9 @@ export function FavoriteButton({ node, onChange }: { node: NodeItem; onChange: (
         }
       }}
       className={cn(
-        "inline-flex shrink-0 cursor-pointer items-center justify-center outline-hidden transition-colors hover:bg-foreground/8",
+        "inline-flex shrink-0 cursor-pointer items-center justify-center transition-colors hover:bg-foreground/8",
         ICON_BUTTON_SIZES.touch,
+        focusRing,
         node.isFavorite ? "text-foreground" : "text-muted/60 hover:text-foreground",
       )}
     >

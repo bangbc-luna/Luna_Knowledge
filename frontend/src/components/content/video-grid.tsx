@@ -2,9 +2,11 @@
 
 import { Folder, LoaderCircle, Play } from "lucide-react";
 import Link from "next/link";
+import { cn } from "@/lib/cn";
 import type { NodeItem } from "@/lib/types";
 import { useInView } from "@/lib/use-in-view";
 import { useThumbnail } from "@/lib/use-thumbnail";
+import { stretchedFocusRing } from "../ui/focus";
 import { Badge } from "../ui/misc";
 import { RowMenu, type MenuAction } from "../ui/menu";
 import { FavoriteButton } from "./favorite-button";
@@ -60,7 +62,7 @@ export function VideoGrid({
             )}
             <div className="flex items-start gap-1 p-2 pl-3">
               <div className="min-w-0 flex-1 py-1">
-                <Link href={nodeHref(n)} title={n.name} className="line-clamp-2 text-sm/5 font-medium text-foreground after:absolute after:inset-0 after:content-[''] hover:underline">
+                <Link href={nodeHref(n)} title={n.name} className={cn("line-clamp-2 text-sm/5 font-medium text-foreground after:absolute after:inset-0 after:rounded-xl after:content-[''] hover:underline", stretchedFocusRing)}>
                   {n.name}
                 </Link>
                 {folder ? <p className="mt-0.5 text-xs text-muted">{n.childCount ? `${n.childCount} mục` : "Trống"}</p> : null}

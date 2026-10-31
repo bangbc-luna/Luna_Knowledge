@@ -7,6 +7,7 @@ import { describeError } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { initials } from "@/lib/format";
 import { Button } from "./button";
+import { focusRing } from "./focus";
 import { PopoverPanel, usePopover } from "./popover";
 
 const AVATAR_TONES = ["bg-zinc-200 text-zinc-700", "bg-stone-200 text-stone-700", "bg-neutral-200 text-neutral-700", "bg-slate-200 text-slate-700"];
@@ -90,7 +91,7 @@ function CrumbLink({ item, first, last }: { item: { label: string; href: string 
     <Link
       href={item.href}
       title={item.label}
-      className={cn("inline-flex h-8 min-w-0 items-center truncate rounded-md px-1 hover:text-foreground", first ? "-ml-1 max-w-32 shrink-0" : last ? "min-w-12 shrink" : "max-w-48 min-w-12 shrink-[3]")}
+      className={cn("inline-flex h-8 min-w-0 items-center truncate rounded-md px-1 hover:text-foreground", focusRing, first ? "-ml-1 max-w-32 shrink-0" : last ? "min-w-12 shrink" : "max-w-48 min-w-12 shrink-[3]")}
     >
       <span className="truncate">{item.label}</span>
     </Link>
@@ -107,7 +108,7 @@ function CrumbOverflow({ items }: { items: Array<{ label: string; href: string }
         aria-expanded={open}
         aria-haspopup="menu"
         onClick={toggle}
-        className="inline-flex h-8 cursor-pointer items-center rounded-md px-1 outline-hidden hover:text-foreground aria-expanded:text-foreground"
+        className={cn("inline-flex h-8 cursor-pointer items-center rounded-md px-1 hover:text-foreground aria-expanded:text-foreground", focusRing)}
       >
         <Ellipsis className="size-4" aria-hidden />
       </button>
@@ -164,7 +165,8 @@ export function Tabs<T extends string>({ value, onChange, items, label }: { valu
           aria-selected={t.value === value}
           onClick={() => onChange(t.value)}
           className={cn(
-            "inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-transparent px-3 text-sm font-medium outline-hidden transition-colors",
+            "inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-transparent px-3 text-sm font-medium transition-colors",
+            focusRing,
             t.value === value ? "bg-secondary text-foreground" : "text-foreground/70 hover:bg-foreground/5 hover:text-foreground",
           )}
         >
