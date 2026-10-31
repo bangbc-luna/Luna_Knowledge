@@ -66,7 +66,7 @@ export function TrashPage() {
                 <table className="w-full border-collapse">
                   <thead className="hidden sm:table-header-group">
                     <tr className="text-left text-xs font-medium text-muted">
-                      <th className="h-10 px-4 font-medium sm:pl-5">Tên</th>
+                      <th className="h-10 px-4 font-medium sm:pl-3">Tên</th>
                       <th className="hidden h-10 px-4 font-medium whitespace-nowrap @3xl:table-cell">Người xoá</th>
                       <th className="h-10 w-px px-4 font-medium whitespace-nowrap">Xoá lúc</th>
                       <th className="h-10 w-px px-4 font-medium whitespace-nowrap">Tự xoá sau</th>
@@ -82,7 +82,7 @@ export function TrashPage() {
                       const canRestore = isAdmin || t.deletedBy?.id === me?.id;
                       return (
                         <tr key={t.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 border-t border-border px-4 py-2.5 sm:table-row sm:px-0 sm:py-0">
-                          <td className="min-w-0 sm:h-14 sm:w-full sm:max-w-0 sm:pr-4 sm:pl-5">
+                          <td className="min-w-0 sm:h-11 sm:w-full sm:max-w-0 sm:pr-4 sm:pl-3">
                             <div className="flex min-w-0 items-center gap-3">
                               <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-foreground/5 text-foreground/70">
                                 <Icon className="size-4" aria-hidden />
@@ -118,7 +118,7 @@ export function TrashPage() {
                     })}
                   </tbody>
                 </table>
-                <div className="border-t border-border px-4 py-3 sm:px-5">
+                <div className="border-t border-border px-3 py-2 sm:px-3">
                   <p className="text-sm text-muted text-pretty">
                     {data.length} lần xoá · {data.reduce((s, t) => s + t.itemCount, 0)} mục. Mục quá {RETENTION_DAYS} ngày được tự xoá lúc 03:00 hằng ngày.
                   </p>

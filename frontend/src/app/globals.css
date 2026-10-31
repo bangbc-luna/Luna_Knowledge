@@ -46,6 +46,12 @@
   --comment-bg: #fef3c7;
   --comment-bg-active: #fde68a;
   --comment-line: #fbbf24;
+
+  --rail: #18181b;
+  --rail-foreground: #fafafa;
+  --rail-item: #3f3f46;
+  --rail-item-hover: #52525b;
+  --rail-active: var(--primary);
 }
 
 @theme inline {
@@ -77,6 +83,11 @@
   --color-err-border: var(--error-border);
   --color-err-line: var(--error);
   --color-danger: var(--danger);
+  --color-rail: var(--rail);
+  --color-rail-foreground: var(--rail-foreground);
+  --color-rail-item: var(--rail-item);
+  --color-rail-item-hover: var(--rail-item-hover);
+  --color-rail-active: var(--rail-active);
   --color-danger-bg: var(--danger-bg);
   --color-danger-bg-hover: var(--danger-bg-hover);
   --color-neutral: var(--neutral);

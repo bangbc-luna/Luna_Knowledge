@@ -66,7 +66,7 @@ export function VideosPage() {
                 <table className="w-full border-collapse">
                   <thead className="hidden sm:table-header-group">
                     <tr className="text-left text-xs font-medium text-muted">
-                      <th className="h-10 px-4 font-medium sm:pl-5">Video</th>
+                      <th className="h-10 px-4 font-medium sm:pl-3">Video</th>
                       <th className="hidden h-10 px-4 font-medium whitespace-nowrap @3xl:table-cell">Người tải lên</th>
                       <th className="hidden h-10 w-px px-4 text-right font-medium whitespace-nowrap @2xl:table-cell">Thời lượng</th>
                       <th className="hidden h-10 w-px px-4 text-right font-medium whitespace-nowrap @2xl:table-cell">Dung lượng</th>
@@ -80,7 +80,7 @@ export function VideosPage() {
                   <tbody>
                     {data.map((v) => (
                       <tr key={v.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 border-t border-border px-4 py-2.5 sm:table-row sm:px-0 sm:py-0">
-                        <td className="min-w-0 sm:h-16 sm:w-full sm:max-w-0 sm:pr-4 sm:pl-5">
+                        <td className="min-w-0 sm:h-11 sm:w-full sm:max-w-0 sm:pr-4 sm:pl-3">
                           <p className="flex min-w-0 items-center gap-2 text-sm font-medium">
                             <span className="truncate" title={v.name}>
                               {v.name}
@@ -119,7 +119,7 @@ export function VideosPage() {
                     ))}
                   </tbody>
                 </table>
-                <div className="border-t border-border px-4 py-3 sm:px-5">
+                <div className="border-t border-border px-3 py-2 sm:px-3">
                   <p className="text-sm text-muted tabular-nums">
                     {data.length} video{data.length === LIMIT ? ` · đang hiện ${LIMIT} video mới nhất, tìm theo tên để thấy video cũ hơn` : ""}
                   </p>

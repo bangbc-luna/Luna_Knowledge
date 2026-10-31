@@ -301,7 +301,7 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
                     <table className="w-full border-collapse">
                       <thead className="hidden sm:table-header-group">
                         <tr className="text-left text-xs font-medium text-muted">
-                          <th className="h-10 px-4 font-medium sm:pl-5">Tên</th>
+                          <th className="h-10 px-4 font-medium sm:pl-3">Tên</th>
                           <th className="hidden h-10 px-4 font-medium @4xl:table-cell">Tag</th>
                           <th className="hidden h-10 px-4 font-medium whitespace-nowrap @3xl:table-cell">Người tạo</th>
                           <th className="h-10 w-px px-4 font-medium whitespace-nowrap">Sửa lần cuối</th>
@@ -316,7 +316,7 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
                           const rowEdit = roleAtLeast(n.myRole, "EDITOR");
                           return (
                             <tr key={n.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 border-t border-border relative px-4 py-2.5 hover:bg-surface-hover sm:table-row sm:px-0 sm:py-0">
-                              <td className="min-w-0 sm:h-14 sm:w-full sm:max-w-0 sm:pr-4 sm:pl-5">
+                              <td className="min-w-0 sm:h-11 sm:w-full sm:max-w-0 sm:pr-4 sm:pl-3">
                                 <NodeName node={n} stretched />
                                 {n.tags.length ? (
                                   <div className="mt-1.5 flex flex-wrap gap-1 pl-11 @4xl:hidden">
@@ -353,7 +353,7 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
                         })}
                       </tbody>
                     </table>
-                    <div className="border-t border-border px-4 py-3 sm:px-5">
+                    <div className="border-t border-border px-3 py-2 sm:px-3">
                       <p className="text-sm tabular-nums text-muted">
                         {items.length} mục
                         {filter ? ` khớp «${filter}»` : ""}

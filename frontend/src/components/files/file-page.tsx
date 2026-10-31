@@ -284,7 +284,7 @@ export function FilePage() {
             ) : null}
 
             {isVideo ? (
-              <div className="mx-auto flex w-full max-w-[max(40rem,calc((100dvh-22rem)*16/9))] flex-col gap-5">
+              <div className="mx-auto flex w-full max-w-[max(40rem,calc((100dvh-20.75rem)*16/9))] flex-col gap-3">
                 <Card className="overflow-hidden">
                   <VideoPane detail={d} video={videoDetail.data} progress={progress} retranscoding={retranscoding} onRetranscode={canEdit ? () => void retranscode() : undefined} />
                 </Card>

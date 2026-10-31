@@ -275,7 +275,7 @@ export function MembersPanel() {
   }
   return (
     <aside aria-label="Thành viên workspace" className={cn("sticky top-0 flex h-dvh w-72 shrink-0 flex-col border-l border-border bg-surface")}>
-      <div className="flex h-16 shrink-0 items-center gap-2 border-b border-border pr-2 pl-4">
+      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border pr-2 pl-4">
         <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">
           Thành viên{count !== undefined ? <span className="ml-1.5 font-normal text-muted tabular-nums">{count}</span> : null}
         </h2>

@@ -8,7 +8,7 @@ import { Logo, NavGroup, NavLink } from "./nav";
 export function AdminSidebar() {
   const pathname = usePathname();
   return (
-    <>
+    <div className="flex h-full w-60 flex-col">
       <Logo subtitle="Quản trị hệ thống" />
       <nav className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-3" aria-label="Quản trị">
         <NavGroup>
@@ -20,11 +20,11 @@ export function AdminSidebar() {
         </NavGroup>
       </nav>
       <div className="border-t border-border px-3 py-3">
-        <Link href="/" className="flex h-10 w-full items-center gap-2.5 rounded-xl px-3 text-sm text-foreground/70 hover:bg-item-hover hover:text-foreground">
+        <Link href="/" className="flex h-9 w-full items-center gap-2.5 rounded-xl px-3 text-sm text-foreground/70 hover:bg-item-hover hover:text-foreground">
           <ArrowLeft className="size-4 shrink-0" aria-hidden />
           Về trang tài liệu
         </Link>
       </div>
-    </>
+    </div>
   );
 }

@@ -130,7 +130,7 @@ export function LogsPage() {
                 <table className="w-full border-collapse">
                   <thead className="hidden sm:table-header-group">
                     <tr className="text-left text-xs font-medium text-muted">
-                      <th className="h-10 w-px px-4 font-medium whitespace-nowrap sm:pl-5">Thời gian</th>
+                      <th className="h-10 w-px px-4 font-medium whitespace-nowrap sm:pl-3">Thời gian</th>
                       <th className="h-10 px-4 font-medium">Người</th>
                       <th className="h-10 w-px px-4 font-medium whitespace-nowrap">Hành động</th>
                       <th className="hidden h-10 px-4 font-medium @4xl:table-cell">Đối tượng</th>
@@ -154,7 +154,7 @@ export function LogsPage() {
                             selected?.id === item.id && "bg-surface-hover",
                           )}
                         >
-                          <td className="col-start-2 row-start-1 text-xs whitespace-nowrap text-muted tabular-nums sm:h-14 sm:pr-4 sm:pl-5 sm:text-sm">{formatWhen(item.createdAt, { withTime: true })}</td>
+                          <td className="col-start-2 row-start-1 text-xs whitespace-nowrap text-muted tabular-nums sm:h-11 sm:pr-4 sm:pl-3 sm:text-sm">{formatWhen(item.createdAt, { withTime: true })}</td>
                           <td className="col-start-1 row-start-1 min-w-0 sm:max-w-0 sm:px-4">
                             <div className="flex min-w-0 items-center gap-2.5">
                               <Avatar name={actorName(item)} src={item.actor?.avatarUrl} size="size-7" />
@@ -185,7 +185,7 @@ export function LogsPage() {
                     })}
                   </tbody>
                 </table>
-                <div className="flex items-center justify-between gap-4 border-t border-border px-4 py-3 sm:px-5">
+                <div className="flex items-center justify-between gap-4 border-t border-border px-3 py-2 sm:px-3">
                   <p className="text-sm tabular-nums text-muted">
                     {data.items.length} sự kiện{cursors.length > 1 || data.nextCursor ? ` · trang ${cursors.length}` : ""}
                   </p>

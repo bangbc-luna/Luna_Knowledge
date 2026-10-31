@@ -494,28 +494,26 @@ export function DocumentPage() {
           </div>
         </div>
       ) : detail.error ? (
-        <div className="px-4 py-5 sm:px-6">
+        <div className="px-3 py-3">
           <Card>
             <ErrorBanner error={detail.error} what="tài liệu" onRetry={() => void detail.reload()} />
           </Card>
         </div>
       ) : !d || !node ? (
-        <div aria-busy="true" aria-label="Đang tải" className="mx-auto w-full max-w-[52rem] space-y-4 px-4 py-6 sm:px-6">
+        <div aria-busy="true" aria-label="Đang tải" className="w-full space-y-3 px-3 py-3">
           <div className="h-10 w-2/3 animate-pulse rounded-xl bg-foreground/5" />
           <div className="h-[60vh] animate-pulse rounded-2xl bg-foreground/5" />
         </div>
       ) : (
         <>
           {editable && editor && !isLatex ? (
-            <div className="sticky top-16 z-20 border-b border-border bg-surface px-2 py-1.5 sm:px-4">
-              <div className="mx-auto max-w-[52rem]">
-                <EditorToolbar editor={editor} canComment onLink={() => setLinkOpen(true)} onImage={() => imageInput.current?.click()} onComment={startComment} />
-              </div>
+            <div className="sticky top-11 z-20 border-b border-border bg-surface px-2 py-1.5 sm:px-3">
+              <EditorToolbar editor={editor} canComment onLink={() => setLinkOpen(true)} onImage={() => imageInput.current?.click()} onComment={startComment} />
             </div>
           ) : null}
 
-          <div className="flex flex-1 justify-center gap-6 px-4 py-6 sm:px-6">
-            <main className={cn("w-full min-w-0", isLatex && editable && desktop ? "max-w-none" : "max-w-[52rem]")}>
+          <div className="flex flex-1 gap-3 px-3 py-3">
+            <main className="w-full min-w-0">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
                 <div className="min-w-0 flex-1">
                   <InlineTitle
@@ -599,7 +597,7 @@ export function DocumentPage() {
               {isLatex ? (
                 <LatexWorkspace session={session} initialSource={latexSource(d.contentJson) ?? ""} editable={editable} wide={desktop} />
               ) : (
-                <Card className="mt-4 px-5 py-8 sm:px-12 sm:py-10">
+                <Card className="mt-3 px-3 py-3 sm:px-6 sm:py-4">
                   {session ? (
                     <DocEditor session={session} editable={editable} onReady={setEditor} onCommentClick={(id) => selectThread(id, false)} onAddComment={startComment} onLink={() => editable && setLinkOpen(true)} onImage={(f) => void insertImages(f)} />
                   ) : (
@@ -610,7 +608,7 @@ export function DocumentPage() {
             </main>
 
             {commentsOpen && wide && !isLatex ? (
-              <aside aria-label="Bình luận" className="sticky top-32 hidden max-h-[calc(100dvh-9rem)] w-80 shrink-0 self-start overflow-y-auto pb-6 xl:block">
+              <aside aria-label="Bình luận" className="sticky top-24 hidden max-h-[calc(100dvh-7rem)] w-80 shrink-0 self-start overflow-y-auto pb-6 xl:block">
                 <div className="mb-3 flex items-center justify-between">
                   <h2 className="text-sm font-semibold">Bình luận</h2>
                   <Button variant="ghost" className="min-h-8 rounded-lg px-3" onClick={() => setCommentsOpen(false)}>
@@ -623,7 +621,7 @@ export function DocumentPage() {
           </div>
 
           <Sheet open={commentsOpen && !wide && !isLatex} onClose={() => setCommentsOpen(false)} title="Bình luận" subtitle={<span className="block truncate">{node.name}</span>}>
-            <div className="px-4 py-4 sm:px-6">{panel}</div>
+            <div className="px-3 py-3">{panel}</div>
           </Sheet>
 
           <input

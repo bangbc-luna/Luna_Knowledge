@@ -90,7 +90,7 @@ export function UsersPage() {
                 <table className="w-full border-collapse">
                   <thead className="hidden sm:table-header-group">
                     <tr className="text-left text-xs font-medium text-muted">
-                      <th className="h-10 px-4 font-medium sm:pl-5">Người dùng</th>
+                      <th className="h-10 px-4 font-medium sm:pl-3">Người dùng</th>
                       <th className="hidden h-10 w-px px-4 font-medium whitespace-nowrap @2xl:table-cell">Đăng nhập cuối</th>
                       <th className="hidden h-10 w-px px-4 font-medium whitespace-nowrap @3xl:table-cell">Tạo lúc</th>
                       <th className="h-10 w-px px-2 whitespace-nowrap sm:pr-3">
@@ -104,7 +104,7 @@ export function UsersPage() {
                       const disabled = u.status === "DISABLED";
                       return (
                         <tr key={u.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 border-t border-border px-4 py-2.5 sm:table-row sm:px-0 sm:py-0">
-                          <td className="min-w-0 sm:h-16 sm:w-full sm:max-w-0 sm:pr-4 sm:pl-5">
+                          <td className="min-w-0 sm:h-11 sm:w-full sm:max-w-0 sm:pr-4 sm:pl-3">
                             <div className="flex min-w-0 items-center gap-3">
                               <Avatar name={u.name} src={u.avatarUrl} />
                               <div className="min-w-0">
@@ -143,7 +143,7 @@ export function UsersPage() {
                     })}
                   </tbody>
                 </table>
-                <div className="flex items-center justify-between gap-4 border-t border-border px-4 py-3 sm:px-5">
+                <div className="flex items-center justify-between gap-4 border-t border-border px-3 py-2 sm:px-3">
                   <p className="text-sm tabular-nums text-muted">
                     {data.items.length} người dùng{cursors.length > 1 || data.nextCursor ? ` · trang ${cursors.length}` : ""}
                   </p>

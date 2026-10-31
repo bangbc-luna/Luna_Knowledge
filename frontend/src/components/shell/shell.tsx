@@ -29,7 +29,7 @@ export function AppFrame({ sidebar, members = false, children }: { sidebar: Reac
   return (
     <ShellContext.Provider value={{ openMenu: () => setMenuOpen(true) }}>
       <div className="flex min-h-dvh">
-        <aside className="sticky top-0 z-40 hidden h-dvh w-60 shrink-0 flex-col bg-surface lg:flex">{sidebar}</aside>
+        <aside className="sticky top-0 z-40 hidden h-dvh shrink-0 flex-col bg-surface lg:flex">{sidebar}</aside>
         <div className="flex min-w-0 flex-1 flex-col">{children}</div>
         {members ? <MembersPanel /> : null}
       </div>
@@ -37,7 +37,7 @@ export function AppFrame({ sidebar, members = false, children }: { sidebar: Reac
         ? createPortal(
             <div className="fixed inset-0 z-50 lg:hidden">
               <div className="animate-fade absolute inset-0 bg-black/15" onClick={() => setMenuOpen(false)} aria-hidden />
-              <aside aria-label="Menu" className="animate-sheet-left absolute inset-y-0 left-0 flex w-72 max-w-[calc(100vw-56px)] flex-col bg-surface shadow-modal">
+              <aside aria-label="Menu" className="animate-sheet-left absolute inset-y-0 left-0 flex w-auto max-w-[calc(100vw-40px)] flex-col bg-surface shadow-modal">
                 <button type="button" className="sr-only" onClick={() => setMenuOpen(false)}>
                   Đóng menu
                 </button>
@@ -56,12 +56,12 @@ export function TopBar({ children, actions }: { children: React.ReactNode; actio
   const pathname = usePathname();
   const inAdmin = pathname.startsWith("/admin");
   return (
-    <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b border-border bg-surface px-4 sm:px-6">
+    <header className="sticky top-0 z-30 flex h-11 shrink-0 items-center gap-3 border-b border-border bg-surface px-3">
       <button
         type="button"
         aria-label="Mở menu"
         onClick={shell?.openMenu}
-        className="-ml-2 inline-flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-xl text-muted outline-hidden hover:bg-foreground/5 hover:text-foreground lg:hidden"
+        className="-ml-1 inline-flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-xl text-muted outline-hidden hover:bg-foreground/5 hover:text-foreground lg:hidden"
       >
         <Menu className="size-4" aria-hidden />
       </button>
@@ -76,5 +76,5 @@ export function TopBar({ children, actions }: { children: React.ReactNode; actio
 }
 
 export function PageBody({ children }: { children: React.ReactNode }) {
-  return <div className="flex flex-1 flex-col gap-5 px-4 py-5 sm:px-6">{children}</div>;
+  return <div className="flex flex-1 flex-col gap-3 px-3 py-3">{children}</div>;
 }

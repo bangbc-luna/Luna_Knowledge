@@ -182,7 +182,7 @@ export function WorkspacesPage() {
                 <table className="w-full border-collapse">
                   <thead className="hidden sm:table-header-group">
                     <tr className="text-left text-xs font-medium text-muted">
-                      <th className="h-10 px-4 font-medium sm:pl-5">Workspace</th>
+                      <th className="h-10 px-4 font-medium sm:pl-3">Workspace</th>
                       <th className="h-10 w-px px-4 text-right font-medium whitespace-nowrap">Thành viên</th>
                       <th className="hidden h-10 w-px px-4 font-medium whitespace-nowrap @2xl:table-cell">Ngày tạo</th>
                       <th className="h-10 w-px px-2 whitespace-nowrap sm:pr-3">
@@ -193,7 +193,7 @@ export function WorkspacesPage() {
                   <tbody>
                     {list.map((w) => (
                       <tr key={w.id} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-2 border-t border-border px-4 py-2.5 sm:table-row sm:px-0 sm:py-0">
-                        <td className="min-w-0 sm:h-16 sm:w-full sm:max-w-0 sm:pr-4 sm:pl-5">
+                        <td className="min-w-0 sm:h-11 sm:w-full sm:max-w-0 sm:pr-4 sm:pl-3">
                           <div className="flex min-w-0 items-center gap-3">
                             <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-foreground/5 text-xs font-semibold text-foreground/70" aria-hidden>
                               {w.icon || w.name.slice(0, 1).toUpperCase()}
@@ -227,7 +227,7 @@ export function WorkspacesPage() {
                     ))}
                   </tbody>
                 </table>
-                <div className="border-t border-border px-4 py-3 sm:px-5">
+                <div className="border-t border-border px-3 py-2 sm:px-3">
                   <p className="text-sm tabular-nums text-muted">{list.length} workspace</p>
                 </div>
               </>

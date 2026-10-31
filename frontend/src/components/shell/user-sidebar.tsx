@@ -88,7 +88,7 @@ export function UserSidebar() {
   const section = useActiveSection();
   const inWs = !!base && pathname.startsWith(`${base}/`);
   return (
-    <>
+    <div className="flex h-full w-60 flex-col">
       <Logo>
         <WorkspaceSwitcher />
       </Logo>
@@ -119,6 +119,6 @@ export function UserSidebar() {
         </div>
       ) : null}
       <WorkspaceSettingsDialog ws={ws ? { id: ws.id, name: ws.name, kind: ws.kind } : null} open={settings} onClose={() => setSettings(false)} />
-    </>
+    </div>
   );
 }

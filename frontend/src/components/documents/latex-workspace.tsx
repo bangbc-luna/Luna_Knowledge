@@ -68,9 +68,9 @@ export function LatexWorkspace({ session, initialSource, editable, wide }: { ses
 
   if (!editable || !wide) {
     return (
-      <div className="mx-auto mt-4 w-full max-w-[52rem]">
+      <div className="mt-3 w-full">
         {editable ? <p className="mb-3 text-sm text-pretty text-muted">Mở trên máy tính để sửa mã nguồn LaTeX.</p> : null}
-        <Card className="px-5 py-8 sm:px-12 sm:py-10">{preview}</Card>
+        <Card className="px-3 py-3 sm:px-6 sm:py-4">{preview}</Card>
       </div>
     );
   }
