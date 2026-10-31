@@ -5,6 +5,7 @@ import {
   createPrismaClient,
   type PrismaClient,
   purgeDeletedWorkspaces,
+  purgeExpiredTrash,
   purgeOldAuditLogs,
   purgeReadNotifications,
   RetentionError,
@@ -12,8 +13,10 @@ import {
   WorkspacePurgeError,
   runRetention,
   thinAutoVersions,
+  TrashPurgeError,
 } from '@luna/db';
 import { resetDatabase } from './create-test-app.js';
+import { waitForLockWait } from './db-helpers.js';
 
 const DAY = 86_400_000;
 
@@ -353,6 +356,70 @@ describe('Retention (e2e, chạy bằng app role)', () => {
     }
     expect(await purgeDeletedWorkspaces(app, { olderThanDays: 30 })).toBe(1);
     expect(await owner.workspace.count({ where: { id: stuck } })).toBe(0);
+  });
+
+  const trashedRoot = async (workspaceId: string, deletedAt: Date) => {
+    const id = await makeNode(workspaceId, 'FOLDER');
+    await owner.node.update({ where: { id }, data: { deletedAt, deletedRootId: id } });
+    return id;
+  };
+
+  const holdTreeLock = async (workspaceId: string) => {
+    const holder = new pg.Client({ connectionString: process.env.DATABASE_URL! });
+    await holder.connect();
+    await holder.query('BEGIN');
+    await holder.query('SELECT pg_advisory_xact_lock($1::int, hashtext($2))', [
+      TREE_LOCK_NAMESPACE,
+      workspaceId,
+    ]);
+    return {
+      release: async () => {
+        await holder.query('ROLLBACK');
+        await holder.end();
+      },
+    };
+  };
+
+  it('dọn thùng rác quá hạn chờ khoá cây của workspace rồi mới xoá', async () => {
+    const old = await trashedRoot(liveWs, daysAgo(40));
+    const lock = await holdTreeLock(liveWs);
+    let purging: Promise<number>;
+    try {
+      purging = purgeExpiredTrash(app);
+      await waitForLockWait(owner, 5000);
+      expect(await owner.node.count({ where: { id: old } })).toBe(1);
+    } finally {
+      await lock.release();
+    }
+    expect(await purging).toBe(1);
+    expect(await owner.node.count({ where: { id: old } })).toBe(0);
+  });
+
+  it('dọn thùng rác: workspace đang bị khoá không chặn workspace khác; lỗi được báo lại', async () => {
+    const otherWs = (
+      await owner.workspace.create({ data: { name: 'Trash B', slug: 'ret-trash-b', createdById: userA } })
+    ).id;
+    const stuck = await trashedRoot(liveWs, daysAgo(40));
+    const freed = await trashedRoot(otherWs, daysAgo(40));
+    const young = await trashedRoot(otherWs, daysAgo(5));
+    const lock = await holdTreeLock(liveWs);
+    const reported: string[] = [];
+    try {
+      const err = await purgeExpiredTrash(app, {
+        lockTimeoutMs: 200,
+        onError: (_e, context) => reported.push(context.workspaceId),
+      }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(TrashPurgeError);
+      expect((err as TrashPurgeError).purged).toBe(1);
+      expect((err as TrashPurgeError).failedWorkspaceIds).toEqual([liveWs]);
+      expect(reported).toEqual([liveWs]);
+      expect(await owner.node.count({ where: { id: { in: [stuck, freed, young] } } })).toBe(2);
+      expect(await owner.node.count({ where: { id: freed } })).toBe(0);
+    } finally {
+      await lock.release();
+    }
+    expect(await purgeExpiredTrash(app)).toBe(1);
+    expect(await owner.node.count({ where: { id: { in: [stuck, young] } } })).toBe(1);
   });
 
   it('runRetention: bước lỗi không chặn các bước sau, kết quả từng phần nằm trong lỗi', async () => {

@@ -3,23 +3,14 @@ import { lockWorkspaceTree } from './tree-lock.js';
 
 export const TRASH_RETENTION_DAYS = 30;
 
-export async function purgeExpiredTrash(
-  prisma: PrismaClient,
-  { olderThanDays = TRASH_RETENTION_DAYS, now = new Date() } = {},
-): Promise<number> {
-  const cutoff = new Date(now.getTime() - olderThanDays * 24 * 3600_000);
-  return prisma.$executeRaw`
-    DELETE FROM nodes
-     WHERE deleted_root_id = id
-       AND deleted_at < ${cutoff}`;
-}
-
 export const AUDIT_PURGE_BATCH = 5000;
 export const READ_NOTIFICATION_RETENTION_DAYS = 90;
 export const RECENT_VIEWS_PER_USER = 50;
 const RETENTION_BATCH = 5000;
 const WORKSPACE_PURGE_LOCK_TIMEOUT_MS = 10_000;
 const WORKSPACE_PURGE_STATEMENT_TIMEOUT_MS = 10 * 60_000;
+const TRASH_PURGE_LOCK_TIMEOUT_MS = 10_000;
+const TRASH_PURGE_STATEMENT_TIMEOUT_MS = 10 * 60_000;
 
 export interface RetentionOptions {
   workspacePurgeDays: number;
@@ -144,6 +135,65 @@ export class WorkspacePurgeError extends AggregateError {
     super(errors, `Failed to purge ${failedWorkspaceIds.length} workspace(s)`);
     this.name = 'WorkspacePurgeError';
   }
+}
+
+export class TrashPurgeError extends AggregateError {
+  constructor(
+    errors: unknown[],
+    readonly purged: number,
+    readonly failedWorkspaceIds: string[],
+  ) {
+    super(errors, `Failed to purge the trash of ${failedWorkspaceIds.length} workspace(s)`);
+    this.name = 'TrashPurgeError';
+  }
+}
+
+export async function purgeExpiredTrash(
+  prisma: PrismaClient,
+  {
+    olderThanDays = TRASH_RETENTION_DAYS,
+    now = new Date(),
+    lockTimeoutMs = TRASH_PURGE_LOCK_TIMEOUT_MS,
+    onError,
+  }: {
+    olderThanDays?: number;
+    now?: Date;
+    lockTimeoutMs?: number;
+    onError?: (err: unknown, context: { workspaceId: string }) => void;
+  } = {},
+): Promise<number> {
+  const cutoff = daysBefore(now, olderThanDays);
+  const workspaces = await prisma.$queryRaw<Array<{ workspace_id: string }>>`
+    SELECT DISTINCT workspace_id FROM nodes
+     WHERE deleted_root_id = id AND deleted_at < ${cutoff}`;
+  let purged = 0;
+  const errors: unknown[] = [];
+  const failed: string[] = [];
+  for (const { workspace_id: id } of workspaces) {
+    try {
+      purged += await prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT set_config('statement_timeout', ${`${TRASH_PURGE_STATEMENT_TIMEOUT_MS}ms`}, true)`;
+          await lockWorkspaceTree(tx, id, { lockTimeoutMs });
+          return tx.$executeRaw`
+            DELETE FROM nodes
+             WHERE workspace_id = ${id}::uuid
+               AND deleted_root_id = id
+               AND deleted_at < ${cutoff}`;
+        },
+        {
+          maxWait: TRASH_PURGE_LOCK_TIMEOUT_MS,
+          timeout: TRASH_PURGE_STATEMENT_TIMEOUT_MS + 60_000,
+        },
+      );
+    } catch (err) {
+      errors.push(err);
+      failed.push(id);
+      onError?.(err, { workspaceId: id });
+    }
+  }
+  if (errors.length) throw new TrashPurgeError(errors, purged, failed);
+  return purged;
 }
 
 export class RetentionError extends AggregateError {

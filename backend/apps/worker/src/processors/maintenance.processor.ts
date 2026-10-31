@@ -56,7 +56,10 @@ export class MaintenanceProcessor extends WorkerHost implements OnApplicationBoo
   async process(job: Job): Promise<unknown> {
     switch (job.name) {
       case JOBS.PURGE_TRASH: {
-        const purged = await purgeExpiredTrash(this.prisma.client);
+        const purged = await purgeExpiredTrash(this.prisma.client, {
+          onError: (err, context) =>
+            this.logger.error({ ...context, err }, 'Trash purge failed for a workspace'),
+        });
         this.logger.log(`Purged ${purged} expired trash item(s)`);
         const gc = await this.collectGarbage();
         return { purged, ...gc };
