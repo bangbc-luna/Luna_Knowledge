@@ -1,14 +1,15 @@
 import { lockWorkspaceTree, type NodeSection, type NodeType, type Prisma } from '@luna/db';
 import { SearchQueueService } from '../infra/queue/search-queue.service.js';
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
 import { AppError } from '../common/errors/app-error.js';
 import type { RequestContext } from '../common/http/request-context.js';
+import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import type { Page } from '../common/pagination/cursor.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { CollabEventsService } from '../infra/redis/collab-events.service.js';
-import { isNameConflict, isTreeViolation } from './conflicts.js';
+import { isNameConflict, isTreeBusy, isTreeViolation } from './conflicts.js';
 import { ContentAccessService } from './content-access.service.js';
 import { NodeDtoService } from './node-dto.service.js';
 import { nameKey, suggestName } from './node-names.js';
@@ -37,6 +38,10 @@ const ACTIVITY_ACTIONS = [
   'share.remove',
 ];
 
+const TREE_LOCK_WAIT_MS = 5_000;
+const TREE_TX_MAX_WAIT_MS = 5_000;
+const DEFAULT_STATEMENT_TIMEOUT_MS = 30_000;
+
 const encodeCursor = (offset: number) => Buffer.from(String(offset)).toString('base64url');
 function decodeCursor(cursor: string | undefined): number {
   if (!cursor) return 0;
@@ -54,6 +59,7 @@ export class NodesService {
     private readonly audit: AuditService,
     private readonly search: SearchQueueService,
     private readonly collab: CollabEventsService,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
   async list(
@@ -361,14 +367,29 @@ export class NodesService {
     await this.collab.accessChanged({ workspaceId: node.workspaceId });
   }
 
-  withTreeLock<T>(
+  async withTreeLock<T>(
     workspaceId: string,
     fn: (tx: Prisma.TransactionClient) => Promise<T>,
   ): Promise<T> {
-    return this.prisma.client.$transaction(async (tx) => {
-      await lockWorkspaceTree(tx, workspaceId);
-      return fn(tx);
-    });
+    try {
+      return await this.prisma.client.$transaction(
+        async (tx) => {
+          await lockWorkspaceTree(tx, workspaceId, { lockTimeoutMs: TREE_LOCK_WAIT_MS });
+          return fn(tx);
+        },
+        {
+          maxWait: TREE_TX_MAX_WAIT_MS,
+          timeout: this.config.DB_STATEMENT_TIMEOUT_MS ?? DEFAULT_STATEMENT_TIMEOUT_MS,
+        },
+      );
+    } catch (err) {
+      if (isTreeBusy(err)) {
+        throw AppError.unavailable(
+          'Someone else is changing this workspace right now, try again in a moment',
+        );
+      }
+      throw err;
+    }
   }
 
   async requireContainer(

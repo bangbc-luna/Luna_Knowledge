@@ -1,13 +1,17 @@
 import type { PrismaClient } from '@luna/db';
 
-export async function waitForLockWait(prisma: PrismaClient, timeoutMs: number): Promise<void> {
+export async function waitForLockWait(
+  prisma: PrismaClient,
+  timeoutMs: number,
+  minWaiting = 1,
+): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const [row] = await prisma.$queryRaw<Array<{ waiting: number }>>`
       SELECT count(*)::int AS waiting FROM pg_locks
        WHERE NOT granted
          AND (locktype IN ('advisory', 'transactionid', 'tuple') OR relation = 'nodes'::regclass)`;
-    if (row && row.waiting > 0) return;
+    if (row && row.waiting >= minWaiting) return;
     if (Date.now() > deadline) throw new Error(`no lock wait within ${timeoutMs}ms`);
     await new Promise((resolve) => setTimeout(resolve, 20));
   }

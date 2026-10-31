@@ -66,7 +66,7 @@ describe('Tree races under the workspace lock (e2e)', () => {
         await lockWorkspaceTree(tx, wsId);
         await trashInTx(tx, f);
         res = send().then((r) => r);
-        await waitForLockWait(ctx.prisma, 5000).catch(() => undefined);
+        await waitForLockWait(ctx.prisma, 5000);
       },
       { timeout: 15_000 },
     );
@@ -167,7 +167,7 @@ describe('Tree races under the workspace lock (e2e)', () => {
         await lockWorkspaceTree(tx, wsId);
         await tx.node.update({ where: { id: d }, data: { parentId: f } });
         res = trash(alice, f).then((r) => r);
-        await waitForLockWait(ctx.prisma, 5000).catch(() => undefined);
+        await waitForLockWait(ctx.prisma, 5000);
       },
       { timeout: 15_000 },
     );
@@ -186,6 +186,55 @@ describe('Tree races under the workspace lock (e2e)', () => {
     expect(res.body).toMatchObject({ movedToRoot: true, node: { id: x, parentId: null } });
     expect(await treeInvariants(ctx.prisma)).toEqual(clean);
   });
+
+  it('khôi phục và xoá vĩnh viễn cùng lúc: khôi phục đến trước thì mục còn sống, xoá vĩnh viễn trả 400', async () => {
+    const x = await folderId(`Tranh chấp ${seq}`, f);
+    const child = await folderId('Con của mục tranh chấp', x);
+    await trash(alice, x).expect(204);
+    let restored!: Promise<request.Response>;
+    let purged!: Promise<request.Response>;
+    await ctx.prisma.$transaction(
+      async (tx) => {
+        await lockWorkspaceTree(tx, wsId);
+        restored = restore(alice, x).then((r) => r);
+        await waitForLockWait(ctx.prisma, 5000, 1);
+        purged = http()
+          .delete(`/api/v1/nodes/${x}/permanent`)
+          .set(alice.auth)
+          .then((r) => r);
+        await waitForLockWait(ctx.prisma, 5000, 2);
+      },
+      { timeout: 15_000 },
+    );
+    expect((await restored).status).toBe(200);
+    const res = await purged;
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toBe('Item is not in the trash');
+    const rows = await ctx.prisma.node.findMany({
+      where: { id: { in: [x, child] } },
+      select: { id: true, deletedAt: true },
+    });
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.deletedAt === null)).toBe(true);
+    expect(await treeInvariants(ctx.prisma)).toEqual(clean);
+  });
+
+  it('chờ khoá cây quá lâu thì bỏ cuộc và trả 503 để thử lại, không tạo gì', async () => {
+    let res!: request.Response;
+    await ctx.prisma.$transaction(
+      async (tx) => {
+        await lockWorkspaceTree(tx, wsId);
+        res = await createFolder(alice, `Chờ lâu ${seq}`, f);
+      },
+      { timeout: 20_000 },
+    );
+    expect(res.status).toBe(503);
+    expect(res.body.error).toMatchObject({
+      code: 'SERVICE_UNAVAILABLE',
+      message: 'Someone else is changing this workspace right now, try again in a moment',
+    });
+    expect(await ctx.prisma.node.count({ where: { parentId: f } })).toBe(0);
+  }, 30_000);
 
   it('hai lần di chuyển chéo A→B và B→A cùng lúc: đúng một lần thành công, cây không có vòng', async () => {
     for (let i = 0; i < 10; i++) {

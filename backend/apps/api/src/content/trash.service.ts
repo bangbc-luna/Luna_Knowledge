@@ -125,9 +125,13 @@ export class TrashService {
     if (!user.isSystemAdmin && node.memberRole !== 'ADMIN') {
       throw AppError.forbidden('Only a workspace admin can delete permanently');
     }
-    await this.nodes.withTreeLock(node.workspaceId, (tx) =>
-      tx.node.delete({ where: { id: nodeId } }),
-    );
+    await this.nodes.withTreeLock(node.workspaceId, async (tx) => {
+      const { count } = await tx.node.deleteMany({ where: { id: nodeId, deletedRootId: nodeId } });
+      if (count > 0) return;
+      const current = await tx.node.findUnique({ where: { id: nodeId }, select: { id: true } });
+      if (!current) throw AppError.notFound('Item not found');
+      throw AppError.validation('Item is not in the trash');
+    });
     await this.collectGarbageSoon();
     await this.audit.log({
       actorId: user.id,
