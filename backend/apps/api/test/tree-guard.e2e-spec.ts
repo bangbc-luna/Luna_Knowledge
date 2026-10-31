@@ -168,6 +168,7 @@ describe('Tree guard trigger (e2e)', () => {
     );
     expect(await treeInvariants(ctx.prisma)).toEqual({
       liveUnderDeleted: 0,
+      strandedInTrash: 0,
       badPaths: 0,
       cycles: 0,
     });

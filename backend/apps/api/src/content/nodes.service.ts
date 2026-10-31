@@ -305,7 +305,11 @@ export class NodesService {
 
     try {
       await this.withTreeLock(node.workspaceId, async (tx) => {
-        await tx.$queryRaw`SELECT id FROM nodes WHERE id = ${nodeId}::uuid FOR UPDATE`;
+        const [current] = await tx.$queryRaw<{ deleted_at: Date | null }[]>`
+          SELECT deleted_at FROM nodes WHERE id = ${nodeId}::uuid FOR UPDATE`;
+        if (!current || current.deleted_at) {
+          throw AppError.conflict('This item was just moved or deleted, refresh and try again');
+        }
         if (targetParentId) {
           const [target] = await tx.$queryRaw<{ inside: boolean }[]>`
             SELECT (t.path <@ n.path) AS inside

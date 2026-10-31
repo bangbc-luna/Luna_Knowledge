@@ -19,9 +19,19 @@ export async function waitForLockWait(
 
 export async function treeInvariants(
   prisma: PrismaClient,
-): Promise<{ liveUnderDeleted: number; badPaths: number; cycles: number }> {
+): Promise<{
+  liveUnderDeleted: number;
+  strandedInTrash: number;
+  badPaths: number;
+  cycles: number;
+}> {
   const [row] = await prisma.$queryRaw<
-    Array<{ live_under_deleted: number; bad_paths: number; cycles: number }>
+    Array<{
+      live_under_deleted: number;
+      stranded_in_trash: number;
+      bad_paths: number;
+      cycles: number;
+    }>
   >`
     SELECT
       (SELECT count(*)::int FROM nodes c
@@ -29,6 +39,12 @@ export async function treeInvariants(
           AND EXISTS (SELECT 1 FROM nodes p
                        WHERE p.deleted_at IS NOT NULL AND p.id <> c.id AND c.path <@ p.path)
       ) AS live_under_deleted,
+      (SELECT count(*)::int FROM nodes c
+        WHERE c.deleted_at IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM nodes r
+                           WHERE r.id = c.deleted_root_id AND r.deleted_at IS NOT NULL
+                             AND c.path <@ r.path)
+      ) AS stranded_in_trash,
       (SELECT count(*)::int FROM nodes c LEFT JOIN nodes p ON p.id = c.parent_id
         WHERE c.path IS DISTINCT FROM
               CASE WHEN c.parent_id IS NULL THEN text2ltree(replace(c.id::text, '-', ''))
@@ -39,6 +55,7 @@ export async function treeInvariants(
       ) AS cycles`;
   return {
     liveUnderDeleted: row?.live_under_deleted ?? 0,
+    strandedInTrash: row?.stranded_in_trash ?? 0,
     badPaths: row?.bad_paths ?? 0,
     cycles: row?.cycles ?? 0,
   };

@@ -19,7 +19,7 @@ describe('Tree races under the workspace lock (e2e)', () => {
   let f: string;
   let seq = 0;
   const http = () => request(ctx.app.getHttpServer());
-  const clean = { liveUnderDeleted: 0, badPaths: 0, cycles: 0 };
+  const clean = { liveUnderDeleted: 0, strandedInTrash: 0, badPaths: 0, cycles: 0 };
 
   const createFolder = (as: LoggedIn, name: string, parentId: string | null = null) =>
     http().post(`/api/v1/workspaces/${wsId}/folders`).set(as.auth).send({ name, parentId });
@@ -175,6 +175,33 @@ describe('Tree races under the workspace lock (e2e)', () => {
     const moved = await ctx.prisma.node.findUniqueOrThrow({ where: { id: d } });
     expect(moved).toMatchObject({ parentId: f, deletedRootId: f });
     expect(moved.deletedAt).not.toBeNull();
+    expect(await treeInvariants(ctx.prisma)).toEqual(clean);
+  });
+
+  it('xoá cha đến trước, di chuyển mục con ra folder sống đến sau: trả 409, mục con vẫn nằm trong thùng rác cùng cha', async () => {
+    const p = await folderId(`Cha bị xoá ${seq}`);
+    const x = await folderId('Con sắp chuyển', p);
+    let trashed!: Promise<request.Response>;
+    let moved!: Promise<request.Response>;
+    await ctx.prisma.$transaction(
+      async (tx) => {
+        await lockWorkspaceTree(tx, wsId);
+        trashed = trash(alice, p).then((r) => r);
+        await waitForLockWait(ctx.prisma, 5000, 1);
+        moved = move(alice, x, f).then((r) => r);
+        await waitForLockWait(ctx.prisma, 5000, 2);
+      },
+      { timeout: 15_000 },
+    );
+    expect((await trashed).status).toBe(204);
+    const res = await moved;
+    expect(res.status).toBe(409);
+    expect(res.body.error.message).toBe(
+      'This item was just moved or deleted, refresh and try again',
+    );
+    const row = await ctx.prisma.node.findUniqueOrThrow({ where: { id: x } });
+    expect(row).toMatchObject({ parentId: p, deletedRootId: p });
+    expect(row.deletedAt).not.toBeNull();
     expect(await treeInvariants(ctx.prisma)).toEqual(clean);
   });
 
