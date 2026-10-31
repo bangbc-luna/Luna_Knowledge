@@ -30,7 +30,7 @@ import { Avatar, Badge, Breadcrumb, Card, ErrorBanner } from "../ui/misc";
 import { useToast } from "../ui/toast";
 import { CommentsPanel, type ThreadFilter } from "./comments-panel";
 import { DocOutline } from "./doc-outline";
-import { type DocPanelTab, DocPanelTabs, DocPanelToggle, DocSidePanel, useDocPanel } from "./doc-side-panel";
+import { DocPanelPanes, type DocPanelTab, DocPanelTabs, DocPanelToggle, DocSidePanel, useDocPanel } from "./doc-side-panel";
 import { DocVersionsSheet } from "./doc-versions-sheet";
 import { EditorToolbar, ToolButton } from "./editor-toolbar";
 import { buildExtensions } from "./extensions";
@@ -674,9 +674,7 @@ export function DocumentPage() {
           <Sheet open={hasPanel && !wide && sheetOpen} onClose={() => setSheetOpen(false)} title={docPanel.tab === "outline" ? "Mục lục" : "Bình luận"} subtitle={<span className="block truncate">{node.name}</span>}>
             <div className="flex flex-col gap-3 px-3 py-3">
               <DocPanelTabs tab={docPanel.tab} onTab={docPanel.setTab} commentCount={openCount} />
-              <div role="tabpanel" aria-label={docPanel.tab === "outline" ? "Mục lục" : "Bình luận"}>
-                {docPanel.tab === "outline" ? outline : comments}
-              </div>
+              <DocPanelPanes tab={docPanel.tab} outline={outline} comments={comments} />
             </div>
           </Sheet>
 

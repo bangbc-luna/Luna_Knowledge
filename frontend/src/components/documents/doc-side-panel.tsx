@@ -72,6 +72,19 @@ export function DocPanelToggle({ pressed, onToggle }: { pressed: boolean; onTogg
   );
 }
 
+export function DocPanelPanes({ tab, outline, comments, className }: { tab: DocPanelTab; outline: React.ReactNode; comments: React.ReactNode; className?: string }) {
+  return (
+    <>
+      <div role="tabpanel" aria-label="Mục lục" hidden={tab !== "outline"} className={className}>
+        {outline}
+      </div>
+      <div role="tabpanel" aria-label="Bình luận" hidden={tab !== "comments"} className={className}>
+        {comments}
+      </div>
+    </>
+  );
+}
+
 export function DocPanelTabs({ tab, onTab, commentCount }: { tab: DocPanelTab; onTab: (t: DocPanelTab) => void; commentCount: number }) {
   return (
     <Tabs
@@ -116,9 +129,7 @@ export function DocSidePanel({
           <X className="size-4" aria-hidden />
         </button>
       </div>
-      <div role="tabpanel" aria-label={tab === "outline" ? "Mục lục" : "Bình luận"} className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
-        {tab === "outline" ? outline : comments}
-      </div>
+      <DocPanelPanes tab={tab} outline={outline} comments={comments} className="min-h-0 flex-1 overflow-y-auto px-2 py-3" />
     </aside>
   );
 }
