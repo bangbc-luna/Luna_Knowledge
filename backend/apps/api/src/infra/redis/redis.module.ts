@@ -21,7 +21,9 @@ export { REDIS };
         redis.on('error', (err: Error & { code?: string }) => {
           if (down) return;
           down = true;
-          logger.error(`Cannot reach Redis at ${new URL(config.REDIS_URL).host} (${err.code ?? err.message})`);
+          logger.error(
+            `Cannot reach Redis at ${new URL(config.REDIS_URL).host} (${err.code ?? err.message})`,
+          );
         });
         redis.on('ready', () => {
           if (down) logger.log('Redis connection restored');
