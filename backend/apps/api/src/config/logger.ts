@@ -22,7 +22,10 @@ export function loggerParams(config: AppConfig): Params {
         return id;
       },
       serializers: {
-        req: (req: { url?: string }) => ({ ...req, url: stripQuery(req.url) }),
+        req: (req: { url?: string; query?: unknown; params?: unknown; originalUrl?: string }) => {
+          const { query: _query, params: _params, originalUrl: _originalUrl, ...rest } = req;
+          return { ...rest, url: stripQuery(req.url) };
+        },
       },
       redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'],
       autoLogging: { ignore: (req) => req.url?.startsWith('/health') ?? false },
