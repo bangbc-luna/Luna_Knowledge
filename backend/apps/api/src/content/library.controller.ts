@@ -139,7 +139,7 @@ export class LibraryController {
   }
 
   @Get('workspaces/:wsId/recently-updated')
-  @ApiTags('favorites')
+  @ApiTags('nodes')
   @ApiOperation({ summary: 'Tài liệu/tệp/video mới sửa trong workspace (lọc theo quyền xem)' })
   @ApiZodQuery(recentlyUpdatedQuery)
   @ApiZodOk(pageSchema(nodeSchema))
