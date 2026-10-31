@@ -14,7 +14,6 @@ import { useReportSection } from "@/lib/section";
 import type { Member, NodeItem, NodeSection, Page } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 import { useUploads } from "@/lib/uploads";
-import { rememberWorkspace } from "@/lib/workspace";
 import { PageBody, TopBar } from "../shell/shell";
 import { Button } from "../ui/button";
 import { ConfirmDialog } from "../ui/dialog";
@@ -77,10 +76,6 @@ export function FolderPage({ section: routeSection }: { section: NodeSection }) 
 
   const router = useRouter();
   const [newDocOpen, setNewDocOpen] = useState(false);
-
-  useEffect(() => {
-    if (membership) rememberWorkspace(wsId);
-  }, [membership, wsId]);
 
   const current = useApi(
     () => (folderId ? Promise.all([api<NodeItem>(`/nodes/${folderId}`), api<Array<{ id: string; name: string }>>(`/nodes/${folderId}/breadcrumb`)]) : Promise.resolve(null)),

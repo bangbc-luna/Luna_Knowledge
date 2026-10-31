@@ -1,7 +1,9 @@
 "use client";
 
 import { useParams } from "next/navigation";
+import { useEffect } from "react";
 import { useAuth } from "./auth";
+import type { MeWorkspace } from "./types";
 
 const LAST_WS = "luna:lastWorkspace";
 
@@ -27,4 +29,25 @@ export function useCurrentWorkspace() {
   const fallback = me?.workspaces.find((w) => w.id === lastWorkspace()) ?? me?.workspaces[0] ?? null;
   const ws = (wsId ? me?.workspaces.find((w) => w.id === wsId) : fallback) ?? null;
   return { wsId: wsId ?? ws?.id ?? null, ws, role: ws?.role ?? null };
+}
+
+export function useShellWorkspace(): { ws: MeWorkspace | null; routeWsId: string | null; isMember: boolean } {
+  const { me } = useAuth();
+  const params = useParams<{ wsId?: string }>();
+  const routeWsId = params.wsId ?? null;
+  const list = me?.workspaces ?? [];
+  const member = routeWsId ? (list.find((w) => w.id === routeWsId) ?? null) : null;
+  const isMember = !!member;
+  const remembered = member ? null : lastWorkspace();
+  const ws =
+    member ??
+    (remembered ? list.find((w) => w.id === remembered) : undefined) ??
+    list.find((w) => w.kind === "COMPANY") ??
+    list[0] ??
+    null;
+  const wsId = ws?.id ?? null;
+  useEffect(() => {
+    if (isMember && wsId) rememberWorkspace(wsId);
+  }, [isMember, wsId]);
+  return { ws, routeWsId, isMember };
 }

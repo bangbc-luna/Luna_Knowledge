@@ -17,6 +17,8 @@ export interface Me extends UserSummary {
   workspaces: Array<{ id: string; name: string; slug: string; icon: string | null; kind: WorkspaceKind; role: WorkspaceRole }>;
 }
 
+export type MeWorkspace = Me["workspaces"][number];
+
 export interface Workspace {
   id: string;
   name: string;
