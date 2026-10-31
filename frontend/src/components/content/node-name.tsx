@@ -19,7 +19,7 @@ export function nodeHref(node: Pick<NodeItem, "id" | "type" | "workspaceId" | "p
 
 export function NodeIcon({ node, compact = false, open = false }: { node: NodeItem; compact?: boolean; open?: boolean }) {
   const isImage = !compact && node.type === "FILE" && node.status === "READY" && !!node.mime?.startsWith("image/");
-  const [viewRef, seen] = useInView<HTMLSpanElement>();
+  const [viewRef, seen] = useInView<HTMLSpanElement>(node.id);
   const thumb = useThumbnail(isImage && seen ? `/api/v1/files/${node.id}/thumbnail` : null);
   if (compact) {
     const cls = cn("size-4 shrink-0", node.type === "FOLDER" ? "text-primary" : "text-foreground/60");

@@ -26,8 +26,8 @@ function shared(): IntersectionObserver {
   return observer;
 }
 
-export function useInView<T extends Element>(): [(node: T | null) => void, boolean] {
-  const [seen, setSeen] = useState(false);
+export function useInView<T extends Element>(key: string): [(node: T | null) => void, boolean] {
+  const [seenKey, setSeenKey] = useState<string | null>(null);
   const current = useRef<T | null>(null);
   const ref = useCallback(
     (node: T | null) => {
@@ -38,13 +38,13 @@ export function useInView<T extends Element>(): [(node: T | null) => void, boole
       current.current = node;
       if (!node) return;
       if (typeof IntersectionObserver === "undefined") {
-        setSeen(true);
+        setSeenKey(key);
         return;
       }
-      entries.set(node, { cb: () => setSeen(true) });
+      entries.set(node, { cb: () => setSeenKey(key) });
       shared().observe(node);
     },
-    [],
+    [key],
   );
   useEffect(
     () => () => {
@@ -55,5 +55,5 @@ export function useInView<T extends Element>(): [(node: T | null) => void, boole
     },
     [],
   );
-  return [ref, seen];
+  return [ref, seenKey === key];
 }

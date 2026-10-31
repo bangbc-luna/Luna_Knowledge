@@ -11,7 +11,7 @@ import { FavoriteButton } from "./favorite-button";
 import { nodeHref } from "./node-name";
 
 function VideoPoster({ node }: { node: NodeItem }) {
-  const [viewRef, seen] = useInView<HTMLDivElement>();
+  const [viewRef, seen] = useInView<HTMLDivElement>(node.id);
   const poster = useThumbnail(seen && node.type === "VIDEO" && node.status === "READY" ? `/api/v1/videos/${node.id}/poster` : null);
   return (
     <div ref={viewRef} className="relative aspect-video w-full bg-foreground/5 bg-cover bg-center" style={poster ? { backgroundImage: `url("${poster}")` } : undefined}>
