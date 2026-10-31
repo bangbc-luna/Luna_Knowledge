@@ -63,6 +63,7 @@ export class UploadsService {
     this.checkFile(body);
 
     let nodeId: string;
+    let createdNode = false;
     if (body.replaceNodeId) {
       const node = await this.access.requireNode(user, body.replaceNodeId, 'EDITOR');
       if (node.workspaceId !== workspaceId) throw AppError.notFound('Item not found');
@@ -100,6 +101,7 @@ export class UploadsService {
           }),
         );
         nodeId = node.id;
+        createdNode = true;
       } catch (err) {
         throw await this.nodes.mapNameConflict(
           err,
@@ -114,27 +116,50 @@ export class UploadsService {
 
     const id = randomUUID();
     const tmpKey = `uploads/${id}`;
-    const multipart = await this.s3.send(
-      new CreateMultipartUploadCommand({ Bucket: this.buckets.tmp, Key: tmpKey }),
-    );
     const partCount = Math.max(1, Math.ceil(body.size / PART_SIZE));
-    const session = await this.prisma.client.uploadSession.create({
-      data: {
-        id,
-        nodeId,
-        workspaceId,
-        s3UploadId: multipart.UploadId!,
-        tmpKey,
-        fileName: body.fileName,
-        sizeBytes: BigInt(body.size),
-        partSize: PART_SIZE,
-        partCount,
-        mimeDeclared: body.mime,
-        isNewVersion: Boolean(body.replaceNodeId),
-        createdById: user.id,
-        expiresAt: new Date(Date.now() + UPLOAD_TTL_HOURS * 3600_000),
-      },
-    });
+    let s3UploadId: string | undefined;
+    let session: UploadSession;
+    try {
+      const multipart = await this.s3.send(
+        new CreateMultipartUploadCommand({ Bucket: this.buckets.tmp, Key: tmpKey }),
+      );
+      s3UploadId = multipart.UploadId;
+      session = await this.prisma.client.uploadSession.create({
+        data: {
+          id,
+          nodeId,
+          workspaceId,
+          s3UploadId: multipart.UploadId!,
+          tmpKey,
+          fileName: body.fileName,
+          sizeBytes: BigInt(body.size),
+          partSize: PART_SIZE,
+          partCount,
+          mimeDeclared: body.mime,
+          isNewVersion: Boolean(body.replaceNodeId),
+          createdById: user.id,
+          expiresAt: new Date(Date.now() + UPLOAD_TTL_HOURS * 3600_000),
+        },
+      });
+    } catch (err) {
+      if (s3UploadId) {
+        await this.s3
+          .send(
+            new AbortMultipartUploadCommand({
+              Bucket: this.buckets.tmp,
+              Key: tmpKey,
+              UploadId: s3UploadId,
+            }),
+          )
+          .catch(() => undefined);
+      }
+      if (createdNode) {
+        await this.prisma.client.node
+          .deleteMany({ where: { id: nodeId, status: 'UPLOADING' } })
+          .catch(() => undefined);
+      }
+      throw err;
+    }
     await this.audit.log({
       actorId: user.id,
       action: 'upload.start',
