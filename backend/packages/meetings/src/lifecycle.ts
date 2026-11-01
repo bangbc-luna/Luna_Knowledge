@@ -55,10 +55,16 @@ export async function endMeeting(
     } satisfies EndedMeeting;
   });
   if (!ended) return false;
-  await deps.media.endRoom(roomNameFor(meetingId)).catch((err: unknown) => {
+  try {
+    await deps.media.endRoom(roomNameFor(meetingId));
+  } catch (err) {
     console.error('meeting endRoom failed', { meetingId, err });
-  });
-  await deps.onEnded?.(ended);
+  }
+  try {
+    await deps.onEnded?.(ended);
+  } catch (err) {
+    console.error('meeting onEnded hook failed', { meetingId, err });
+  }
   return true;
 }
 

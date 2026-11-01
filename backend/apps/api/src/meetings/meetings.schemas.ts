@@ -67,3 +67,20 @@ export type CreateMeetingBody = z.output<typeof createMeetingBody>;
 export type UpdateMeetingBody = z.output<typeof updateMeetingBody>;
 export type InviteBody = z.output<typeof inviteBody>;
 export type ListMeetingsQuery = z.output<typeof listMeetingsQuery>;
+
+export const joinMeetingSchema = z.object({
+  serverUrl: z.string(),
+  token: z.string(),
+  roomName: z.string(),
+  identity: z.string(),
+  aiNotesEnabled: z.boolean(),
+  isHost: z.boolean(),
+  expiresInSec: z.number().int(),
+});
+
+export const muteResultSchema = z.object({ muted: z.boolean() });
+
+export const aiNotesBody = z.object({ enabled: z.boolean() });
+export const aiNotesResultSchema = z.object({ aiNotesEnabled: z.boolean() });
+
+export type AiNotesBody = z.output<typeof aiNotesBody>;

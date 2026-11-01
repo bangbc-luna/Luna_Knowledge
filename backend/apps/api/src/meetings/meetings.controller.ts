@@ -8,10 +8,12 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
   Req,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiNoContentResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
@@ -19,19 +21,25 @@ import { requestContext } from '../common/http/request-context.js';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
 import { ApiZodBody, ApiZodCreated, ApiZodOk, ApiZodQuery } from '../common/swagger/zod-openapi.js';
 import {
+  type AiNotesBody,
+  aiNotesBody,
+  aiNotesResultSchema,
   createMeetingBody,
   type CreateMeetingBody,
   inviteBody,
   type InviteBody,
   invitesAddedSchema,
+  joinMeetingSchema,
   listMeetingsQuery,
   type ListMeetingsQuery,
   meetingDetailSchema,
   meetingPageSchema,
   meetingSchema,
+  muteResultSchema,
   updateMeetingBody,
   type UpdateMeetingBody,
 } from './meetings.schemas.js';
+import { MeetingRoomService } from './meeting-room.service.js';
 import { MeetingsService } from './meetings.service.js';
 
 const uuid = () => new ParseUUIDPipe();
@@ -40,7 +48,10 @@ const uuid = () => new ParseUUIDPipe();
 @ApiBearerAuth()
 @Controller()
 export class MeetingsController {
-  constructor(private readonly meetings: MeetingsService) {}
+  constructor(
+    private readonly meetings: MeetingsService,
+    private readonly room: MeetingRoomService,
+  ) {}
 
   @Post('workspaces/:wsId/meetings')
   @ApiOperation({
@@ -134,5 +145,55 @@ export class MeetingsController {
     @Req() req: Request,
   ) {
     return this.meetings.uninvite(user, id, userId, requestContext(req));
+  }
+
+  @Post('meetings/:id/join')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @ApiOperation({
+    summary: 'Vào phòng họp, nhận token LiveKit ngắn hạn',
+    description: 'Người đầu tiên vào chuyển buổi họp từ SCHEDULED sang LIVE.',
+  })
+  @ApiZodOk(joinMeetingSchema)
+  join(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', uuid()) id: string,
+    @Req() req: Request,
+  ) {
+    return this.room.join(user, id, requestContext(req));
+  }
+
+  @Post('meetings/:id/end')
+  @HttpCode(204)
+  @ApiOperation({ summary: 'Kết thúc buổi họp đang diễn ra (chủ trì)' })
+  @ApiNoContentResponse()
+  end(@CurrentUser() user: AuthenticatedUser, @Param('id', uuid()) id: string) {
+    return this.room.end(user, id);
+  }
+
+  @Post('meetings/:id/participants/:userId/mute')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Tắt mic một người tham dự (chủ trì)' })
+  @ApiZodOk(muteResultSchema)
+  mute(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', uuid()) id: string,
+    @Param('userId', uuid()) userId: string,
+    @Req() req: Request,
+  ) {
+    return this.room.mute(user, id, userId, requestContext(req));
+  }
+
+  @Put('meetings/:id/ai-notes')
+  @ApiOperation({ summary: 'Bật hoặc tắt ghi biên bản AI (chủ trì)' })
+  @ApiZodBody(aiNotesBody, { enabled: false })
+  @ApiZodOk(aiNotesResultSchema)
+  setAiNotes(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', uuid()) id: string,
+    @Body(new ZodValidationPipe(aiNotesBody)) body: AiNotesBody,
+    @Req() req: Request,
+  ) {
+    return this.room.setAiNotes(user, id, body.enabled, requestContext(req));
   }
 }
