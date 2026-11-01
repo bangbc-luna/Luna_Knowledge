@@ -160,4 +160,102 @@ describe('Admin: stats & audit logs (e2e)', () => {
     });
     expect(res.body[0]).not.toHaveProperty('owner');
   });
+
+  it('thống kê phút họp theo tháng và workspace; người không phải admin 403', async () => {
+    const ws2 = (
+      await http()
+        .post('/api/v1/workspaces')
+        .set(owner.auth)
+        .send({ name: 'Sales', slug: 'sales' })
+        .expect(201)
+    ).body.id;
+    const at = (iso: string) => new Date(iso);
+    const mk = (workspaceId: string, data: Record<string, unknown>) =>
+      ctx.prisma.meeting.create({
+        data: { workspaceId, createdById: owner.userId, title: 'Họp', ...data } as never,
+      });
+    const a = await mk(wsId, {
+      status: 'ENDED',
+      startedAt: at('2026-03-31T17:30:00Z'),
+      endedAt: at('2026-03-31T18:20:30Z'),
+    });
+    const b = await mk(ws2, {
+      status: 'ENDED',
+      startedAt: at('2026-05-10T03:00:00Z'),
+      endedAt: at('2026-05-10T03:10:00Z'),
+    });
+    await mk(wsId, { status: 'SCHEDULED', scheduledAt: at('2026-04-10T03:00:00Z') });
+    await mk(wsId, {
+      status: 'CANCELLED',
+      startedAt: at('2026-04-12T03:00:00Z'),
+      endedAt: at('2026-04-12T04:00:00Z'),
+    });
+    const sessions = [
+      {
+        meetingId: a.id,
+        userId: owner.userId,
+        joinedAt: '2026-03-31T17:30:00Z',
+        leftAt: '2026-03-31T18:15:00Z',
+      },
+      {
+        meetingId: a.id,
+        userId: editor.userId,
+        joinedAt: '2026-03-31T17:40:00Z',
+        leftAt: '2026-03-31T18:10:00Z',
+      },
+      {
+        meetingId: b.id,
+        userId: owner.userId,
+        joinedAt: '2026-05-10T03:00:00Z',
+        leftAt: '2026-05-10T03:00:10Z',
+      },
+      { meetingId: b.id, userId: editor.userId, joinedAt: '2026-05-10T03:05:00Z', leftAt: null },
+    ];
+    await ctx.prisma.meetingAttendance.createMany({
+      data: sessions.map((s) => ({
+        ...s,
+        joinedAt: at(s.joinedAt),
+        leftAt: s.leftAt ? at(s.leftAt) : null,
+      })),
+    });
+
+    await http()
+      .get('/api/v1/admin/meetings/usage?from=2026-03&to=2026-05')
+      .set(owner.auth)
+      .expect(403);
+
+    const res = await http()
+      .get('/api/v1/admin/meetings/usage?from=2026-03&to=2026-05')
+      .set(admin.auth)
+      .expect(200);
+    expect(res.body.months.map((m: { month: string }) => m.month)).toEqual([
+      '2026-03',
+      '2026-04',
+      '2026-05',
+    ]);
+    const [mar, apr, may] = res.body.months;
+    expect(mar).toMatchObject({
+      meetings: 0,
+      roomMinutes: 0,
+      participantMinutes: 0,
+      byWorkspace: [],
+    });
+    expect(apr).toMatchObject({ meetings: 1, roomMinutes: 51, participantMinutes: 75 });
+    expect(apr.byWorkspace).toEqual([
+      { workspaceId: wsId, name: 'Docs', meetings: 1, participantMinutes: 75 },
+    ]);
+    expect(may).toMatchObject({ meetings: 1, roomMinutes: 10, participantMinutes: 1 });
+    expect(may.byWorkspace).toEqual([
+      { workspaceId: ws2, name: 'Sales', meetings: 1, participantMinutes: 1 },
+    ]);
+  });
+
+  it('khoảng tháng sai hoặc quá 24 tháng trả 400', async () => {
+    const get = (q: string) => http().get(`/api/v1/admin/meetings/usage?${q}`).set(admin.auth);
+    await get('from=2026-05&to=2026-03').expect(400);
+    await get('from=2026-13&to=2026-14').expect(400);
+    await get('from=2024-01&to=2026-01').expect(400);
+    await get('from=2024-02&to=2026-01').expect(200);
+    await get('from=2026-01').expect(400);
+  });
 });
