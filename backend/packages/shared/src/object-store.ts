@@ -17,6 +17,7 @@ import type { BucketKey } from './constants.js';
 import { bucketNames, createPresignClient, createS3Client, type S3Env } from './s3.js';
 
 export interface ObjectRef {
+  provider?: string;
   container: string;
   key: string;
 }
@@ -43,9 +44,8 @@ export function contentDisposition(type: 'inline' | 'attachment', fileName: stri
 }
 
 function s3Ref(ref: ObjectRef): ObjectRef {
-  const provider = (ref as { provider?: unknown }).provider;
-  if (provider !== undefined && provider !== 'S3') {
-    throw new Error(`Unsupported storage provider ${String(provider)}`);
+  if (ref.provider !== undefined && ref.provider !== 'S3') {
+    throw new Error(`Unsupported storage provider ${ref.provider}`);
   }
   return ref;
 }

@@ -113,4 +113,13 @@ describe('ObjectStore', () => {
       `attachment; filename="Don _x_.pdf"; filename*=UTF-8''${encodeURIComponent('Đơn "x".pdf')}`,
     );
   });
+
+  it('presignUploadPart ký part bằng endpoint công khai với bucket tmp và hạn 3600 giây', async () => {
+    const store = new ObjectStore(env, { s3: { send: vi.fn() } as never });
+    const url = await store.presignUploadPart({ container: 'tmp', key: 'u/1' }, 'up-1', 3, 3600);
+    expect(url.startsWith('http://media.test/tmp/u/1?')).toBe(true);
+    expect(url).toContain('X-Amz-Expires=3600');
+    expect(url).toContain('partNumber=3');
+    expect(url).toContain('uploadId=up-1');
+  });
 });
