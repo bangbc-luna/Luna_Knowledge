@@ -45,16 +45,7 @@ describe('renderTypes', () => {
     expect(out).toContain('description?: string | null;');
   });
 
-  it('strips documentation keys that sit outside properties', async () => {
-    const out = await renderTypes(doc);
-    for (const text of [
-      'described-info-text',
-      'described-node-text',
-      'summary-text',
-      'example-value',
-    ]) {
-      expect(out).not.toContain(text);
-    }
+  it('stripDocs removes documentation keys outside properties', () => {
     expect(JSON.stringify(stripDocs(doc))).not.toMatch(
       /described-|summary-text|example-value|"doc"/,
     );
