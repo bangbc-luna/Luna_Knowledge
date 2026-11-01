@@ -1952,6 +1952,7 @@ export interface operations {
                         id: string;
                         name: string;
                         slug: string;
+                        description: string | null;
                         icon: string | null;
                         createdAt: string;
                         kind: "COMPANY" | "TEAM";
@@ -1998,6 +1999,7 @@ export interface operations {
                 "application/json": {
                     name: string;
                     slug: string;
+                    description?: string;
                     icon?: string;
                     memberEmails?: string[];
                 };
@@ -2013,6 +2015,7 @@ export interface operations {
                         id: string;
                         name: string;
                         slug: string;
+                        description: string | null;
                         icon: string | null;
                         createdAt: string;
                         kind: "COMPANY" | "TEAM";
@@ -2067,6 +2070,7 @@ export interface operations {
                         id: string;
                         name: string;
                         slug: string;
+                        description: string | null;
                         icon: string | null;
                         createdAt: string;
                         kind: "COMPANY" | "TEAM";
@@ -2173,6 +2177,7 @@ export interface operations {
             content: {
                 "application/json": {
                     name?: string;
+                    description?: string | null;
                     icon?: string | null;
                 };
             };
@@ -2187,6 +2192,7 @@ export interface operations {
                         id: string;
                         name: string;
                         slug: string;
+                        description: string | null;
                         icon: string | null;
                         createdAt: string;
                         kind: "COMPANY" | "TEAM";
@@ -2536,6 +2542,7 @@ export interface operations {
                             parentId: string | null;
                             type: "FOLDER" | "DOCUMENT" | "FILE" | "VIDEO";
                             name: string;
+                            description: string | null;
                             status: "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
                             createdBy: {
                                 id: string;
@@ -2634,6 +2641,7 @@ export interface operations {
                         parentId: string | null;
                         type: "FOLDER" | "DOCUMENT" | "FILE" | "VIDEO";
                         name: string;
+                        description: string | null;
                         status: "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
                         createdBy: {
                             id: string;
@@ -2722,6 +2730,7 @@ export interface operations {
                         parentId: string | null;
                         type: "FOLDER" | "DOCUMENT" | "FILE" | "VIDEO";
                         name: string;
+                        description: string | null;
                         status: "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
                         createdBy: {
                             id: string;
@@ -2859,6 +2868,7 @@ export interface operations {
                         parentId: string | null;
                         type: "FOLDER" | "DOCUMENT" | "FILE" | "VIDEO";
                         name: string;
+                        description: string | null;
                         status: "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
                         createdBy: {
                             id: string;
@@ -3090,6 +3100,7 @@ export interface operations {
                         parentId: string | null;
                         type: "FOLDER" | "DOCUMENT" | "FILE" | "VIDEO";
                         name: string;
+                        description: string | null;
                         status: "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
                         createdBy: {
                             id: string;
@@ -3177,6 +3188,7 @@ export interface operations {
                             parentId: string | null;
                             type: "FOLDER" | "DOCUMENT" | "FILE" | "VIDEO";
                             name: string;
+                            description: string | null;
                             status: "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
                             createdBy: {
                                 id: string;
@@ -3383,6 +3395,7 @@ export interface operations {
                             parentId: string | null;
                             type: "FOLDER" | "DOCUMENT" | "FILE" | "VIDEO";
                             name: string;
+                            description: string | null;
                             status: "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
                             createdBy: {
                                 id: string;
@@ -4091,6 +4104,7 @@ export interface operations {
                         parentId: string | null;
                         type: "FOLDER" | "DOCUMENT" | "FILE" | "VIDEO";
                         name: string;
+                        description: string | null;
                         status: "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
                         createdBy: {
                             id: string;
@@ -4279,6 +4293,7 @@ export interface operations {
                         parentId: string | null;
                         type: "FOLDER" | "DOCUMENT" | "FILE" | "VIDEO";
                         name: string;
+                        description: string | null;
                         status: "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
                         createdBy: {
                             id: string;
@@ -4342,6 +4357,7 @@ export interface operations {
                             parentId: string | null;
                             type: "FOLDER" | "DOCUMENT" | "FILE" | "VIDEO";
                             name: string;
+                            description: string | null;
                             status: "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
                             createdBy: {
                                 id: string;
@@ -4413,6 +4429,7 @@ export interface operations {
                             parentId: string | null;
                             type: "FOLDER" | "DOCUMENT" | "FILE" | "VIDEO";
                             name: string;
+                            description: string | null;
                             status: "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
                             createdBy: {
                                 id: string;
@@ -4500,6 +4517,7 @@ export interface operations {
                     kind?: "FILE" | "VIDEO";
                     replaceNodeId?: string;
                     title?: string;
+                    description?: string;
                 };
             };
         };
@@ -4863,6 +4881,7 @@ export interface operations {
                             parentId: string | null;
                             type: "FOLDER" | "DOCUMENT" | "FILE" | "VIDEO";
                             name: string;
+                            description: string | null;
                             status: "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
                             createdBy: {
                                 id: string;
@@ -5397,6 +5416,7 @@ export interface operations {
                             parentId: string | null;
                             type: "FOLDER" | "DOCUMENT" | "FILE" | "VIDEO";
                             name: string;
+                            description: string | null;
                             status: "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
                             createdBy: {
                                 id: string;
@@ -5673,6 +5693,7 @@ export interface operations {
                             parentId: string | null;
                             type: "FOLDER" | "DOCUMENT" | "FILE" | "VIDEO";
                             name: string;
+                            description: string | null;
                             status: "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
                             createdBy: {
                                 id: string;
@@ -5760,6 +5781,7 @@ export interface operations {
             content: {
                 "application/json": {
                     title: string;
+                    description: string;
                 };
             };
         };
@@ -5775,6 +5797,7 @@ export interface operations {
                         parentId: string | null;
                         type: "FOLDER" | "DOCUMENT" | "FILE" | "VIDEO";
                         name: string;
+                        description: string | null;
                         status: "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
                         createdBy: {
                             id: string;
@@ -6716,6 +6739,7 @@ export interface operations {
                             parentId: string | null;
                             type: "FOLDER" | "DOCUMENT" | "FILE" | "VIDEO";
                             name: string;
+                            description: string | null;
                             status: "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
                             createdBy: {
                                 id: string;
@@ -6818,6 +6842,7 @@ export interface operations {
                             parentId: string | null;
                             type: "FOLDER" | "DOCUMENT" | "FILE" | "VIDEO";
                             name: string;
+                            description: string | null;
                             status: "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
                             createdBy: {
                                 id: string;
@@ -6920,6 +6945,7 @@ export interface operations {
                             parentId: string | null;
                             type: "FOLDER" | "DOCUMENT" | "FILE" | "VIDEO";
                             name: string;
+                            description: string | null;
                             status: "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
                             createdBy: {
                                 id: string;
@@ -7282,6 +7308,7 @@ export interface operations {
                             parentId: string | null;
                             type: "FOLDER" | "DOCUMENT" | "FILE" | "VIDEO";
                             name: string;
+                            description: string | null;
                             status: "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
                             createdBy: {
                                 id: string;
@@ -8645,6 +8672,7 @@ export interface operations {
                                 parentId: string | null;
                                 type: "FOLDER" | "DOCUMENT" | "FILE" | "VIDEO";
                                 name: string;
+                                description: string | null;
                                 status: "UPLOADING" | "PROCESSING" | "READY" | "FAILED";
                                 createdBy: {
                                     id: string;

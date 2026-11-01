@@ -3,13 +3,13 @@ import openapiTS, { astToString } from 'openapi-typescript';
 
 const DOC_KEYS = new Set(['description', 'summary', 'example', 'examples']);
 
-function strip(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(strip);
+function strip(value: unknown, keepKeys = false): unknown {
+  if (Array.isArray(value)) return value.map((child) => strip(child));
   if (value === null || typeof value !== 'object') return value;
   return Object.fromEntries(
     Object.entries(value)
-      .filter(([key]) => !DOC_KEYS.has(key))
-      .map(([key, child]) => [key, strip(child)]),
+      .filter(([key]) => keepKeys || !DOC_KEYS.has(key))
+      .map(([key, child]) => [key, strip(child, !keepKeys && key === 'properties')]),
   );
 }
 

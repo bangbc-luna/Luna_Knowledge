@@ -1,25 +1,10 @@
 import { api } from "./api";
-import type { NodeItem, NodeSection, NodeType } from "./types";
+import type { ApiOk } from "./api-types";
+import type { NodeSection, NodeType } from "./types";
 
-export interface SearchPart {
-  text: string;
-  match: boolean;
-}
-
-export interface SearchHit {
-  node: NodeItem;
-  workspace: { id: string; name: string };
-  path: string[];
-  name: SearchPart[];
-  snippet: SearchPart[] | null;
-  matchedIn: "name" | "content" | "tags";
-}
-
-export interface SearchResult {
-  items: SearchHit[];
-  total: number;
-  nextCursor: string | null;
-}
+export type SearchResult = ApiOk<"/api/v1/search", "get">;
+export type SearchHit = SearchResult["items"][number];
+export type SearchPart = SearchHit["name"][number];
 
 export interface SearchFilters {
   q: string;

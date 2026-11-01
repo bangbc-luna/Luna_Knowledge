@@ -17,7 +17,10 @@ const doc = {
                 schema: {
                   type: 'object',
                   description: 'node',
-                  properties: { createdAt: { type: 'string', format: 'date-time' } },
+                  properties: {
+                    createdAt: { type: 'string', format: 'date-time' },
+                    description: { type: 'string', nullable: true, description: 'doc' },
+                  },
                 },
               },
             },
@@ -34,5 +37,10 @@ describe('renderTypes', () => {
     expect(out).toContain('"/api/v1/nodes/{id}"');
     expect(out).not.toMatch(/^\s*(\/\/|\/\*|\*)/m);
     expect(out.endsWith('\n')).toBe(true);
+  });
+
+  it('keeps properties that are named like documentation keys', async () => {
+    const out = await renderTypes(doc);
+    expect(out).toContain('description?: string | null;');
   });
 });
