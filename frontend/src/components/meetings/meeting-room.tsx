@@ -141,6 +141,19 @@ function RoomView({ meeting, join, onEnded, onMedia }: { meeting: MeetingDetail;
     setTab(next);
     if (next === "chat") markRead();
   };
+  const [desktop, setDesktop] = useState(() => typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const on = () => setDesktop(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  const toggleWrap = useRef<HTMLDivElement>(null);
+  const wasOpen = useRef(panelOpen);
+  useEffect(() => {
+    if (wasOpen.current && !panelOpen && !desktop) toggleWrap.current?.querySelector("button")?.focus();
+    wasOpen.current = panelOpen;
+  }, [panelOpen, desktop]);
   const togglePanel = () => {
     if (!panelOpen && tab === "chat") markRead();
     setPanelOpen(!panelOpen);
@@ -187,11 +200,13 @@ function RoomView({ meeting, join, onEnded, onMedia }: { meeting: MeetingDetail;
       ) : null}
       <ReactionsContext.Provider value={reactions.active}>
         <div className="relative flex min-h-0 flex-1">
-          <RoomStage />
+          <div className="flex min-h-0 min-w-0 flex-1" inert={panelOpen && !desktop}>
+            <RoomStage />
+          </div>
           <RoomSidePanel open={panelOpen} tab={tab} onTab={changeTab} onClose={() => setPanelOpen(false)} chat={chat} meetingId={meeting.id} meId={me?.id ?? ""} isHost={join.isHost} />
         </div>
       </ReactionsContext.Provider>
-      <RoomControls isHost={join.isHost} aiOn={aiOn} onToggleAi={toggleAi} onEnd={end} onReact={reactions.send} handRaised={handRaised} onToggleHand={toggleHand} panel={{ open: panelOpen, unread: chat.unread, onToggle: togglePanel }} />
+      <RoomControls isHost={join.isHost} aiOn={aiOn} onToggleAi={toggleAi} onEnd={end} onReact={reactions.send} handRaised={handRaised} onToggleHand={toggleHand} panelWrapRef={toggleWrap} panel={{ open: panelOpen, unread: chat.unread, onToggle: togglePanel }} />
       <RoomAudioRenderer />
     </div>
   );

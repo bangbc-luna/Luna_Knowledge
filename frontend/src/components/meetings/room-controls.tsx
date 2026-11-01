@@ -121,7 +121,7 @@ export interface RoomPanelControls {
   onToggle: () => void;
 }
 
-export function RoomControls({ isHost, aiOn, onToggleAi, onEnd, onReact, handRaised, onToggleHand, panel }: { isHost: boolean; aiOn: boolean; onToggleAi: () => Promise<void>; onEnd: () => Promise<void>; onReact: (emoji: Reaction) => void; handRaised: boolean; onToggleHand: () => void; panel: RoomPanelControls }) {
+export function RoomControls({ isHost, aiOn, onToggleAi, onEnd, onReact, handRaised, onToggleHand, panel, panelWrapRef }: { isHost: boolean; aiOn: boolean; onToggleAi: () => Promise<void>; onEnd: () => Promise<void>; onReact: (emoji: Reaction) => void; handRaised: boolean; onToggleHand: () => void; panel: RoomPanelControls; panelWrapRef: React.RefObject<HTMLDivElement | null> }) {
   const room = useRoomContext();
   const toast = useToast();
   const { localParticipant, isMicrophoneEnabled, isCameraEnabled, isScreenShareEnabled } = useLocalParticipant();
@@ -153,7 +153,7 @@ export function RoomControls({ isHost, aiOn, onToggleAi, onEnd, onReact, handRai
       ) : null}
       <ReactionMenu onReact={onReact} />
       <ControlButton icon={Hand} label={handRaised ? "Hạ tay" : "Giơ tay"} pressed={handRaised} active={!handRaised} onClick={onToggleHand} className={handRaised ? "bg-primary text-primary-foreground hover:bg-primary-hover" : undefined} />
-      <div className="relative">
+      <div ref={panelWrapRef} className="relative">
         <ControlButton icon={MessageSquare} label={panel.open ? "Ẩn chat và danh sách người" : "Mở chat và danh sách người"} pressed={panel.open} onClick={panel.onToggle} />
         {panel.unread > 0 ? (
           <span aria-label={`${panel.unread} tin nhắn mới`} className="pointer-events-none absolute -top-1 -right-1 inline-flex min-w-5 items-center justify-center rounded-full bg-primary px-1 text-xs font-semibold text-primary-foreground tabular-nums">

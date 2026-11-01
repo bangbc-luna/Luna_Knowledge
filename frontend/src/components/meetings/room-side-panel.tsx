@@ -57,13 +57,20 @@ export function useMeetingChat(meetingId: string, meId: string, panelVisible: bo
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [unread, setUnread] = useState(0);
+  const [truncated, setTruncated] = useState(false);
   const visibleRef = useRef(panelVisible);
+  const seen = useRef(new Set<string>());
+  const pendingRef = useRef<PendingMessage[]>([]);
   const alive = useRef(true);
   const tempCounter = useRef(0);
 
   useEffect(() => {
     visibleRef.current = panelVisible;
   }, [panelVisible]);
+
+  useEffect(() => {
+    pendingRef.current = pending;
+  }, [pending]);
 
   const markRead = useCallback(() => setUnread(0), []);
 
@@ -73,8 +80,10 @@ export function useMeetingChat(meetingId: string, meId: string, panelVisible: bo
       for (let page = 0; page < MAX_PAGES; page += 1) {
         const res = await listChat(meetingId, cursor, PAGE_SIZE);
         if (!alive.current) return;
+        for (const m of res.items) seen.current.add(m.id);
         setMessages((prev) => mergeMessages(prev, res.items));
         if (!res.nextCursor) break;
+        if (page === MAX_PAGES - 1) setTruncated(true);
         cursor = res.nextCursor;
       }
     } catch (err) {
@@ -109,8 +118,10 @@ export function useMeetingChat(meetingId: string, meId: string, panelVisible: bo
     }
     if (!isChatMessage(value)) return;
     const message = value;
-    setMessages((prev) => (prev.some((m) => m.id === message.id) ? prev : mergeMessages(prev, [message])));
-    if (!visibleRef.current && message.author.id !== meId) setUnread((n) => n + 1);
+    const isNew = !seen.current.has(message.id);
+    seen.current.add(message.id);
+    setMessages((prev) => mergeMessages(prev, [message]));
+    if (isNew && !visibleRef.current && message.author.id !== meId) setUnread((n) => n + 1);
   });
 
   const attempt = useCallback(
@@ -118,6 +129,7 @@ export function useMeetingChat(meetingId: string, meId: string, panelVisible: bo
       try {
         const sent = await sendChat(meetingId, body);
         if (!alive.current) return;
+        seen.current.add(sent.id);
         setMessages((prev) => mergeMessages(prev, [sent]));
         setPending((list) => list.filter((p) => p.tempId !== tempId));
       } catch (err) {
@@ -141,22 +153,17 @@ export function useMeetingChat(meetingId: string, meId: string, panelVisible: bo
 
   const retry = useCallback(
     (tempId: string) => {
-      let body = "";
-      setPending((list) =>
-        list.map((p) => {
-          if (p.tempId !== tempId) return p;
-          body = p.body;
-          return { ...p, error: null };
-        }),
-      );
-      queueMicrotask(() => void attempt(tempId, body));
+      const target = pendingRef.current.find((p) => p.tempId === tempId);
+      if (!target) return;
+      setPending((list) => list.map((p) => (p.tempId === tempId ? { ...p, error: null } : p)));
+      void attempt(tempId, target.body);
     },
     [attempt],
   );
 
   const dismiss = useCallback((tempId: string) => setPending((list) => list.filter((p) => p.tempId !== tempId)), []);
 
-  return { messages, pending, loading, loadError, reload, markRead, unread, send, retry, dismiss };
+  return { messages, pending, loading, loadError, reload, markRead, unread, truncated, send, retry, dismiss };
 }
 
 export type MeetingChat = ReturnType<typeof useMeetingChat>;
@@ -177,7 +184,7 @@ function MessageText({ body }: { body: string }) {
   );
 }
 
-function ChatView({ chat, meId }: { chat: MeetingChat; meId: string }) {
+function ChatView({ chat, meId, visible }: { chat: MeetingChat; meId: string; visible: boolean }) {
   const scroller = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
   const [behind, setBehind] = useState(false);
@@ -191,6 +198,10 @@ function ChatView({ chat, meId }: { chat: MeetingChat; meId: string }) {
     atBottom.current = true;
     setBehind(false);
   };
+
+  useLayoutEffect(() => {
+    if (visible && atBottom.current) toBottom();
+  }, [visible]);
 
   useLayoutEffect(() => {
     if (atBottom.current || lastMine) toBottom();
@@ -235,6 +246,7 @@ function ChatView({ chat, meId }: { chat: MeetingChat; meId: string }) {
             </div>
           ) : null}
           {!chat.loading && !chat.loadError && total === 0 ? <p className="m-auto max-w-[24ch] text-center text-sm text-rail-foreground/70">Chưa có tin nhắn nào. Tin nhắn chỉ những người trong cuộc họp thấy và được lưu lại.</p> : null}
+          {chat.truncated ? <p className="text-center text-xs text-rail-foreground/70">Chỉ hiển thị 2000 tin gần nhất</p> : null}
           {chat.messages.map((m) => {
             const mine = m.author.id === meId;
             return (
@@ -333,7 +345,7 @@ function PersonRow({ participant, canMute, onMute, busy }: { participant: Partic
           ✋
         </span>
       ) : null}
-      {muted ? <MicOff className="size-4 shrink-0 text-err-line" aria-label="Mic đang tắt" /> : <Mic className="size-4 shrink-0 text-rail-foreground/70" aria-label="Mic đang bật" />}
+      {muted ? <MicOff role="img" className="size-4 shrink-0 text-err-line" aria-label="Mic đang tắt" /> : <Mic role="img" className="size-4 shrink-0 text-rail-foreground/70" aria-label="Mic đang bật" />}
       {canMute && !participant.isLocal ? (
         <button
           type="button"
@@ -375,13 +387,28 @@ function PeopleView({ meetingId, isHost }: { meetingId: string; isHost: boolean 
 }
 
 export function RoomSidePanel({ open, tab, onTab, onClose, chat, meetingId, meId, isHost }: { open: boolean; tab: PanelTab; onTab: (t: PanelTab) => void; onClose: () => void; chat: MeetingChat; meetingId: string; meId: string; isHost: boolean }) {
+  const asideRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    if (window.matchMedia("(min-width: 1024px)").matches) return;
+    asideRef.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
+  }, [open]);
   const count = useParticipants().filter((p) => !p.permissions?.hidden).length;
   const tabs: Array<{ value: PanelTab; label: string }> = [
     { value: "chat", label: "Chat" },
     { value: "people", label: `Người (${count})` },
   ];
   return (
-    <aside aria-label="Chat và người tham gia" hidden={!open} className={cn("z-20 flex-col bg-rail", open ? "absolute inset-x-0 top-0 bottom-0 flex lg:static lg:inset-auto lg:w-80 lg:shrink-0 lg:border-l lg:border-rail-item" : "hidden")}>
+    <aside
+      ref={asideRef}
+      aria-label="Chat và người tham gia"
+      hidden={!open}
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && !window.matchMedia("(min-width: 1024px)").matches) {
+          e.stopPropagation();
+          onClose();
+        }
+      }} className={cn("z-20 flex-col bg-rail", open ? "absolute inset-x-0 top-0 bottom-0 flex lg:static lg:inset-auto lg:w-80 lg:shrink-0 lg:border-l lg:border-rail-item" : "hidden")}>
       <div className="flex shrink-0 items-center gap-1 border-b border-rail-item px-2 py-2">
         <div role="tablist" aria-label="Bảng bên" className="flex flex-1 gap-1">
           {tabs.map((t) => (
@@ -402,7 +429,7 @@ export function RoomSidePanel({ open, tab, onTab, onClose, chat, meetingId, meId
         </button>
       </div>
       <div className={cn("min-h-0 flex-1 flex-col", tab === "chat" ? "flex" : "hidden")}>
-        <ChatView chat={chat} meId={meId} />
+        <ChatView chat={chat} meId={meId} visible={open && tab === "chat"} />
       </div>
       {tab === "people" ? <PeopleView meetingId={meetingId} isHost={isHost} /> : null}
     </aside>

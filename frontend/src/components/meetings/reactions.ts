@@ -37,6 +37,7 @@ export function useReactions() {
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const lastSent = useRef(0);
   const counter = useRef(0);
+  const lastReceived = useRef(new Map<string, number>());
 
   const show = useCallback((identity: string, emoji: Reaction) => {
     counter.current += 1;
@@ -69,8 +70,13 @@ export function useReactions() {
   useDataChannel(TOPIC, (msg) => {
     const from = msg.from;
     if (!from || from.isLocal) return;
+    const now = Date.now();
+    const prev = lastReceived.current.get(from.identity) ?? 0;
+    if (now - prev < MIN_GAP_MS) return;
     const emoji = decode(msg.payload);
-    if (emoji) show(from.identity, emoji);
+    if (!emoji) return;
+    lastReceived.current.set(from.identity, now);
+    show(from.identity, emoji);
   });
 
   const send = useCallback(
