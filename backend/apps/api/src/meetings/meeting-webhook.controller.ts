@@ -43,6 +43,7 @@ export class MeetingWebhookController {
     const raw = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : '';
     const event = await this.media.parseWebhook(raw, authorization);
     if (!event) throw AppError.unauthenticated('Invalid webhook signature');
+    if (event.kind === 'ignored') return { ok: true };
     const key = `meeting-webhook:${event.eventId}`;
     const first = await this.redis.set(key, '1', 'EX', DEDUPE_TTL_SEC, 'NX');
     if (first !== 'OK') return { ok: true };
@@ -56,13 +57,14 @@ export class MeetingWebhookController {
   }
 
   private async handle(event: MediaEvent): Promise<void> {
+    if (event.kind === 'ignored') return;
     const match = ROOM_NAME.exec(event.roomName);
     if (!match) return;
     const meetingId = match[1]!.toLowerCase();
     const db = this.prisma.client;
     const meeting = await db.meeting.findUnique({
       where: { id: meetingId },
-      select: { id: true, status: true },
+      select: { id: true, status: true, workspaceId: true, createdById: true },
     });
     if (!meeting) return;
     if (event.kind === 'room_finished') {
@@ -78,22 +80,47 @@ export class MeetingWebhookController {
     if (event.identity === RECORDER_IDENTITY || !USER_ID.test(event.identity)) return;
     const userId = event.identity.toLowerCase();
     const marker = `meeting-left:${meetingId}:${userId}`;
+    const leftAt = (ms: string | null) => (ms === null ? NaN : Number(ms));
     if (event.kind === 'participant_left') {
-      const closed = await closeAttendance(db, meetingId, userId, event.at);
-      if (!closed)
-        await this.redis.set(marker, String(event.at.getTime()), 'EX', LEFT_MARKER_TTL_SEC);
+      await this.redis.set(marker, String(event.at.getTime()), 'EX', LEFT_MARKER_TTL_SEC);
+      if (await closeAttendance(db, meetingId, userId, event.at)) await this.redis.del(marker);
       return;
     }
     if (meeting.status === 'ENDED' || meeting.status === 'CANCELLED') return;
-    const stored = await this.redis.get(marker);
-    const leftMs = stored === null ? NaN : Number(stored);
-    if (stored !== null) await this.redis.del(marker);
-    if (Number.isFinite(leftMs) && leftMs >= event.at.getTime()) {
+    if (!(await this.mayAttend(meeting, userId))) return;
+    const joinedMs = event.at.getTime();
+    const before = leftAt(await this.redis.get(marker));
+    if (Number.isFinite(before) && before >= joinedMs) {
+      await this.redis.del(marker);
       await db.meetingAttendance.create({
-        data: { meetingId, userId, joinedAt: event.at, leftAt: new Date(leftMs) },
+        data: { meetingId, userId, joinedAt: event.at, leftAt: new Date(before) },
       });
       return;
     }
     await openAttendance(db, meetingId, userId, event.at);
+    const after = leftAt(await this.redis.get(marker));
+    if (Number.isFinite(after) && after >= joinedMs) {
+      await closeAttendance(db, meetingId, userId, new Date(after));
+    }
+    if (!Number.isNaN(after) || !Number.isNaN(before)) await this.redis.del(marker);
+  }
+
+  private async mayAttend(
+    meeting: { id: string; workspaceId: string; createdById: string },
+    userId: string,
+  ): Promise<boolean> {
+    if (meeting.createdById === userId) return true;
+    const db = this.prisma.client;
+    const [member, invite] = await Promise.all([
+      db.workspaceMember.findFirst({
+        where: { workspaceId: meeting.workspaceId, userId },
+        select: { userId: true },
+      }),
+      db.meetingInvite.findUnique({
+        where: { meetingId_userId: { meetingId: meeting.id, userId } },
+        select: { userId: true },
+      }),
+    ]);
+    return member !== null || invite !== null;
   }
 }

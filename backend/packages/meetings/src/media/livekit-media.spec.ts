@@ -118,13 +118,29 @@ describe('LiveKitMeetingMedia', () => {
     await expect(media.parseWebhook(started.body, undefined)).resolves.toBeNull();
   });
 
-  it('webhook: unmapped events give null', async () => {
+  it('webhook: validly signed but unmapped events are ignored, not rejected', async () => {
     const other = await signedWebhook({
       event: 'track_published',
       id: 'EV_4',
       room: { name: 'luna-m1' },
     });
-    await expect(media.parseWebhook(other.body, other.authorization)).resolves.toBeNull();
+    await expect(media.parseWebhook(other.body, other.authorization)).resolves.toEqual({
+      kind: 'ignored',
+      eventId: 'EV_4',
+    });
+    const noRoom = await signedWebhook({ event: 'room_finished', id: 'EV_5' });
+    await expect(media.parseWebhook(noRoom.body, noRoom.authorization)).resolves.toEqual({
+      kind: 'ignored',
+      eventId: 'EV_5',
+    });
+    const noParticipant = await signedWebhook({
+      event: 'participant_joined',
+      id: 'EV_6',
+      room: { name: 'luna-m1' },
+    });
+    await expect(
+      media.parseWebhook(noParticipant.body, noParticipant.authorization),
+    ).resolves.toEqual({ kind: 'ignored', eventId: 'EV_6' });
   });
 
   describe('not-found handling', () => {
@@ -176,7 +192,7 @@ describe('LiveKitMeetingMedia', () => {
         room: { name: 'luna-m1' },
       });
       const ev = await media.parseWebhook(w.body, w.authorization);
-      expect(ev!.at.getTime()).toBeGreaterThanOrEqual(before);
+      expect((ev as { at: Date }).at.getTime()).toBeGreaterThanOrEqual(before);
     });
   });
 });

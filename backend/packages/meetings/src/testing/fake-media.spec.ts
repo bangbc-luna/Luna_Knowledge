@@ -63,6 +63,11 @@ describe('FakeMeetingMedia', () => {
     });
     await expect(media.parseWebhook(signed.body + ' ', signed.authorization)).resolves.toBeNull();
     await expect(media.parseWebhook(signed.body, undefined)).resolves.toBeNull();
+    const ignored = media.signWebhook({ kind: 'ignored', eventId: 'e2' });
+    await expect(media.parseWebhook(ignored.body, ignored.authorization)).resolves.toEqual({
+      kind: 'ignored',
+      eventId: 'e2',
+    });
     const junk = 'not json';
     await expect(media.parseWebhook(junk, signed.authorization)).resolves.toBeNull();
   });

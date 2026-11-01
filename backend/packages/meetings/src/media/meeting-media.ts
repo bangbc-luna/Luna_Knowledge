@@ -9,6 +9,7 @@ export interface JoinTokenInput {
 }
 
 export type MediaEvent =
+  | { kind: 'ignored'; eventId: string }
   | { kind: 'room_started' | 'room_finished'; roomName: string; eventId: string; at: Date }
   | {
       kind: 'participant_joined' | 'participant_left';

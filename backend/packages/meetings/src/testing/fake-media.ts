@@ -9,8 +9,8 @@ import type {
 const FAKE_SECRET = 'fake-meeting-media-webhook-secret';
 
 interface WireEvent {
-  kind: MediaEvent['kind'];
-  roomName: string;
+  kind: string;
+  roomName?: string;
   identity?: string;
   eventId: string;
   at: string;
@@ -102,23 +102,29 @@ export class FakeMeetingMedia implements MeetingMedia {
     if (wire.kind === 'participant_joined' || wire.kind === 'participant_left') {
       return {
         kind: wire.kind,
-        roomName: wire.roomName,
+        roomName: wire.roomName ?? '',
         identity: wire.identity ?? '',
         eventId: wire.eventId,
         at,
       };
     }
-    return { kind: wire.kind, roomName: wire.roomName, eventId: wire.eventId, at };
+    if (wire.kind === 'room_started' || wire.kind === 'room_finished') {
+      return { kind: wire.kind, roomName: wire.roomName ?? '', eventId: wire.eventId, at };
+    }
+    return { kind: 'ignored', eventId: wire.eventId };
   }
 
   signWebhook(event: MediaEvent): { body: string; authorization: string } {
-    const wire: WireEvent = {
-      kind: event.kind,
-      roomName: event.roomName,
-      eventId: event.eventId,
-      at: event.at.toISOString(),
-      ...('identity' in event ? { identity: event.identity } : {}),
-    };
+    const wire: WireEvent =
+      event.kind === 'ignored'
+        ? { kind: 'track_published', eventId: event.eventId, at: new Date().toISOString() }
+        : {
+            kind: event.kind,
+            roomName: event.roomName,
+            eventId: event.eventId,
+            at: event.at.toISOString(),
+            ...('identity' in event ? { identity: event.identity } : {}),
+          };
     const body = JSON.stringify(wire);
     return { body, authorization: sign(body) };
   }

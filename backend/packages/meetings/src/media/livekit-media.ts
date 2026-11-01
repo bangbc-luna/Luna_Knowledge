@@ -154,14 +154,15 @@ export class LiveKitMeetingMedia implements MeetingMedia {
     } catch {
       return null;
     }
-    if (!MAPPED_EVENTS.has(event.event) || !event.room) return null;
+    const ignored = { kind: 'ignored', eventId: event.id } as const;
+    if (!MAPPED_EVENTS.has(event.event) || !event.room) return ignored;
     const created = Number(event.createdAt);
     const at = created > 0 ? new Date(created * 1000) : new Date();
     const base = { roomName: event.room.name, eventId: event.id, at };
     if (event.event === 'room_started' || event.event === 'room_finished') {
       return { kind: event.event, ...base };
     }
-    if (!event.participant) return null;
+    if (!event.participant) return ignored;
     return {
       kind: event.event as 'participant_joined' | 'participant_left',
       identity: event.participant.identity,

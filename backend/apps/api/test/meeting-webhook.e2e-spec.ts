@@ -229,6 +229,43 @@ describe('Meeting webhook (e2e)', () => {
     ).toBe(1);
   });
 
+  it('a validly signed event that Luna does not map returns 200', async () => {
+    await send({ kind: 'ignored', eventId: randomUUID() }).expect(200, { ok: true });
+  });
+
+  it('a leave marker written between the join check and the insert still closes the session', async () => {
+    const id = await create(alice);
+    const tJoin = new Date(Date.now() - 4000);
+    const tLeft = new Date(Date.now() - 2000);
+    const marker = `meeting-left:${id}:${bob.userId}`;
+    await redis.set(marker, String(tLeft.getTime()), 'EX', 60);
+    const spy = vi.spyOn(redis, 'get').mockResolvedValueOnce(null);
+    await joined(id, bob.userId, tJoin).expect(200);
+    spy.mockRestore();
+    const rows = await attendances(id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.leftAt?.getTime()).toBe(tLeft.getTime());
+    expect(await redis.exists(marker)).toBe(0);
+  });
+
+  it('a successful leave leaves no marker behind', async () => {
+    const id = await create(alice);
+    await joined(id, bob.userId, new Date(Date.now() - 4000)).expect(200);
+    await left(id, bob.userId, new Date(Date.now() - 2000)).expect(200);
+    expect(await redis.exists(`meeting-left:${id}:${bob.userId}`)).toBe(0);
+  });
+
+  it('joins from a uuid that is not a real user, or a stranger to the meeting, are ignored with 200', async () => {
+    const id = await create(alice);
+    await joined(id, randomUUID()).expect(200, { ok: true });
+    const stranger = await loginAs(ctx, 'stranger@lunatech.vn', { name: 'Stranger' });
+    await joined(id, stranger.userId).expect(200, { ok: true });
+    expect(await attendances(id)).toHaveLength(0);
+    await ctx.prisma.meetingInvite.create({ data: { meetingId: id, userId: stranger.userId } });
+    await joined(id, stranger.userId).expect(200);
+    expect(await attendances(id)).toHaveLength(1);
+  });
+
   it('events for rooms outside Luna or unknown meetings return 200 and are ignored', async () => {
     await send({
       kind: 'room_finished',
