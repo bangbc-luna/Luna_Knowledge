@@ -1,8 +1,7 @@
-import { JOBS, QUEUES } from '@luna/shared';
+import { type JobQueue, QUEUES } from '@luna/shared';
 import { SearchQueueService } from '../infra/queue/search-queue.service.js';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
-import type { Queue } from 'bullmq';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
 import { AppError } from '../common/errors/app-error.js';
@@ -26,7 +25,7 @@ export class TrashService {
     private readonly dto: NodeDtoService,
     private readonly audit: AuditService,
     private readonly search: SearchQueueService,
-    @InjectQueue(QUEUES.MAINTENANCE) private readonly maintenance: Queue,
+    @InjectQueue(QUEUES.MAINTENANCE) private readonly maintenance: JobQueue<'maintenance'>,
   ) {}
 
   async list(user: AuthenticatedUser, workspaceId: string) {
@@ -167,7 +166,7 @@ export class TrashService {
   private async collectGarbageSoon() {
     try {
       await this.maintenance.add(
-        JOBS.BLOB_GC,
+        'blob-gc',
         {},
         {
           jobId: 'blob-gc-now',

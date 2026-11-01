@@ -442,6 +442,9 @@ importers:
       '@sentry/node':
         specifier: ^11.8.0
         version: 11.8.0
+      bullmq:
+        specifier: ^6.0.0
+        version: 6.3.13(ioredis@5.11.1)(pg@8.23.1)
       dotenv:
         specifier: ^17.2.3
         version: 17.4.2

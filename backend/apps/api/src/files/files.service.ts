@@ -2,10 +2,9 @@ import { randomBytes } from 'node:crypto';
 import { SearchQueueService } from '../infra/queue/search-queue.service.js';
 import type { Readable } from 'node:stream';
 import { accessColumns, effectiveRole, Prisma } from '@luna/db';
-import { JOBS, QUEUES, type RegenerateJob } from '@luna/shared';
+import { enqueueFileJob, type JobQueue, QUEUES } from '@luna/shared';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Inject, Injectable } from '@nestjs/common';
-import type { Queue } from 'bullmq';
 import type { Redis } from 'ioredis';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
@@ -51,7 +50,7 @@ export class FilesService {
     private readonly events: NodeEventsService,
     private readonly transcodes: TranscodeQueueService,
     @Inject(REDIS) private readonly redis: Redis,
-    @InjectQueue(QUEUES.FILE_PROCESS) private readonly fileQueue: Queue,
+    @InjectQueue(QUEUES.FILE_PROCESS) private readonly fileQueue: JobQueue<'file-process'>,
   ) {}
 
   async detail(user: AuthenticatedUser, nodeId: string, ctx: RequestContext) {
@@ -278,16 +277,7 @@ export class FilesService {
     if (node.type === 'VIDEO') {
       await this.transcodes.enqueue(nodeId, version.id);
     } else {
-      await this.fileQueue.add(
-        JOBS.REGENERATE,
-        { nodeId, versionId: version.id } satisfies RegenerateJob,
-        {
-          attempts: 3,
-          backoff: { type: 'exponential', delay: 5000 },
-          removeOnComplete: 100,
-          removeOnFail: 500,
-        },
-      );
+      await enqueueFileJob(this.fileQueue, 'regenerate', { nodeId, versionId: version.id });
     }
     await this.prisma.client.node.update({ where: { id: nodeId }, data: { status: 'PROCESSING' } });
     await this.events.publish({ nodeId, status: 'PROCESSING' });

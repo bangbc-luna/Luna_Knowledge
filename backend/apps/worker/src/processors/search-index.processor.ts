@@ -4,6 +4,7 @@ import {
   QUEUES,
   SEARCH_INDEX,
   SEARCH_INDEX_BUILD,
+  type QueueJob,
   SEARCH_JOBS,
   type SearchDoc,
   searchSettings,
@@ -52,23 +53,24 @@ export class SearchIndexProcessor extends WorkerHost implements OnApplicationBoo
   }
 
   async process(job: Job): Promise<unknown> {
-    switch (job.name) {
-      case SEARCH_JOBS.INDEX_NODE:
-        return this.indexIds([(job.data as { nodeId: string }).nodeId]);
-      case SEARCH_JOBS.INDEX_TREE:
-        return this.indexTree((job.data as { nodeId: string }).nodeId);
-      case SEARCH_JOBS.DROP_WORKSPACE: {
-        const { workspaceId } = job.data as { workspaceId: string };
+    const j = job as unknown as QueueJob<'search-index'>;
+    switch (j.name) {
+      case 'index-node':
+        return this.indexIds([j.data.nodeId]);
+      case 'index-tree':
+        return this.indexTree(j.data.nodeId);
+      case 'drop-workspace': {
+        const { workspaceId } = j.data;
         await this.client
           .index(SEARCH_INDEX)
           .deleteDocuments({ filter: `workspaceId = "${workspaceId}"` })
           .waitTask();
         return { dropped: workspaceId };
       }
-      case SEARCH_JOBS.REINDEX_ALL:
+      case 'reindex-all':
         return this.reindexAll();
       default:
-        return { skipped: job.name };
+        return { skipped: (j as { name: string }).name };
     }
   }
 

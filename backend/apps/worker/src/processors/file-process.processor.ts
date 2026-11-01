@@ -11,18 +11,18 @@ import {
   type BlobRef,
   FILE_TYPES,
   type FileTypeRule,
-  JOBS,
+  enqueueIndexNode,
+  enqueueTranscode,
+  type JobQueue,
   type ProcessUploadJob,
   QUEUES,
+  type QueueJob,
   type RegenerateJob,
-  SEARCH_JOBS,
-  type TranscodeJob,
-  transcodeJobOptions,
   reportError,
 } from '@luna/shared';
 import { InjectQueue, OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger, type OnApplicationBootstrap } from '@nestjs/common';
-import { type Job, type Queue, UnrecoverableError } from 'bullmq';
+import { type Job, UnrecoverableError } from 'bullmq';
 import { WORKER_CONFIG, type WorkerConfig } from '../config/worker-config.js';
 import { PrismaService } from '../infra/prisma.provider.js';
 import { NodeEventsPublisher } from '../infra/redis.provider.js';
@@ -46,8 +46,8 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
     private readonly storage: StorageService,
     private readonly events: NodeEventsPublisher,
     @Inject(WORKER_CONFIG) private readonly config: WorkerConfig,
-    @InjectQueue(QUEUES.VIDEO_TRANSCODE) private readonly videoQueue: Queue,
-    @InjectQueue(QUEUES.SEARCH_INDEX) private readonly searchQueue: Queue,
+    @InjectQueue(QUEUES.VIDEO_TRANSCODE) private readonly videoQueue: JobQueue<'video-transcode'>,
+    @InjectQueue(QUEUES.SEARCH_INDEX) private readonly searchQueue: JobQueue<'search-index'>,
   ) {
     super();
   }
@@ -57,9 +57,10 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
   }
 
   async process(job: Job): Promise<unknown> {
-    switch (job.name) {
-      case JOBS.PROCESS_UPLOAD: {
-        const { uploadId } = job.data as ProcessUploadJob;
+    const j = job as unknown as QueueJob<'file-process'>;
+    switch (j.name) {
+      case 'process-upload': {
+        const { uploadId } = j.data;
         const result = await this.processUpload(uploadId);
         const session = await this.prisma.client.uploadSession.findUnique({
           where: { id: uploadId },
@@ -68,13 +69,15 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
         if (session?.nodeId) await this.reindex(session.nodeId);
         return result;
       }
-      case JOBS.REGENERATE: {
-        const result = await this.regenerate(job.data as RegenerateJob);
-        await this.reindex((job.data as RegenerateJob).nodeId);
+      case 'regenerate': {
+        const result = await this.regenerate(j.data);
+        await this.reindex(j.data.nodeId);
         return result;
       }
       default:
-        throw new Error(`Unknown job "${job.name}" on queue ${QUEUES.FILE_PROCESS}`);
+        throw new Error(
+          `Unknown job "${(j as { name: string }).name}" on queue ${QUEUES.FILE_PROCESS}`,
+        );
     }
   }
 
@@ -86,7 +89,7 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
     if (!(err instanceof UnrecoverableError))
       reportError(err, { queue: job.queueName, job: job.name, data: job.data });
     const nodeId =
-      job.name === JOBS.REGENERATE
+      job.name === 'regenerate'
         ? (job.data as RegenerateJob).nodeId
         : (
             await this.prisma.client.uploadSession.findUnique({
@@ -101,9 +104,9 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
   }
 
   private async reindex(nodeId: string) {
-    await this.searchQueue
-      .add(SEARCH_JOBS.INDEX_NODE, { nodeId }, { removeOnComplete: true, removeOnFail: 100 })
-      .catch((err) => this.logger.warn({ err, nodeId }, 'Could not enqueue search index'));
+    await enqueueIndexNode(this.searchQueue, nodeId).catch((err) =>
+      this.logger.warn({ err, nodeId }, 'Could not enqueue search index'),
+    );
   }
 
   async processUpload(uploadId: string) {
@@ -215,10 +218,11 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
       }
       await this.storage.s3.send(new DeleteObjectCommand(tmp)).catch(() => undefined);
       if (kind === 'VIDEO') {
-        await this.videoQueue.add(
-          JOBS.TRANSCODE,
-          { nodeId: node.id, versionId: uploadId } satisfies TranscodeJob,
-          transcodeJobOptions(size, `transcode-${uploadId}`),
+        await enqueueTranscode(
+          this.videoQueue,
+          { nodeId: node.id, versionId: uploadId },
+          size,
+          `transcode-${uploadId}`,
         );
       }
       await this.events.publish({

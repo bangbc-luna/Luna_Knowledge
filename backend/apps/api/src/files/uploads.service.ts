@@ -11,15 +11,14 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { UploadSession } from '@luna/db';
 import {
-  JOBS,
-  type ProcessUploadJob,
+  enqueueFileJob,
+  type JobQueue,
   QUEUES,
   ALLOWED_EXTENSIONS,
   ruleForFileName,
 } from '@luna/shared';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import type { Queue } from 'bullmq';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
 import { AppError } from '../common/errors/app-error.js';
@@ -53,7 +52,7 @@ export class UploadsService {
     @Inject(S3) private readonly s3: S3Client,
     @Inject(S3_PRESIGN) private readonly presigner: S3Client,
     @Inject(BUCKETS) private readonly buckets: Buckets,
-    @InjectQueue(QUEUES.FILE_PROCESS) private readonly fileQueue: Queue,
+    @InjectQueue(QUEUES.FILE_PROCESS) private readonly fileQueue: JobQueue<'file-process'>,
   ) {}
 
   async create(
@@ -265,13 +264,7 @@ export class UploadsService {
         data: { status: 'PROCESSING', updatedById: user.id },
       }),
     ]);
-    await this.fileQueue.add(JOBS.PROCESS_UPLOAD, { uploadId } satisfies ProcessUploadJob, {
-      jobId: `upload-${uploadId}`,
-      attempts: 3,
-      backoff: { type: 'exponential', delay: 5000 },
-      removeOnComplete: 100,
-      removeOnFail: 500,
-    });
+    await enqueueFileJob(this.fileQueue, 'process-upload', { uploadId }, `upload-${uploadId}`);
     await this.events.publish({ nodeId: session.nodeId, status: 'PROCESSING' });
     await this.audit.log({
       actorId: user.id,

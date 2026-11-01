@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import type { BlobKind } from '@luna/db';
-import { JOBS, QUEUES, reportError, sealVideoKey, type TranscodeJob } from '@luna/shared';
+import { QUEUES, type QueueJob, reportError, sealVideoKey, type TranscodeJob } from '@luna/shared';
 import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import { type Job, UnrecoverableError } from 'bullmq';
@@ -74,16 +74,16 @@ export class VideoTranscodeProcessor extends WorkerHost implements OnApplication
   }
 
   async process(job: Job): Promise<unknown> {
-    if (job.name !== JOBS.TRANSCODE)
-      throw new Error(`Unknown job "${job.name}" on queue ${QUEUES.VIDEO_TRANSCODE}`);
+    const j = job as unknown as QueueJob<'video-transcode'>;
+    if (j.name !== 'transcode')
+      throw new Error(
+        `Unknown job "${(j as { name: string }).name}" on queue ${QUEUES.VIDEO_TRANSCODE}`,
+      );
     try {
-      return await this.transcode(job.data as TranscodeJob);
+      return await this.transcode(j.data);
     } catch (err) {
       if (err instanceof InvalidVideoError) {
-        this.logger.warn(
-          { nodeId: (job.data as TranscodeJob).nodeId, detail: err.detail },
-          err.message,
-        );
+        this.logger.warn({ nodeId: j.data.nodeId, detail: err.detail }, err.message);
         throw new UnrecoverableError(err.message);
       }
       throw err;
