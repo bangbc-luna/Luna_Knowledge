@@ -87,12 +87,13 @@ services:
       retries: 20
 
   # Phòng họp cục bộ (tuỳ chọn): docker compose -f docker/docker-compose.dev.yml --profile meetings up -d livekit
-  # Khoá khớp mặc định trong .env.example (LIVEKIT_URL=ws://localhost:7880). Webhook trỏ về API chạy trên máy (host.docker.internal).
+  # Khoá khớp mặc định trong .env.example (LIVEKIT_URL=ws://localhost:7880). Chạy bằng mạng host, chỉ nghe 127.0.0.1; webhook trỏ về API chạy trên máy.
   livekit:
     image: livekit/livekit-server:v1.13.10
     profiles: [meetings]
     restart: unless-stopped
-    command: ['--dev', '--bind', '0.0.0.0', '--keys', 'devkey: devsecret-0123456789-abcdefghijklmnop']
+    network_mode: host
+    command: ['--dev', '--bind', '127.0.0.1', '--keys', 'devkey: devsecret-0123456789-abcdefghijklmnop']
     environment:
       LIVEKIT_CONFIG: |
         rtc:
@@ -101,13 +102,7 @@ services:
         webhook:
           api_key: devkey
           urls:
-            - http://host.docker.internal:${API_PORT:-4000}/api/v1/meetings/livekit/webhook
-    extra_hosts:
-      - 'host.docker.internal:host-gateway'
-    ports:
-      - '127.0.0.1:7880:7880'
-      - '127.0.0.1:7881:7881'
-      - '127.0.0.1:50000-50020:50000-50020/udp'
+            - http://127.0.0.1:${API_PORT:-4000}/api/v1/meetings/livekit/webhook
 
 volumes:
   postgres-data:
