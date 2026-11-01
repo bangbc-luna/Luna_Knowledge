@@ -1,9 +1,13 @@
 import type { AuditAction } from '@luna/db';
 import { Logger } from '@nestjs/common';
-import { describe, expect, expectTypeOf, it, vi } from 'vitest';
+import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { AuditService } from './audit.service.js';
 
 describe('AuditService', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('writes through writeAudit with the request ip and user agent', async () => {
     const create = vi.fn().mockResolvedValue({});
     const svc = new AuditService({ client: { auditLog: { create } } } as never, {} as never);
