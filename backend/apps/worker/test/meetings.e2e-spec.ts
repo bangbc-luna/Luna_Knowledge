@@ -287,6 +287,56 @@ describe('Meetings worker (e2e)', () => {
     );
   });
 
+  it('nhắc bỏ qua người tạo và người được mời đã bị vô hiệu hoá, ở cả COMPANY và TEAM', async () => {
+    const at = new Date(Date.now() + 3_600_000);
+    const activeOwner = await user('owner');
+    const team = await workspace(activeOwner.id, 'TEAM');
+    const company = await workspace(activeOwner.id, 'COMPANY');
+    for (const ws of [team, company]) {
+      const disabledCreator = await user('dcreator', 'DISABLED');
+      const disabledInvitee = await user('dinvitee', 'DISABLED');
+      const okInvitee = await user('okinvitee');
+      const m = await scheduled(ws.id, disabledCreator.id, at);
+      await prisma.meetingInvite.createMany({
+        data: [
+          { meetingId: m.id, userId: disabledInvitee.id },
+          { meetingId: m.id, userId: okInvitee.id },
+        ],
+      });
+      await run('remind', { meetingId: m.id, scheduledAt: at.toISOString() });
+      expect(await reminded(m.id)).toEqual([okInvitee.id]);
+    }
+  });
+
+  it('nhắc muộn (đã quá giờ họp) thì không gửi', async () => {
+    const owner = await user('owner');
+    const ws = await workspace(owner.id, 'COMPANY');
+    const at = new Date(Date.now() - 60_000);
+    const m = await scheduled(ws.id, owner.id, at);
+    await run('remind', { meetingId: m.id, scheduledAt: at.toISOString() });
+    expect(await reminded(m.id)).toEqual([]);
+  });
+
+  it('đối soát: kiểm tra lại ngay trước khi kết thúc, phòng có người trở lại thì giữ LIVE', async () => {
+    const owner = await user('owner');
+    const ws = await workspace(owner.id, 'COMPANY');
+    const m = await live(ws.id, owner.id, minutesAgo(10));
+    const original = media.listParticipants.bind(media);
+    let calls = 0;
+    media.listParticipants = async (roomName: string) => {
+      if (roomName !== roomNameFor(m.id)) return original(roomName);
+      calls++;
+      return calls === 1 ? null : [{ identity: owner.id, joinedAt: new Date(), hidden: false }];
+    };
+    try {
+      await run('reconcile');
+    } finally {
+      media.listParticipants = original;
+    }
+    expect(calls).toBe(2);
+    expect((await prisma.meeting.findUniqueOrThrow({ where: { id: m.id } })).status).toBe('LIVE');
+  });
+
   it('khởi động đăng ký job scheduler đối soát mỗi 60 giây', async () => {
     const schedulers = await queue.getJobSchedulers();
     expect(schedulers.find((s) => s.key === 'reconcile')).toMatchObject({

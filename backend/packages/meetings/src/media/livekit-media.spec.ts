@@ -184,6 +184,17 @@ describe('LiveKitMeetingMedia', () => {
       ).rejects.toThrow('boom');
     });
 
+    it('listParticipants returns null only for a not_found code; a bare 404 or other error rethrows', async () => {
+      const gone = withClient({ listParticipants: vi.fn().mockRejectedValue(notFound()) });
+      await expect(gone.listParticipants('r')).resolves.toBeNull();
+      const bare = withClient({
+        listParticipants: vi.fn().mockRejectedValue(new ServerError('x', 'proxy', 404, 'unknown')),
+      });
+      await expect(bare.listParticipants('r')).rejects.toThrow('proxy');
+      const broken = withClient({ listParticipants: vi.fn().mockRejectedValue(boom()) });
+      await expect(broken.listParticipants('r')).rejects.toThrow('boom');
+    });
+
     it('webhook without createdAt falls back to now', async () => {
       const before = Date.now();
       const w = await signedWebhook({

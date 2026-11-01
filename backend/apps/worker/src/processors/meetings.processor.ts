@@ -90,6 +90,7 @@ export class MeetingsProcessor extends WorkerHost implements OnApplicationBootst
       !meeting ||
       meeting.status !== 'SCHEDULED' ||
       meeting.workspace.deletedAt ||
+      Date.now() > (meeting.scheduledAt?.getTime() ?? 0) ||
       meeting.scheduledAt?.toISOString() !== scheduledAt
     ) {
       return { sent: 0 };
@@ -103,10 +104,14 @@ export class MeetingsProcessor extends WorkerHost implements OnApplicationBootst
       });
       for (const m of members) recipients.add(m.userId);
     }
+    const active = await db.user.findMany({
+      where: { id: { in: [...recipients] }, status: 'ACTIVE' },
+      select: { id: true },
+    });
     await writeNotifications(
       db,
       (channel, message) => this.publisher.publishRaw(channel, message),
-      recipients,
+      active.map((u) => u.id),
       'meeting.reminder',
       {
         meetingId: meeting.id,
@@ -115,7 +120,7 @@ export class MeetingsProcessor extends WorkerHost implements OnApplicationBootst
         scheduledAt,
       },
     );
-    return { sent: recipients.size };
+    return { sent: active.length };
   }
 
   async reconcile(): Promise<ReconcileResult> {
@@ -166,7 +171,10 @@ export class MeetingsProcessor extends WorkerHost implements OnApplicationBootst
     const participants = await this.media.listParticipants(roomNameFor(meetingId));
     const visible = participants?.filter((p) => !p.hidden) ?? [];
     if (visible.length === 0) {
-      return now - startedMs > graceMs ? this.end(meetingId) : false;
+      if (now - startedMs <= graceMs) return false;
+      const again = await this.media.listParticipants(roomNameFor(meetingId));
+      if (again?.some((p) => !p.hidden)) return false;
+      return this.end(meetingId);
     }
     const present = participants!.map((p) => p.identity).filter((id) => UUID.test(id));
     await this.prisma.client.meetingAttendance.updateMany({

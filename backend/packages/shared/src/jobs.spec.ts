@@ -133,6 +133,8 @@ describe('enqueue helpers', () => {
         {
           jobId: `remind-m1-${at.getTime()}`,
           delay: 50 * 60_000,
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 5000 },
           removeOnComplete: true,
           removeOnFail: 100,
         },

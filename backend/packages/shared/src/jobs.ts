@@ -133,6 +133,8 @@ export async function enqueueMeetingReminder(
     {
       jobId: `remind-${meetingId}-${at}`,
       delay: Math.max(0, at - reminderMinutes * 60_000 - now),
+      attempts: 3,
+      backoff: { type: 'exponential' as const, delay: 5000 },
       removeOnComplete: true,
       removeOnFail: 100,
     },

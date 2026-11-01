@@ -138,7 +138,7 @@ export class LiveKitMeetingMedia implements MeetingMedia {
         hidden: p.permission?.hidden ?? false,
       }));
     } catch (err) {
-      if (isNotFound(err)) return null;
+      if (err instanceof ServerError && err.code === 'not_found') return null;
       throw err;
     }
   }
