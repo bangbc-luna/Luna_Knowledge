@@ -1,3 +1,5 @@
+import { QUEUES, redisConnection } from '@luna/shared';
+import { Queue } from 'bullmq';
 import request from 'supertest';
 import {
   createTestApp,
@@ -369,5 +371,35 @@ describe('Meetings (e2e)', () => {
     expect(
       await ctx.prisma.auditLog.count({ where: { action: 'meeting.invite', targetId: id } }),
     ).toBe(1);
+  });
+
+  it('đặt lịch và đổi giờ xếp job nhắc theo giờ họp; họp ngay không có job nhắc', async () => {
+    const queue = new Queue(QUEUES.MEETINGS, {
+      connection: redisConnection(process.env.REDIS_URL!),
+      prefix: 'luna',
+    });
+    try {
+      const at = inHours(3);
+      const made = await create(alice, { title: 'Nhắc lịch', mode: 'scheduled', scheduledAt: at });
+      const id = made.body.id as string;
+      const first = await queue.getJob(`remind-${id}-${new Date(at).getTime()}`);
+      expect(first?.data).toEqual({ meetingId: id, scheduledAt: new Date(at).toISOString() });
+      expect(first?.opts.delay).toBeGreaterThan(0);
+
+      const next = inHours(6);
+      await http()
+        .patch(`/api/v1/meetings/${id}`)
+        .set(alice.auth)
+        .send({ scheduledAt: next })
+        .expect(200);
+      const moved = await queue.getJob(`remind-${id}-${new Date(next).getTime()}`);
+      expect(moved?.data).toEqual({ meetingId: id, scheduledAt: new Date(next).toISOString() });
+
+      const instant = await create(alice, { title: 'Ngay', mode: 'instant' }).expect(201);
+      const jobs = await queue.getDelayed();
+      expect(jobs.some((j) => j.data.meetingId === instant.body.id)).toBe(false);
+    } finally {
+      await queue.close();
+    }
   });
 });

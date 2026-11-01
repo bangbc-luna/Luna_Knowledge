@@ -259,6 +259,9 @@ importers:
       '@luna/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@luna/meetings':
+        specifier: workspace:*
+        version: link:../../packages/meetings
       '@luna/shared':
         specifier: workspace:*
         version: link:../../packages/shared

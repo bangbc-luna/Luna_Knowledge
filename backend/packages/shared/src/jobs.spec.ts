@@ -3,6 +3,7 @@ import { JOBS, QUEUES } from './constants.js';
 import {
   enqueueFileJob,
   enqueueIndexNode,
+  enqueueMeetingReminder,
   enqueueTranscode,
   type JobName,
   type JobPayloads,
@@ -115,5 +116,43 @@ describe('enqueue helpers', () => {
       | typeof JOBS.CLEAN_UPLOADS
       | typeof JOBS.BLOB_GC
     >();
+  });
+
+  describe('enqueueMeetingReminder', () => {
+    afterEach(() => vi.useRealTimers());
+
+    it('jobId follows the meeting time and the delay subtracts the reminder minutes', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-11-01T10:00:00.000Z'));
+      const q = fakeQueue();
+      const at = new Date('2026-11-01T11:00:00.000Z');
+      await enqueueMeetingReminder(q, 'm1', at, 10);
+      expect(q.add).toHaveBeenCalledWith(
+        'remind',
+        { meetingId: 'm1', scheduledAt: at.toISOString() },
+        {
+          jobId: `remind-m1-${at.getTime()}`,
+          delay: 50 * 60_000,
+          removeOnComplete: true,
+          removeOnFail: 100,
+        },
+      );
+    });
+
+    it('delay never goes below zero', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-11-01T10:00:00.000Z'));
+      const q = fakeQueue();
+      await enqueueMeetingReminder(q, 'm1', new Date('2026-11-01T10:05:00.000Z'), 10);
+      expect(q.add.mock.calls[0]![2]).toMatchObject({ delay: 0 });
+    });
+
+    it('does nothing for a meeting starting within a minute', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-11-01T10:00:00.000Z'));
+      const q = fakeQueue();
+      await enqueueMeetingReminder(q, 'm1', new Date('2026-11-01T10:00:30.000Z'), 10);
+      expect(q.add).not.toHaveBeenCalled();
+    });
   });
 });

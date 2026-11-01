@@ -5,6 +5,7 @@ export const QUEUES = {
   VIDEO_TRANSCODE: 'video-transcode',
   SEARCH_INDEX: 'search-index',
   MAINTENANCE: 'maintenance',
+  MEETINGS: 'meetings',
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -23,6 +24,8 @@ export const JOBS = {
   BLOB_GC: 'blob-gc',
   RETENTION: 'retention',
   TRANSCODE: 'transcode',
+  MEETING_REMIND: 'remind',
+  MEETING_RECONCILE: 'reconcile',
 } as const;
 
 export interface NodeEvent {

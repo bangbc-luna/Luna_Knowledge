@@ -16,6 +16,10 @@ export class NodeEventsPublisher implements OnModuleDestroy {
     await this.redis.publish(nodeEventsChannel(event.nodeId), JSON.stringify(event)).catch(() => 0);
   }
 
+  async publishRaw(channel: string, message: string): Promise<number> {
+    return this.redis.publish(channel, message);
+  }
+
   async notify(row: {
     id: string;
     userId: string;

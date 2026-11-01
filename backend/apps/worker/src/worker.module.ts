@@ -1,3 +1,4 @@
+import { LiveKitMeetingMedia, MEETING_ENDED_HOOK, MEETING_MEDIA } from '@luna/meetings';
 import { ObjectStore, QUEUES } from '@luna/shared';
 import { BullModule } from '@nestjs/bullmq';
 import { Global, Module, type OnModuleDestroy } from '@nestjs/common';
@@ -13,6 +14,7 @@ import { PrismaService } from './infra/prisma.provider.js';
 import { NodeEventsPublisher } from './infra/redis.provider.js';
 import { FileProcessProcessor } from './processors/file-process.processor.js';
 import { VideoTranscodeProcessor } from './processors/video-transcode.processor.js';
+import { MeetingsProcessor } from './processors/meetings.processor.js';
 import { MaintenanceProcessor } from './processors/maintenance.processor.js';
 import { SearchIndexProcessor } from './processors/search-index.processor.js';
 import { SystemProcessor } from './processors/system.processor.js';
@@ -55,6 +57,7 @@ class WorkerConfigModule {}
       { name: QUEUES.FILE_PROCESS },
       { name: QUEUES.VIDEO_TRANSCODE },
       { name: QUEUES.SEARCH_INDEX },
+      { name: QUEUES.MEETINGS },
     ),
   ],
   providers: [
@@ -65,6 +68,13 @@ class WorkerConfigModule {}
       useFactory: (c: WorkerConfig) => new ObjectStore(c),
     },
     NodeEventsPublisher,
+    { provide: MEETING_ENDED_HOOK, useValue: async () => undefined },
+    {
+      provide: MEETING_MEDIA,
+      inject: [WORKER_CONFIG],
+      useFactory: (c: WorkerConfig) => new LiveKitMeetingMedia(c),
+    },
+    MeetingsProcessor,
     SystemProcessor,
     MaintenanceProcessor,
     FileProcessProcessor,

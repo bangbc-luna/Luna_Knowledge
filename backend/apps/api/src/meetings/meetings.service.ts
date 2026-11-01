@@ -1,6 +1,9 @@
 import { type AuditRecord, type Meeting, type Prisma, writeAudit } from '@luna/db';
-import { Injectable } from '@nestjs/common';
+import { enqueueMeetingReminder, type JobQueue, QUEUES } from '@luna/shared';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
+import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { AppError } from '../common/errors/app-error.js';
 import type { RequestContext } from '../common/http/request-context.js';
 import { decodeKeysetCursor, encodeKeysetCursor, type Page } from '../common/pagination/cursor.js';
@@ -25,13 +28,31 @@ type MeetingRow = Meeting & {
 
 @Injectable()
 export class MeetingsService {
+  private readonly logger = new Logger(MeetingsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly content: ContentAccessService,
     private readonly access: MeetingAccess,
     private readonly users: UsersService,
     private readonly notifications: NotificationsService,
+    @InjectQueue(QUEUES.MEETINGS) private readonly queue: JobQueue<'meetings'>,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
+
+  private async scheduleReminder(meetingId: string, scheduledAt: Date | null) {
+    if (!scheduledAt) return;
+    try {
+      await enqueueMeetingReminder(
+        this.queue,
+        meetingId,
+        scheduledAt,
+        this.config.MEETING_REMINDER_MINUTES,
+      );
+    } catch (err) {
+      this.logger.warn({ err, meetingId }, 'Could not enqueue meeting reminder');
+    }
+  }
 
   async create(
     user: AuthenticatedUser,
@@ -73,6 +94,7 @@ export class MeetingsService {
       return created;
     });
     await this.notifyInvited(user, meeting, invitees);
+    if (body.mode !== 'instant') await this.scheduleReminder(meeting.id, meeting.scheduledAt);
     return this.toDto(meeting, 0);
   }
 
@@ -156,6 +178,7 @@ export class MeetingsService {
         },
       });
     });
+    if (body.scheduledAt) await this.scheduleReminder(meetingId, body.scheduledAt);
     return this.detail(meetingId, access.isHost, true);
   }
 

@@ -67,6 +67,9 @@ describe('Search index worker (e2e)', () => {
       VIDEO_MASTER_KEY: Buffer.alloc(32, 1).toString('base64'),
       MEILI_URL: `http://${ms.getHost()}:${ms.getMappedPort(7700)}`,
       MEILI_MASTER_KEY: KEY,
+      LIVEKIT_URL: 'wss://fake.livekit.test',
+      LIVEKIT_API_KEY: 'fake-livekit-key',
+      LIVEKIT_API_SECRET: 'fake-livekit-secret-0123456789abcdef',
     });
     execFileSync('pnpm', ['exec', 'prisma', 'migrate', 'deploy'], {
       cwd: fileURLToPath(new URL('../../../packages/db', import.meta.url)),
