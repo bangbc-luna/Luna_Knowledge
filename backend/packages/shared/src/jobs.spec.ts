@@ -5,8 +5,10 @@ import {
   enqueueIndexNode,
   enqueueTranscode,
   type JobName,
+  type JobPayloads,
   type JobQueueName,
   transcodeJobOptions,
+  type ProcessUploadJob,
   type RegenerateJob,
   SEARCH_JOBS,
 } from './index.js';
@@ -90,11 +92,11 @@ describe('enqueue helpers', () => {
     expectTypeOf<JobName<'maintenance'>>().toEqualTypeOf<
       'purge-trash' | 'retention' | 'clean-uploads' | 'blob-gc'
     >();
-    const q = fakeQueue();
-    // @ts-expect-error uploadId is required for process-upload
-    void enqueueFileJob(q, 'process-upload', { nodeId: 'n' });
-    // @ts-expect-error unknown job name
-    void enqueueFileJob(q, 'nope', {});
+    expectTypeOf<{ nodeId: string }>().not.toMatchTypeOf<ProcessUploadJob>();
+    expectTypeOf<'nope'>().not.toMatchTypeOf<JobName<'file-process'>>();
+    expectTypeOf<
+      JobPayloads['file-process']['process-upload']
+    >().not.toEqualTypeOf<RegenerateJob>();
   });
 
   it('JobPayloads keys match the runtime constants', () => {
