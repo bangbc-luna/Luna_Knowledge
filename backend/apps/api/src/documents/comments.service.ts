@@ -4,12 +4,11 @@ import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
 import { AppError } from '../common/errors/app-error.js';
 import type { RequestContext } from '../common/http/request-context.js';
-import { ContentAccessService } from '../content/content-access.service.js';
+import { ContentAccessService, AS_DOCUMENT } from '../content/content-access.service.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { roleAtLeast } from '../workspaces/workspace-roles.js';
 import type { CreateThreadBody, ReplyBody, ThreadsQuery } from './comments.schemas.js';
-import { DocumentsService } from './documents.service.js';
 
 const userSummary = { id: true, email: true, name: true, avatarUrl: true } as const;
 const threadInclude = {
@@ -30,13 +29,12 @@ export class CommentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: ContentAccessService,
-    private readonly documents: DocumentsService,
     private readonly notifications: NotificationsService,
     private readonly audit: AuditService,
   ) {}
 
   async list(user: AuthenticatedUser, nodeId: string, q: ThreadsQuery) {
-    const node = await this.documents.requireDocument(user, nodeId, 'VIEWER');
+    const node = await this.access.requireNode(user, nodeId, 'VIEWER', AS_DOCUMENT);
     const threads = await this.prisma.client.commentThread.findMany({
       where: { nodeId, ...(q.status === 'ALL' ? {} : { status: q.status as ThreadStatus }) },
       include: threadInclude,
@@ -54,7 +52,7 @@ export class CommentsService {
     body: CreateThreadBody,
     ctx: RequestContext,
   ) {
-    const node = await this.documents.requireDocument(user, nodeId, 'VIEWER');
+    const node = await this.access.requireNode(user, nodeId, 'VIEWER', AS_DOCUMENT);
     const doc = await this.prisma.client.document.findUnique({
       where: { nodeId },
       select: { format: true },
@@ -213,7 +211,9 @@ export class CommentsService {
     const unique = [...new Set(ids)].filter((id) => id !== authorId);
     if (!unique.length) return { allowed: [] as string[], ignored: [] as string[] };
     const access = await Promise.all(
-      unique.map((id) => this.access.resolveMany(id, [nodeId]).then((m) => m.get(nodeId))),
+      unique.map((id) =>
+        this.access.resolveMany(id, [nodeId], { ignoreStatus: true }).then((m) => m.get(nodeId)),
+      ),
     );
     const allowed = unique.filter((_, i) => access[i]?.role && !access[i]?.deletedAt);
     return { allowed, ignored: unique.filter((id) => !allowed.includes(id)) };
@@ -222,7 +222,7 @@ export class CommentsService {
   private async requireThread(user: AuthenticatedUser, threadId: string) {
     const thread = await this.prisma.client.commentThread.findUnique({ where: { id: threadId } });
     if (!thread) throw AppError.notFound('Thread not found');
-    const node = await this.documents.requireDocument(user, thread.nodeId, 'VIEWER');
+    const node = await this.access.requireNode(user, thread.nodeId, 'VIEWER', AS_DOCUMENT);
     return { thread, node };
   }
 

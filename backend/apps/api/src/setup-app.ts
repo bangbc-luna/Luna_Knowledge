@@ -12,7 +12,7 @@ import { buildOpenApiDocument } from './common/swagger/openapi-document.js';
 
 export const API_PREFIX = 'api/v1';
 
-export function setupApp(app: INestApplication, config: AppConfig) {
+export function applyGlobalPrefix(app: INestApplication) {
   app.setGlobalPrefix(API_PREFIX, {
     exclude: [
       { path: 'health', method: RequestMethod.GET },
@@ -22,6 +22,10 @@ export function setupApp(app: INestApplication, config: AppConfig) {
       { path: 'dev/player', method: RequestMethod.GET },
     ],
   });
+}
+
+export function setupApp(app: INestApplication, config: AppConfig) {
+  applyGlobalPrefix(app);
   (app.getHttpAdapter().getInstance() as Express).set('trust proxy', config.TRUST_PROXY);
   app.use(app.get(MetricsService).middleware());
   app.use(

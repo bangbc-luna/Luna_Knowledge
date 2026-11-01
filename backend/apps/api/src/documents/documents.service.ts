@@ -1,6 +1,3 @@
-import { randomUUID } from 'node:crypto';
-import { SearchQueueService } from '../infra/queue/search-queue.service.js';
-import { CopyObjectCommand, PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
 import {
   type DocJSON,
   emptyDoc,
@@ -15,9 +12,8 @@ import {
   stateToJSON,
   wordCount,
 } from '@luna/editor';
-import { COLLAB_TOKEN_AUDIENCE, collabDocumentName } from '@luna/shared';
+import { COLLAB_TOKEN_AUDIENCE, collabDocumentName, ObjectStore } from '@luna/shared';
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { fileTypeFromBuffer } from 'file-type';
 import { SignJWT } from 'jose';
 import mammoth from 'mammoth';
 import { AuditService } from '../audit/audit.service.js';
@@ -25,13 +21,20 @@ import type { AuthenticatedUser } from '../auth/auth.service.js';
 import { AppError } from '../common/errors/app-error.js';
 import type { RequestContext } from '../common/http/request-context.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
-import { ContentAccessService } from '../content/content-access.service.js';
+import {
+  ContentAccessService,
+  AS_DOCUMENT,
+  AS_FILE_ONLY,
+} from '../content/content-access.service.js';
 import { NodeDtoService } from '../content/node-dto.service.js';
-import { nameKey, suggestName } from '../content/node-names.js';
-import { NodesService } from '../content/nodes.service.js';
-import { StorageService } from '../files/storage.service.js';
+import { NodeTree } from '../content/node-tree.service.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
-import { BUCKETS, type Buckets, S3 } from '../infra/s3/s3.module.js';
+import {
+  DOCX_MIME,
+  DocumentAssets,
+  remapAssets,
+  type UploadedAsset,
+} from './document-assets.service.js';
 import { CollabClient } from './collab-client.service.js';
 import {
   DOCX_IMPORT_MAX_BYTES,
@@ -42,25 +45,6 @@ import type { CopyDocumentBody, CreateDocumentBody } from './documents.schemas.j
 
 const userSummary = { id: true, email: true, name: true, avatarUrl: true } as const;
 const COLLAB_TOKEN_TTL_SEC = 300;
-const MAX_ASSET_BYTES = 20 * 1024 * 1024;
-const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-const ASSET_MIMES = new Set([
-  'image/png',
-  'image/jpeg',
-  'image/webp',
-  'image/gif',
-  'application/pdf',
-  DOCX_MIME,
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-]);
-
-export interface UploadedAsset {
-  originalname: string;
-  buffer: Buffer;
-  size: number;
-}
-
 @Injectable()
 export class DocumentsService {
   private readonly logger = new Logger(DocumentsService.name);
@@ -68,15 +52,13 @@ export class DocumentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: ContentAccessService,
-    private readonly nodes: NodesService,
+    private readonly tree: NodeTree,
     private readonly dto: NodeDtoService,
-    private readonly storage: StorageService,
+    private readonly store: ObjectStore,
+    private readonly assets: DocumentAssets,
     private readonly audit: AuditService,
-    private readonly search: SearchQueueService,
     private readonly collab: CollabClient,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
-    @Inject(S3) private readonly s3: S3Client,
-    @Inject(BUCKETS) private readonly buckets: Buckets,
   ) {}
 
   async create(
@@ -85,30 +67,38 @@ export class DocumentsService {
     body: CreateDocumentBody,
     ctx: RequestContext,
   ) {
-    const parentId = body.parentId ?? null;
-    await this.nodes.requireContainer(user, workspaceId, parentId, 'DOCS');
-    const nodeId = await this.createNode(
+    const node = await this.tree.create(
       user,
-      workspaceId,
-      parentId,
-      body.name,
-      body.format === 'LATEX' ? latexJSON(LATEX_TEMPLATE) : emptyDoc(),
-    );
-    await this.audit.log({
-      actorId: user.id,
-      action: 'node.create',
-      targetType: 'node',
-      targetId: nodeId,
-      workspaceId,
-      metadata: { type: 'DOCUMENT', format: body.format, name: body.name, parentId },
+      {
+        workspaceId,
+        parentId: body.parentId ?? null,
+        section: 'DOCS',
+        type: 'DOCUMENT',
+        name: body.name,
+        extra: {
+          document: this.documentFields(
+            body.format === 'LATEX' ? latexJSON(LATEX_TEMPLATE) : emptyDoc(),
+          ),
+        },
+      },
       ctx,
-    });
-    await this.search.node(nodeId);
-    return this.detail(user, nodeId);
+      {
+        announce: {
+          action: 'node.create',
+          metadata: (n) => ({
+            type: 'DOCUMENT',
+            format: body.format,
+            name: n.name,
+            parentId: n.parentId,
+          }),
+        },
+      },
+    );
+    return this.detail(user, node.id);
   }
 
   async copy(user: AuthenticatedUser, nodeId: string, body: CopyDocumentBody, ctx: RequestContext) {
-    const source = await this.requireDocument(user, nodeId, 'VIEWER');
+    const source = await this.access.requireNode(user, nodeId, 'VIEWER', AS_DOCUMENT);
     const workspaceId = body.workspaceId ?? source.workspaceId;
     const parentId =
       body.parentId !== undefined
@@ -116,49 +106,48 @@ export class DocumentsService {
         : workspaceId === source.workspaceId
           ? source.parentId
           : null;
-    await this.nodes.requireContainer(user, workspaceId, parentId, 'DOCS');
-    const json = await this.latestContent(source.id, source.workspaceId, user.id);
-    let name = body.name;
-    if (!name) {
-      const taken = await this.nodes.siblingKeys(workspaceId, parentId);
-      const base = `${source.name} (bản sao)`;
-      name = taken.has(nameKey(base)) ? suggestName(base, taken) : base;
-    }
-    const copyId = await this.createNode(
+    const copy = await this.tree.create(
       user,
-      workspaceId,
-      parentId,
-      name,
-      isLatexJSON(json) ? latexJSON('') : emptyDoc(),
-    );
-    try {
-      const assetIds = await this.copyAssets(user.id, source.id, copyId);
-      await this.writeContent(copyId, remapAssets(json, assetIds));
-    } catch (err) {
-      await this.prisma.client.node.delete({ where: { id: copyId } }).catch(() => undefined);
-      throw err;
-    }
-    await this.audit.log({
-      actorId: user.id,
-      action: 'document.copy',
-      targetType: 'node',
-      targetId: copyId,
-      workspaceId,
-      metadata: {
-        name,
+      {
+        workspaceId,
         parentId,
-        fromNodeId: source.id,
-        fromName: source.name,
-        fromWorkspaceId: source.workspaceId,
+        section: 'DOCS',
+        type: 'DOCUMENT',
+        name: body.name || `${source.name} (bản sao)`,
+        autoRename: !body.name,
+        extra: async () => {
+          const json = await this.latestContent(source.id, source.workspaceId, user.id);
+          return {
+            fields: {
+              document: this.documentFields(isLatexJSON(json) ? latexJSON('') : emptyDoc()),
+            },
+            context: json,
+          };
+        },
       },
       ctx,
-    });
-    await this.search.node(copyId);
-    return this.detail(user, copyId);
+      {
+        fill: async (n, json) => {
+          const assetIds = await this.assets.copyAll(user.id, source.id, n.id);
+          await this.writeContent(n.id, remapAssets(json, assetIds));
+        },
+        announce: {
+          action: 'document.copy',
+          metadata: (n) => ({
+            name: n.name,
+            parentId: n.parentId,
+            fromNodeId: source.id,
+            fromName: source.name,
+            fromWorkspaceId: source.workspaceId,
+          }),
+        },
+      },
+    );
+    return this.detail(user, copy.id);
   }
 
   async get(user: AuthenticatedUser, nodeId: string, ctx: RequestContext) {
-    const node = await this.requireDocument(user, nodeId, 'VIEWER');
+    const node = await this.access.requireNode(user, nodeId, 'VIEWER', AS_DOCUMENT);
     await this.audit.logView(user.id, node, ctx);
     await this.prisma.client.recentView.upsert({
       where: { userId_nodeId: { userId: user.id, nodeId } },
@@ -169,7 +158,7 @@ export class DocumentsService {
   }
 
   async collabToken(user: AuthenticatedUser, nodeId: string, sessionId: string) {
-    const node = await this.requireDocument(user, nodeId, 'VIEWER');
+    const node = await this.access.requireNode(user, nodeId, 'VIEWER', AS_DOCUMENT);
     const expiresAt = new Date(Date.now() + COLLAB_TOKEN_TTL_SEC * 1000);
     const token = await new SignJWT({ doc: nodeId, name: user.name, sid: sessionId })
       .setProtectedHeader({ alg: 'HS256' })
@@ -195,9 +184,9 @@ export class DocumentsService {
     format: 'html' | 'md' | 'tex',
     ctx: RequestContext,
   ) {
-    const node = await this.requireDocument(user, nodeId, 'VIEWER');
+    const node = await this.access.requireNode(user, nodeId, 'VIEWER', AS_DOCUMENT);
     const doc = await this.prisma.client.document.findUnique({ where: { nodeId } });
-    const json = await this.withFreshAssetUrls(
+    const json = await this.assets.withFreshUrls(
       nodeId,
       (doc?.contentJson as DocJSON | null) ?? emptyDoc(),
     );
@@ -232,40 +221,57 @@ export class DocumentsService {
   }
 
   async uploadAsset(user: AuthenticatedUser, nodeId: string, file: UploadedAsset | undefined) {
-    await this.requireDocument(user, nodeId, 'EDITOR');
-    if (!file?.buffer?.length) throw AppError.validation('Attach a file in the "file" field');
-    if (file.size > MAX_ASSET_BYTES)
-      throw AppError.tooLarge('Embedded files are limited to 20 MB', { maxBytes: MAX_ASSET_BYTES });
-    const detected = await fileTypeFromBuffer(file.buffer);
-    if (!detected || !ASSET_MIMES.has(detected.mime)) {
-      throw AppError.unsupportedType(
-        'Only images (PNG, JPEG, WebP, GIF), PDF and Office files can be embedded',
-      );
-    }
-    const asset = await this.storeAsset(
-      user.id,
-      nodeId,
-      file.originalname.normalize('NFC'),
-      file.buffer,
-      detected.mime,
-    );
-    return this.assetDto(asset);
+    await this.access.requireNode(user, nodeId, 'EDITOR', AS_DOCUMENT);
+    return this.assets.upload(user.id, nodeId, file);
   }
 
   async listAssets(user: AuthenticatedUser, nodeId: string) {
-    await this.requireDocument(user, nodeId, 'VIEWER');
-    const assets = await this.prisma.client.documentAsset.findMany({
-      where: { nodeId },
-      include: { blob: true },
-      orderBy: { createdAt: 'asc' },
-    });
-    return Promise.all(assets.map((a) => this.assetDto(a)));
+    await this.access.requireNode(user, nodeId, 'VIEWER', AS_DOCUMENT);
+    return this.assets.list(nodeId);
   }
 
   async importDocx(user: AuthenticatedUser, fileNodeId: string, ctx: RequestContext) {
-    const file = await this.access.requireNode(user, fileNodeId, 'VIEWER');
-    if (file.type !== 'FILE') throw AppError.notFound('File not found');
-    await this.nodes.requireContainer(user, file.workspaceId, file.parentId);
+    const file = await this.access.requireNode(user, fileNodeId, 'VIEWER', AS_FILE_ONLY);
+    const node = await this.tree.create(
+      user,
+      {
+        workspaceId: file.workspaceId,
+        parentId: file.parentId,
+        type: 'DOCUMENT',
+        name: file.name.replace(/\.docx$/i, '') || 'Tài liệu',
+        autoRename: true,
+        extra: async () => ({
+          fields: { document: this.documentFields(emptyDoc()) },
+          context: await this.readDocx(fileNodeId),
+        }),
+      },
+      ctx,
+      {
+        fill: async (n, buffer) => {
+          try {
+            const result = await mammoth.convertToHtml(
+              { buffer },
+              {
+                convertImage: mammoth.images.imgElement(this.assets.docxImage(user.id, n.id)),
+              },
+            );
+            await this.writeContent(n.id, htmlToJSON(result.value));
+          } catch (err) {
+            throw err instanceof AppError
+              ? err
+              : AppError.unsupportedType('This Word document could not be converted');
+          }
+        },
+        announce: {
+          action: 'document.import',
+          metadata: (n) => ({ name: n.name, fromNodeId: fileNodeId, fromName: file.name }),
+        },
+      },
+    );
+    return this.detail(user, node.id);
+  }
+
+  private async readDocx(fileNodeId: string): Promise<Buffer> {
     const info = await this.prisma.client.fileInfo.findUnique({
       where: { nodeId: fileNodeId },
       include: { currentVersion: { include: { original: true } } },
@@ -279,7 +285,7 @@ export class DocumentsService {
         maxBytes: DOCX_IMPORT_MAX_BYTES,
       });
     if (original.sizeBytes > BigInt(DOCX_IMPORT_MAX_BYTES)) throw tooLarge();
-    const { body } = await this.storage.forRef(original).getStream(original);
+    const { body } = await this.store.getStream(original);
     const chunks: Buffer[] = [];
     let received = 0;
     for await (const c of body) {
@@ -304,61 +310,7 @@ export class DocumentsService {
         },
       );
     }
-
-    const taken = await this.nodes.siblingKeys(file.workspaceId, file.parentId);
-    const base = file.name.replace(/\.docx$/i, '') || 'Tài liệu';
-    const name = taken.has(nameKey(base)) ? suggestName(base, taken) : base;
-    const nodeId = await this.createNode(user, file.workspaceId, file.parentId, name, emptyDoc());
-    try {
-      const result = await mammoth.convertToHtml(
-        { buffer },
-        {
-          convertImage: mammoth.images.imgElement(async (image) => {
-            const data = Buffer.from(await image.readAsBase64String(), 'base64');
-            const mime = (await fileTypeFromBuffer(data))?.mime ?? image.contentType;
-            if (
-              !ASSET_MIMES.has(mime) ||
-              !mime.startsWith('image/') ||
-              data.length > MAX_ASSET_BYTES
-            )
-              return { src: '' };
-            const asset = await this.storeAsset(
-              user.id,
-              nodeId,
-              `image-${randomUUID().slice(0, 8)}`,
-              data,
-              mime,
-            );
-            const url = (await this.assetDto(asset)).url;
-            return { src: url, 'data-asset-id': asset.id } as { src: string };
-          }),
-        },
-      );
-      const json = htmlToJSON(result.value);
-      await this.writeContent(nodeId, json);
-    } catch (err) {
-      await this.prisma.client.node.delete({ where: { id: nodeId } }).catch(() => undefined);
-      throw err instanceof AppError
-        ? err
-        : AppError.unsupportedType('This Word document could not be converted');
-    }
-    await this.audit.log({
-      actorId: user.id,
-      action: 'document.import',
-      targetType: 'node',
-      targetId: nodeId,
-      workspaceId: file.workspaceId,
-      metadata: { name, fromNodeId: fileNodeId, fromName: file.name },
-      ctx,
-    });
-    await this.search.node(nodeId);
-    return this.detail(user, nodeId);
-  }
-
-  async requireDocument(user: AuthenticatedUser, nodeId: string, min: 'VIEWER' | 'EDITOR') {
-    const node = await this.access.requireNode(user, nodeId, min);
-    if (node.type !== 'DOCUMENT') throw AppError.notFound('Document not found');
-    return node;
+    return buffer;
   }
 
   async detail(user: AuthenticatedUser, nodeId: string) {
@@ -377,7 +329,7 @@ export class DocumentsService {
     return {
       node,
       format: doc?.format ?? 'RICH',
-      contentJson: await this.withFreshAssetUrls(
+      contentJson: await this.assets.withFreshUrls(
         nodeId,
         (doc?.contentJson as DocJSON | null) ?? emptyDoc(),
       ),
@@ -389,34 +341,8 @@ export class DocumentsService {
     };
   }
 
-  private async createNode(
-    user: AuthenticatedUser,
-    workspaceId: string,
-    parentId: string | null,
-    name: string,
-    json: DocJSON,
-  ) {
-    try {
-      const node = await this.nodes.withTreeLock(workspaceId, (tx) =>
-        tx.node.create({
-          data: {
-            workspaceId,
-            parentId,
-            type: 'DOCUMENT',
-            name,
-            nameNormalized: nameKey(name),
-            createdById: user.id,
-            updatedById: user.id,
-            document: {
-              create: { ...this.contentFields(json), format: isLatexJSON(json) ? 'LATEX' : 'RICH' },
-            },
-          },
-        }),
-      );
-      return node.id;
-    } catch (err) {
-      throw await this.nodes.mapNameConflict(err, workspaceId, parentId, name);
-    }
+  private documentFields(json: DocJSON) {
+    return { ...this.contentFields(json), format: isLatexJSON(json) ? 'LATEX' : 'RICH' } as const;
   }
 
   private async latestContent(nodeId: string, workspaceId: string, actorId: string) {
@@ -427,48 +353,6 @@ export class DocumentsService {
     if (state?.length) return stateToJSON(state);
     const doc = await this.prisma.client.document.findUnique({ where: { nodeId } });
     return (doc?.contentJson as DocJSON | null) ?? emptyDoc();
-  }
-
-  private async copyAssets(userId: string, fromNodeId: string, toNodeId: string) {
-    const assets = await this.prisma.client.documentAsset.findMany({
-      where: { nodeId: fromNodeId },
-      include: { blob: true },
-    });
-    const copied = await Promise.all(
-      assets.map(async (a) => {
-        const id = randomUUID();
-        const key = `docs/${toNodeId}/${id}`;
-        const blob = await this.prisma.client.blob.create({
-          data: {
-            nodeId: toNodeId,
-            kind: 'ASSET',
-            provider: 'S3',
-            container: this.buckets.assets,
-            key,
-            sizeBytes: a.blob.sizeBytes,
-            mime: a.blob.mime,
-          },
-        });
-        await this.s3.send(
-          new CopyObjectCommand({
-            Bucket: this.buckets.assets,
-            Key: key,
-            CopySource: `${a.blob.container}/${a.blob.key}`,
-          }),
-        );
-        return { from: a.id, id, blobId: blob.id, fileName: a.fileName };
-      }),
-    );
-    await this.prisma.client.documentAsset.createMany({
-      data: copied.map((c) => ({
-        id: c.id,
-        nodeId: toNodeId,
-        blobId: c.blobId,
-        fileName: c.fileName,
-        createdById: userId,
-      })),
-    });
-    return new Map(copied.map((c) => [c.from, c.id]));
   }
 
   private async writeContent(nodeId: string, json: DocJSON) {
@@ -484,105 +368,6 @@ export class DocumentsService {
       wordCount: wordCount(text),
     };
   }
-
-  private async storeAsset(
-    userId: string,
-    nodeId: string,
-    fileName: string,
-    data: Buffer,
-    mime: string,
-  ) {
-    const id = randomUUID();
-    const key = `docs/${nodeId}/${id}`;
-    await this.s3.send(
-      new PutObjectCommand({
-        Bucket: this.buckets.assets,
-        Key: key,
-        Body: data,
-        ContentType: mime,
-      }),
-    );
-    const blob = await this.prisma.client.blob.create({
-      data: {
-        nodeId,
-        kind: 'ASSET',
-        provider: 'S3',
-        container: this.buckets.assets,
-        key,
-        sizeBytes: BigInt(data.length),
-        mime,
-      },
-    });
-    return this.prisma.client.documentAsset.create({
-      data: { id, nodeId, blobId: blob.id, fileName, createdById: userId },
-      include: { blob: true },
-    });
-  }
-
-  private async assetDto(a: {
-    id: string;
-    fileName: string;
-    blob: {
-      provider: 'S3' | 'GDRIVE';
-      container: string;
-      key: string;
-      mime: string;
-      sizeBytes: bigint;
-    };
-  }) {
-    const isImage = a.blob.mime.startsWith('image/');
-    const { url } = await this.storage.presignGet(a.blob, {
-      fileName: a.fileName,
-      contentType: a.blob.mime,
-      disposition: isImage ? 'inline' : 'attachment',
-    });
-    return {
-      id: a.id,
-      fileName: a.fileName,
-      mime: a.blob.mime,
-      size: Number(a.blob.sizeBytes),
-      url,
-      isImage,
-    };
-  }
-
-  private async withFreshAssetUrls(nodeId: string, json: DocJSON): Promise<DocJSON> {
-    const ids = new Set<string>();
-    const walk = (n: DocJSON) => {
-      if (n.type === 'image' && typeof n.attrs?.assetId === 'string') ids.add(n.attrs.assetId);
-      n.content?.forEach(walk);
-    };
-    walk(json);
-    if (!ids.size) return json;
-    const assets = await this.prisma.client.documentAsset.findMany({
-      where: { nodeId, id: { in: [...ids] } },
-      include: { blob: true },
-    });
-    const urls = new Map(
-      await Promise.all(assets.map(async (a) => [a.id, (await this.assetDto(a)).url] as const)),
-    );
-    const map = (n: DocJSON): DocJSON => ({
-      ...n,
-      ...(n.type === 'image' && urls.has(n.attrs?.assetId as string)
-        ? { attrs: { ...n.attrs, src: urls.get(n.attrs!.assetId as string) } }
-        : {}),
-      ...(n.content ? { content: n.content.map(map) } : {}),
-    });
-    return map(json);
-  }
-}
-
-function remapAssets(json: DocJSON, ids: Map<string, string>): DocJSON {
-  const assetId = json.attrs?.assetId;
-  const marks = json.marks?.filter((m) => m.type !== 'comment');
-  return {
-    ...json,
-    ...(json.marks ? { marks: marks?.length ? marks : undefined } : {}),
-    ...(json.type === 'image' && typeof assetId === 'string'
-      ? { attrs: { ...json.attrs, assetId: ids.get(assetId) ?? null } }
-      : {}),
-    ...(json.content ? { content: json.content.map((c) => remapAssets(c, ids)) } : {}),
-  };
 }
 
 function escapeHtml(s: string) {

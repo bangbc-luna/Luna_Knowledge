@@ -15,6 +15,7 @@ import {
 import {
   COLLAB_ACCESS_CHANNEL,
   COLLAB_TOKEN_AUDIENCE,
+  enqueueIndexNode,
   QUEUES,
   redisConnection,
 } from '@luna/shared';
@@ -26,7 +27,6 @@ import { SignJWT } from 'jose';
 import { pino } from 'pino';
 import * as Y from 'yjs';
 import type { CollabConfig } from '../src/config.js';
-import { enqueueIndexNode } from '../src/index-queue.js';
 import { createCollabServer } from '../src/server.js';
 
 const SECRET = 'collab-e2e-token-secret-0123456789abcdef';
@@ -193,14 +193,14 @@ describe('Collab server (e2e)', () => {
 
   it('nhiều lần gọi trong cửa sổ gộp chỉ sinh một job index; hết cửa sổ thì sinh job mới', async () => {
     const id = randomUUID();
-    await enqueueIndexNode(queue, id, 1500);
-    await enqueueIndexNode(queue, id, 1500);
-    await enqueueIndexNode(queue, id, 1500);
+    await enqueueIndexNode(queue, id, { debounceMs: 1500 });
+    await enqueueIndexNode(queue, id, { debounceMs: 1500 });
+    await enqueueIndexNode(queue, id, { debounceMs: 1500 });
     const jobsFor = async () =>
       (await queue.getJobs(['delayed', 'waiting'])).filter((j) => j.data.nodeId === id);
     expect(await jobsFor()).toHaveLength(1);
     await sleep(1700);
-    await enqueueIndexNode(queue, id, 1500);
+    await enqueueIndexNode(queue, id, { debounceMs: 1500 });
     expect(await jobsFor()).toHaveLength(2);
   });
 

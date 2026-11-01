@@ -263,6 +263,44 @@ describe('Tree races under the workspace lock (e2e)', () => {
     expect(await ctx.prisma.node.count({ where: { parentId: f } })).toBe(0);
   }, 30_000);
 
+  it('tạo tài liệu khi khoá cây bị giữ quá lâu: 503, không tạo gì', async () => {
+    const documentsBefore = await ctx.prisma.document.count();
+    let res!: request.Response;
+    await ctx.prisma.$transaction(
+      async (tx) => {
+        await lockWorkspaceTree(tx, wsId);
+        res = await createDocument(alice, `Tài liệu chờ lâu ${seq}`, f);
+      },
+      { timeout: 20_000 },
+    );
+    expect(res.status).toBe(503);
+    expect(res.body.error).toMatchObject({
+      code: 'SERVICE_UNAVAILABLE',
+      message: 'Someone else is changing this workspace right now, try again in a moment',
+    });
+    expect(await ctx.prisma.node.count({ where: { parentId: f } })).toBe(0);
+    expect(await ctx.prisma.document.count()).toBe(documentsBefore);
+  }, 30_000);
+
+  it('bắt đầu upload khi khoá cây bị giữ quá lâu: 503, không có upload session', async () => {
+    const sessionsBefore = await ctx.prisma.uploadSession.count();
+    let res!: request.Response;
+    await ctx.prisma.$transaction(
+      async (tx) => {
+        await lockWorkspaceTree(tx, wsId);
+        res = await startUpload(alice, `chờ-lâu-${seq}.pdf`, f);
+      },
+      { timeout: 20_000 },
+    );
+    expect(res.status).toBe(503);
+    expect(res.body.error).toMatchObject({
+      code: 'SERVICE_UNAVAILABLE',
+      message: 'Someone else is changing this workspace right now, try again in a moment',
+    });
+    expect(await ctx.prisma.node.count({ where: { parentId: f } })).toBe(0);
+    expect(await ctx.prisma.uploadSession.count()).toBe(sessionsBefore);
+  }, 30_000);
+
   it('hai lần di chuyển chéo A→B và B→A cùng lúc: đúng một lần thành công, cây không có vòng', async () => {
     for (let i = 0; i < 10; i++) {
       const [a, b] = await twoRootFolders(i);

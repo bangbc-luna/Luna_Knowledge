@@ -1,8 +1,9 @@
-import { Prisma, type WorkspaceKind, type WorkspaceRole } from '@luna/db';
+import { type AuditAction, Prisma, type WorkspaceKind, type WorkspaceRole } from '@luna/db';
 import { Injectable } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
 import { AppError } from '../common/errors/app-error.js';
+import { mapUnique } from '../common/errors/map-unique.js';
 import type { RequestContext } from '../common/http/request-context.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { SearchQueueService } from '../infra/queue/search-queue.service.js';
@@ -83,7 +84,7 @@ export class WorkspacesService {
     const members = [
       ...new Map(invited.filter((u) => u.id !== actor.id).map((u) => [u.id, u])).values(),
     ];
-    try {
+    return mapUnique(async () => {
       const workspace = await this.prisma.client.workspace.create({
         data: {
           name: body.name,
@@ -114,12 +115,7 @@ export class WorkspacesService {
         ctx,
       });
       return this.toDto(await this.loadWithCounts(workspace.id, actor.id));
-    } catch (err) {
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-        throw AppError.conflict(`Slug "${body.slug}" is already taken`);
-      }
-      throw err;
-    }
+    }, `Slug "${body.slug}" is already taken`);
   }
 
   async update(
@@ -189,7 +185,7 @@ export class WorkspacesService {
     if (access.kind === 'COMPANY') {
       return this.setRole(actor, workspaceId, user.id, body.role, ctx);
     }
-    try {
+    return mapUnique(async () => {
       const member = await this.prisma.client.workspaceMember.create({
         data: { workspaceId, userId: user.id, role: body.role, addedById: actor.id },
         select: { role: true, createdAt: true, user: { select: userSummary } },
@@ -204,12 +200,7 @@ export class WorkspacesService {
       );
       await this.collab.accessChanged({ workspaceId, userId: user.id });
       return member;
-    } catch (err) {
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-        throw AppError.conflict('User is already a member of this workspace');
-      }
-      throw err;
-    }
+    }, 'User is already a member of this workspace');
   }
 
   async updateMember(
@@ -347,7 +338,7 @@ export class WorkspacesService {
   private auditMember(
     actor: AuthenticatedUser,
     workspaceId: string,
-    action: string,
+    action: AuditAction,
     userId: string,
     metadata: Prisma.InputJsonObject,
     ctx: RequestContext,

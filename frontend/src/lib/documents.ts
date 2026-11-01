@@ -1,91 +1,24 @@
 import { ApiError, api, authHeaders, refreshSession } from "./api";
-import type { NodeItem, UserSummary } from "./types";
+import type { ApiOk } from "./api-types";
+import type { NodeItem } from "./types";
 
 export type DocJSON = { type: string; attrs?: Record<string, unknown>; content?: DocJSON[]; marks?: Array<{ type: string; attrs?: Record<string, unknown> }>; text?: string };
 
-export type DocumentFormat = "RICH" | "LATEX";
+type DocumentGen = ApiOk<"/api/v1/documents/{id}", "get">;
+type DocVersionDetailGen = ApiOk<"/api/v1/documents/{id}/versions/{vid}", "get">;
 
-export interface DocumentDetail {
-  node: NodeItem;
-  format: DocumentFormat;
-  contentJson: DocJSON;
-  wordCount: number;
-  lastEditedAt: string | null;
-  lastEditedBy: UserSummary | null;
-  versionCount: number;
-  readOnly: boolean;
-}
+export type DocumentDetail = Omit<DocumentGen, "contentJson"> & { contentJson: DocJSON };
+export type DocumentFormat = DocumentDetail["format"];
+export type CollabToken = ApiOk<"/api/v1/documents/{id}/collab-token", "get">;
+export type DocAsset = ApiOk<"/api/v1/documents/{id}/assets", "get">[number];
+export type DocVersion = ApiOk<"/api/v1/documents/{id}/versions", "get">[number];
+export type DocVersionDetail = Omit<DocVersionDetailGen, "contentJson"> & { contentJson: DocJSON };
+export type DocDiff = ApiOk<"/api/v1/documents/{id}/versions/{vid}/diff", "get">;
+export type DocThread = ApiOk<"/api/v1/documents/{id}/threads", "get">[number] & { ignoredMentions?: string[] };
+export type DocComment = DocThread["comments"][number];
+type NotificationGen = ApiOk<"/api/v1/me/notifications", "get">["items"][number];
 
-export interface CollabToken {
-  token: string;
-  documentName: string;
-  url: string;
-  readOnly: boolean;
-  expiresAt: string;
-  user: { id: string; name: string };
-}
-
-export interface DocAsset {
-  id: string;
-  fileName: string;
-  mime: string;
-  size: number;
-  url: string;
-  isImage: boolean;
-}
-
-export interface DocVersion {
-  id: string;
-  versionNo: number;
-  name: string | null;
-  isAuto: boolean;
-  wordCount: number;
-  wordsAdded: number;
-  wordsRemoved: number;
-  createdAt: string;
-  createdBy: UserSummary | null;
-  restoredFrom: { id: string; versionNo: number } | null;
-}
-
-export interface DocVersionDetail extends DocVersion {
-  contentJson: DocJSON;
-  html: string;
-}
-
-export interface DocDiff {
-  from: { id: string; versionNo: number };
-  to: { id: string; versionNo: number | null };
-  stats: { added: number; removed: number };
-  parts: Array<{ type: "added" | "removed" | "same"; text: string }>;
-}
-
-export interface DocComment {
-  id: string;
-  body: string;
-  author: UserSummary;
-  mentions: UserSummary[];
-  createdAt: string;
-  editedAt: string | null;
-  canEdit: boolean;
-  canDelete: boolean;
-}
-
-export interface DocThread {
-  id: string;
-  quotedText: string;
-  status: "OPEN" | "RESOLVED";
-  createdBy: UserSummary;
-  createdAt: string;
-  resolvedBy: UserSummary | null;
-  resolvedAt: string | null;
-  canResolve: boolean;
-  comments: DocComment[];
-  ignoredMentions?: string[];
-}
-
-export interface AppNotification {
-  id: string;
-  type: "comment.mention" | "comment.new" | "share.added" | "video.ready" | "video.failed" | string;
+export type AppNotification = Omit<NotificationGen, "payload"> & {
   payload: {
     nodeId?: string;
     nodeName?: string;
@@ -97,9 +30,7 @@ export interface AppNotification {
     role?: string;
     error?: string;
   };
-  readAt: string | null;
-  createdAt: string;
-}
+};
 
 export const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 export const UNTITLED = "Tài liệu không tên";

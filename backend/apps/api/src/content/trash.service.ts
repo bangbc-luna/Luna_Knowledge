@@ -1,8 +1,7 @@
-import { JOBS, QUEUES } from '@luna/shared';
+import { type JobQueue, QUEUES } from '@luna/shared';
 import { SearchQueueService } from '../infra/queue/search-queue.service.js';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
-import type { Queue } from 'bullmq';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
 import { AppError } from '../common/errors/app-error.js';
@@ -10,8 +9,7 @@ import type { RequestContext } from '../common/http/request-context.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { ContentAccessService } from './content-access.service.js';
 import { NodeDtoService } from './node-dto.service.js';
-import { nameKey, suggestName } from './node-names.js';
-import { NodesService } from './nodes.service.js';
+import { NodeTree } from './node-tree.service.js';
 
 const userSummary = { id: true, email: true, name: true, avatarUrl: true } as const;
 
@@ -22,11 +20,11 @@ export class TrashService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: ContentAccessService,
-    private readonly nodes: NodesService,
+    private readonly tree: NodeTree,
     private readonly dto: NodeDtoService,
     private readonly audit: AuditService,
     private readonly search: SearchQueueService,
-    @InjectQueue(QUEUES.MAINTENANCE) private readonly maintenance: Queue,
+    @InjectQueue(QUEUES.MAINTENANCE) private readonly maintenance: JobQueue<'maintenance'>,
   ) {}
 
   async list(user: AuthenticatedUser, workspaceId: string) {
@@ -65,53 +63,7 @@ export class TrashService {
       );
     }
 
-    const result = await this.nodes.withTreeLock(node.workspaceId, async (tx) => {
-      const [current] = await tx.$queryRaw<{ deleted_root_id: string | null }[]>`
-        SELECT deleted_root_id FROM nodes WHERE id = ${nodeId}::uuid FOR UPDATE`;
-      if (!current) throw AppError.notFound('Item not found');
-      if (current.deleted_root_id !== nodeId) {
-        throw AppError.validation('Item is not in the trash');
-      }
-      const [parent] = node.parentId
-        ? await tx.$queryRaw<{ deleted_at: Date | null }[]>`
-            SELECT deleted_at FROM nodes WHERE id = ${node.parentId}::uuid FOR SHARE`
-        : [];
-      const parentId = parent && !parent.deleted_at ? node.parentId : null;
-
-      const taken = await this.nodes.siblingKeys(
-        node.workspaceId,
-        parentId,
-        undefined,
-        node.section,
-        tx,
-      );
-      const name = taken.has(nameKey(node.name)) ? suggestName(node.name, taken) : node.name;
-
-      await tx.node.update({
-        where: { id: nodeId },
-        data: { parentId, name, nameNormalized: nameKey(name), updatedById: user.id },
-      });
-      await tx.node.updateMany({
-        where: { deletedRootId: nodeId },
-        data: { deletedAt: null, deletedById: null, deletedRootId: null },
-      });
-      return { parentId, name };
-    });
-
-    await this.audit.log({
-      actorId: user.id,
-      action: 'node.restore',
-      targetType: 'node',
-      targetId: nodeId,
-      workspaceId: node.workspaceId,
-      metadata: {
-        restoredTo: result.parentId,
-        movedToRoot: result.parentId !== node.parentId,
-        renamedTo: result.name !== node.name ? result.name : undefined,
-      },
-      ctx,
-    });
-    await this.search.tree(nodeId);
+    const result = await this.tree.restore(user, node, ctx);
     return {
       node: (await this.dto.one(user.id, nodeId)) ?? null,
       name: result.name,
@@ -125,7 +77,7 @@ export class TrashService {
     if (!user.isSystemAdmin && node.memberRole !== 'ADMIN') {
       throw AppError.forbidden('Only a workspace admin can delete permanently');
     }
-    await this.nodes.withTreeLock(node.workspaceId, async (tx) => {
+    await this.tree.withLock(node.workspaceId, async (tx) => {
       const { count } = await tx.node.deleteMany({ where: { id: nodeId, deletedRootId: nodeId } });
       if (count > 0) return;
       const current = await tx.node.findUnique({ where: { id: nodeId }, select: { id: true } });
@@ -146,7 +98,7 @@ export class TrashService {
 
   async empty(user: AuthenticatedUser, workspaceId: string, ctx: RequestContext) {
     if (!user.isSystemAdmin) await this.access.requireMember(user, workspaceId, 'ADMIN');
-    const count = await this.nodes.withTreeLock(
+    const count = await this.tree.withLock(
       workspaceId,
       (tx) => tx.$executeRaw`
         DELETE FROM nodes WHERE workspace_id = ${workspaceId}::uuid AND deleted_root_id = id`,
@@ -167,7 +119,7 @@ export class TrashService {
   private async collectGarbageSoon() {
     try {
       await this.maintenance.add(
-        JOBS.BLOB_GC,
+        'blob-gc',
         {},
         {
           jobId: 'blob-gc-now',

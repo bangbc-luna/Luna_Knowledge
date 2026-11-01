@@ -1,4 +1,5 @@
 import { pipeline } from 'node:stream/promises';
+import { contentDisposition } from '@luna/shared';
 import {
   Body,
   Controller,
@@ -36,8 +37,8 @@ import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
 import { ApiZodBody, ApiZodCreated, ApiZodOk, ApiZodQuery } from '../common/swagger/zod-openapi.js';
 import { NodesService } from '../content/nodes.service.js';
 import { nodeSchema } from '../content/nodes.schemas.js';
-import { contentDisposition } from '../files/storage.service.js';
 import { AdminVideosService } from './admin-videos.service.js';
+import { HlsSessions } from './hls-sessions.service.js';
 import {
   adminVideoSchema,
   adminVideosQuery,
@@ -61,6 +62,7 @@ const M3U8 = 'application/vnd.apple.mpegurl';
 export class VideosController {
   constructor(
     private readonly videos: VideosService,
+    private readonly hls: HlsSessions,
     private readonly nodes: NodesService,
   ) {}
 
@@ -105,7 +107,7 @@ export class VideosController {
   @ApiOperation({ summary: 'Master playlist (theo phiên xem `s`)' })
   @ApiZodQuery(sessionQuery)
   master(@Param('id', uuid()) id: string, @Query(session()) q: SessionQuery) {
-    return this.videos.masterPlaylist(id, q.s);
+    return this.hls.masterPlaylist(id, q.s);
   }
 
   @Public()
@@ -120,7 +122,7 @@ export class VideosController {
     @Param('rendition') rendition: string,
     @Query(session()) q: SessionQuery,
   ) {
-    return this.videos.mediaPlaylist(id, rendition, q.s);
+    return this.hls.mediaPlaylist(id, rendition, q.s);
   }
 
   @Public()
@@ -137,7 +139,7 @@ export class VideosController {
     @Res() res: Response,
   ) {
     res.setHeader('Cache-Control', 'private, no-store');
-    res.redirect(302, await this.videos.segmentUrl(id, rendition, segment, q.s));
+    res.redirect(302, await this.hls.segmentUrl(id, rendition, segment, q.s));
   }
 
   @Public()
@@ -151,7 +153,7 @@ export class VideosController {
     @Query(session()) q: SessionQuery,
     @Res() res: Response,
   ) {
-    const key = await this.videos.key(id, q.s);
+    const key = await this.hls.key(id, q.s);
     res.setHeader('Content-Type', 'application/octet-stream');
     res.setHeader('Cache-Control', 'private, no-store');
     res.end(key);

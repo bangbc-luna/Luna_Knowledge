@@ -1,4 +1,4 @@
-import type { Prisma } from '@luna/db';
+import { writeAudit, type AuditAction, type Prisma } from '@luna/db';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Redis } from 'ioredis';
 import type { RequestContext } from '../common/http/request-context.js';
@@ -9,7 +9,7 @@ const VIEW_DEDUPE_SEC = 300;
 
 export interface AuditEntry {
   actorId: string | null;
-  action: string;
+  action: AuditAction;
   targetType?: string;
   targetId?: string;
   workspaceId?: string;
@@ -54,17 +54,15 @@ export class AuditService {
 
   async log(entry: AuditEntry): Promise<void> {
     try {
-      await this.prisma.client.auditLog.create({
-        data: {
-          actorId: entry.actorId,
-          action: entry.action,
-          targetType: entry.targetType,
-          targetId: entry.targetId,
-          workspaceId: entry.workspaceId,
-          metadata: entry.metadata,
-          ip: entry.ctx?.ip,
-          userAgent: entry.ctx?.userAgent,
-        },
+      await writeAudit(this.prisma.client, {
+        actorId: entry.actorId,
+        action: entry.action,
+        targetType: entry.targetType,
+        targetId: entry.targetId,
+        workspaceId: entry.workspaceId,
+        metadata: entry.metadata,
+        ip: entry.ctx?.ip,
+        userAgent: entry.ctx?.userAgent,
       });
     } catch (err) {
       this.logger.error({ err, action: entry.action }, 'Failed to write audit log');

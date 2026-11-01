@@ -1,23 +1,22 @@
-import { lockWorkspaceTree, type NodeSection, type NodeType, type Prisma } from '@luna/db';
+import { type AuditAction, type NodeType, type Prisma } from '@luna/db';
 import { SearchQueueService } from '../infra/queue/search-queue.service.js';
-import { Inject, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
 import { AppError } from '../common/errors/app-error.js';
 import type { RequestContext } from '../common/http/request-context.js';
-import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import type { Page } from '../common/pagination/cursor.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { CollabEventsService } from '../infra/redis/collab-events.service.js';
-import { isNameConflict, isTreeBusy, isTreeViolation } from './conflicts.js';
 import { ContentAccessService } from './content-access.service.js';
 import { NodeDtoService } from './node-dto.service.js';
-import { nameKey, suggestName } from './node-names.js';
+import { nameKey } from './node-names.js';
+import { NodeTree } from './node-tree.service.js';
 import type { CreateFolderBody, ListNodesQuery, NodeDto } from './nodes.schemas.js';
 
 const userSummary = { id: true, email: true, name: true, avatarUrl: true } as const;
 
-const ACTIVITY_ACTIONS = [
+const ACTIVITY_ACTIONS: readonly AuditAction[] = [
   'node.create',
   'node.rename',
   'node.move',
@@ -38,10 +37,6 @@ const ACTIVITY_ACTIONS = [
   'share.remove',
 ];
 
-const TREE_LOCK_WAIT_MS = 5_000;
-const TREE_TX_MAX_WAIT_MS = 5_000;
-const DEFAULT_STATEMENT_TIMEOUT_MS = 30_000;
-
 const encodeCursor = (offset: number) => Buffer.from(String(offset)).toString('base64url');
 function decodeCursor(cursor: string | undefined): number {
   if (!cursor) return 0;
@@ -59,7 +54,7 @@ export class NodesService {
     private readonly audit: AuditService,
     private readonly search: SearchQueueService,
     private readonly collab: CollabEventsService,
-    @Inject(APP_CONFIG) private readonly config: AppConfig,
+    private readonly tree: NodeTree,
   ) {}
 
   async list(
@@ -147,7 +142,7 @@ export class NodesService {
     const rows = await this.prisma.client.auditLog.findMany({
       where: {
         targetId: nodeId,
-        action: { in: ACTIVITY_ACTIONS },
+        action: { in: [...ACTIVITY_ACTIONS] },
         ...(q.cursor ? { id: { lt: BigInt(q.cursor) } } : {}),
       },
       orderBy: { id: 'desc' },
@@ -208,37 +203,18 @@ export class NodesService {
     body: CreateFolderBody,
     ctx: RequestContext,
   ): Promise<NodeDto> {
-    const parentId = body.parentId ?? null;
-    const section = await this.requireContainer(user, workspaceId, parentId, body.section);
-    try {
-      const node = await this.withTreeLock(workspaceId, (tx) =>
-        tx.node.create({
-          data: {
-            workspaceId,
-            parentId,
-            section,
-            type: 'FOLDER',
-            name: body.name,
-            nameNormalized: nameKey(body.name),
-            createdById: user.id,
-            updatedById: user.id,
-          },
-        }),
-      );
-      await this.audit.log({
-        actorId: user.id,
-        action: 'node.create',
-        targetType: 'node',
-        targetId: node.id,
+    const node = await this.tree.create(
+      user,
+      {
         workspaceId,
-        metadata: { type: 'FOLDER', name: body.name, parentId },
-        ctx,
-      });
-      await this.search.node(node.id);
-      return this.dto.one(user.id, node.id);
-    } catch (err) {
-      throw await this.mapNameConflict(err, workspaceId, parentId, body.name, undefined, section);
-    }
+        parentId: body.parentId ?? null,
+        section: body.section,
+        type: 'FOLDER',
+        name: body.name,
+      },
+      ctx,
+    );
+    return this.dto.one(user.id, node.id);
   }
 
   rename(user: AuthenticatedUser, nodeId: string, name: string, ctx: RequestContext) {
@@ -252,8 +228,9 @@ export class NodesService {
     ctx: RequestContext,
     type?: NodeType,
   ): Promise<NodeDto> {
-    const node = await this.access.requireNode(user, nodeId, 'EDITOR');
-    if (type && node.type !== type) throw AppError.notFound('Item not found');
+    const node = await this.access.requireNode(user, nodeId, 'EDITOR', {
+      types: type && [type],
+    });
     const { name, description } = details;
     const before =
       description === undefined
@@ -268,14 +245,13 @@ export class NodesService {
         data: { name, nameNormalized: nameKey(name), description, updatedById: user.id },
       });
     } catch (err) {
-      throw await this.mapNameConflict(
-        err,
-        node.workspaceId,
-        node.parentId,
+      throw await this.tree.mapConflict(err, {
+        workspaceId: node.workspaceId,
+        parentId: node.parentId,
+        section: node.section,
         name,
-        nodeId,
-        node.section,
-      );
+        excludeId: nodeId,
+      });
     }
     await this.audit.log({
       actorId: user.id,
@@ -298,59 +274,13 @@ export class NodesService {
     targetParentId: string | null,
     ctx: RequestContext,
   ): Promise<NodeDto> {
-    const node = await this.access.requireNode(user, nodeId, 'EDITOR');
-    if (targetParentId === node.id) throw AppError.validation('Cannot move an item into itself');
-    await this.requireContainer(user, node.workspaceId, targetParentId, node.section);
-    if (targetParentId === node.parentId) return this.dto.one(user.id, nodeId);
-
-    try {
-      await this.withTreeLock(node.workspaceId, async (tx) => {
-        const [current] = await tx.$queryRaw<{ deleted_at: Date | null }[]>`
-          SELECT deleted_at FROM nodes WHERE id = ${nodeId}::uuid FOR UPDATE`;
-        if (!current || current.deleted_at) {
-          throw AppError.conflict('This item was just moved or deleted, refresh and try again');
-        }
-        if (targetParentId) {
-          const [target] = await tx.$queryRaw<{ inside: boolean }[]>`
-            SELECT (t.path <@ n.path) AS inside
-              FROM nodes t, nodes n
-             WHERE t.id = ${targetParentId}::uuid AND n.id = ${nodeId}::uuid`;
-          if (target?.inside)
-            throw AppError.validation('Cannot move a folder into its own subfolder');
-        }
-        await tx.node.update({
-          where: { id: nodeId },
-          data: { parentId: targetParentId, updatedById: user.id },
-        });
-      });
-    } catch (err) {
-      throw await this.mapNameConflict(
-        err,
-        node.workspaceId,
-        targetParentId,
-        node.name,
-        nodeId,
-        node.section,
-      );
-    }
-
-    await this.audit.log({
-      actorId: user.id,
-      action: 'node.move',
-      targetType: 'node',
-      targetId: nodeId,
-      workspaceId: node.workspaceId,
-      metadata: { from: node.parentId, to: targetParentId },
-      ctx,
-    });
-    await this.search.tree(nodeId);
-    await this.collab.accessChanged({ workspaceId: node.workspaceId });
+    await this.tree.move(user, nodeId, targetParentId, ctx);
     return this.dto.one(user.id, nodeId);
   }
 
   async trash(user: AuthenticatedUser, nodeId: string, ctx: RequestContext): Promise<void> {
     const node = await this.access.requireNode(user, nodeId, 'EDITOR');
-    const count = await this.withTreeLock(
+    const count = await this.tree.withLock(
       node.workspaceId,
       (tx) => tx.$executeRaw`
         UPDATE nodes
@@ -369,96 +299,5 @@ export class NodesService {
     });
     await this.search.tree(nodeId);
     await this.collab.accessChanged({ workspaceId: node.workspaceId });
-  }
-
-  async withTreeLock<T>(
-    workspaceId: string,
-    fn: (tx: Prisma.TransactionClient) => Promise<T>,
-  ): Promise<T> {
-    try {
-      return await this.prisma.client.$transaction(
-        async (tx) => {
-          await lockWorkspaceTree(tx, workspaceId, { lockTimeoutMs: TREE_LOCK_WAIT_MS });
-          return fn(tx);
-        },
-        {
-          maxWait: TREE_TX_MAX_WAIT_MS,
-          timeout: this.config.DB_STATEMENT_TIMEOUT_MS ?? DEFAULT_STATEMENT_TIMEOUT_MS,
-        },
-      );
-    } catch (err) {
-      if (isTreeBusy(err)) {
-        throw AppError.unavailable(
-          'Someone else is changing this workspace right now, try again in a moment',
-        );
-      }
-      throw err;
-    }
-  }
-
-  async requireContainer(
-    user: AuthenticatedUser,
-    workspaceId: string,
-    parentId: string | null,
-    section?: NodeSection,
-  ): Promise<NodeSection> {
-    if (!parentId) {
-      await this.access.requireMember(user, workspaceId, 'MEMBER');
-      return section ?? 'DOCS';
-    }
-    const parent = await this.access.requireNode(user, parentId, 'EDITOR');
-    if (parent.workspaceId !== workspaceId) {
-      throw AppError.validation('Target folder belongs to another workspace');
-    }
-    if (parent.type !== 'FOLDER') throw AppError.validation('Target must be a folder');
-    if (section && parent.section !== section) {
-      throw AppError.validation(
-        section === 'VIDEOS'
-          ? 'Videos live in the Video area, pick a folder there'
-          : 'This folder is in the Video area, which only holds videos',
-      );
-    }
-    return parent.section;
-  }
-
-  async mapNameConflict(
-    err: unknown,
-    workspaceId: string,
-    parentId: string | null,
-    name: string,
-    excludeId?: string,
-    section: NodeSection = 'DOCS',
-  ): Promise<unknown> {
-    if (isTreeViolation(err)) {
-      return AppError.conflict(
-        'The target folder was just moved or deleted, refresh and try again',
-      );
-    }
-    if (!isNameConflict(err)) return err;
-    const taken = await this.siblingKeys(workspaceId, parentId, excludeId, section);
-    return AppError.conflict('An item with this name already exists in this folder', {
-      suggestion: suggestName(name, taken),
-    });
-  }
-
-  async siblingKeys(
-    workspaceId: string,
-    parentId: string | null,
-    excludeId?: string,
-    section: NodeSection = 'DOCS',
-    db: Prisma.TransactionClient = this.prisma.client,
-  ): Promise<Set<string>> {
-    const where: Prisma.NodeWhereInput = {
-      workspaceId,
-      parentId,
-      ...(parentId ? {} : { section }),
-      deletedAt: null,
-      id: excludeId ? { not: excludeId } : undefined,
-    };
-    const siblings = await db.node.findMany({
-      where,
-      select: { nameNormalized: true },
-    });
-    return new Set(siblings.map((s) => s.nameNormalized));
   }
 }

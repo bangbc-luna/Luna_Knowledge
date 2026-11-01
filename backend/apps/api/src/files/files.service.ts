@@ -2,22 +2,21 @@ import { randomBytes } from 'node:crypto';
 import { SearchQueueService } from '../infra/queue/search-queue.service.js';
 import type { Readable } from 'node:stream';
 import { accessColumns, effectiveRole, Prisma } from '@luna/db';
-import { JOBS, QUEUES, type RegenerateJob } from '@luna/shared';
+import { enqueueFileJob, type JobQueue, ObjectStore, QUEUES } from '@luna/shared';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Inject, Injectable } from '@nestjs/common';
-import type { Queue } from 'bullmq';
 import type { Redis } from 'ioredis';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
 import { AppError } from '../common/errors/app-error.js';
 import type { RequestContext } from '../common/http/request-context.js';
-import { ContentAccessService } from '../content/content-access.service.js';
+import { ContentAccessService, AS_FILE } from '../content/content-access.service.js';
 import { NodeDtoService } from '../content/node-dto.service.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { REDIS } from '../infra/redis/redis.module.js';
+import { PREVIEW_URL } from '../infra/s3/storage-urls.js';
 import type { FileVersionDto } from './files.schemas.js';
 import { NodeEventsService } from './node-events.service.js';
-import { StorageService } from './storage.service.js';
 import { TranscodeQueueService } from './transcode-queue.service.js';
 
 const userSummary = { id: true, email: true, name: true, avatarUrl: true } as const;
@@ -45,17 +44,17 @@ export class FilesService {
     private readonly prisma: PrismaService,
     private readonly access: ContentAccessService,
     private readonly dto: NodeDtoService,
-    private readonly storage: StorageService,
+    private readonly store: ObjectStore,
     private readonly audit: AuditService,
     private readonly search: SearchQueueService,
     private readonly events: NodeEventsService,
     private readonly transcodes: TranscodeQueueService,
     @Inject(REDIS) private readonly redis: Redis,
-    @InjectQueue(QUEUES.FILE_PROCESS) private readonly fileQueue: Queue,
+    @InjectQueue(QUEUES.FILE_PROCESS) private readonly fileQueue: JobQueue<'file-process'>,
   ) {}
 
   async detail(user: AuthenticatedUser, nodeId: string, ctx: RequestContext) {
-    const node = await this.requireFile(user, nodeId, 'VIEWER');
+    const node = await this.access.requireNode(user, nodeId, 'VIEWER', AS_FILE);
     await this.audit.logView(user.id, node, ctx);
     const info = await this.prisma.client.fileInfo.findUnique({
       where: { nodeId },
@@ -74,7 +73,7 @@ export class FilesService {
   }
 
   async duplicateInfo(user: AuthenticatedUser, nodeId: string) {
-    await this.requireFile(user, nodeId, 'VIEWER');
+    await this.access.requireNode(user, nodeId, 'VIEWER', AS_FILE);
     const info = await this.prisma.client.fileInfo.findUnique({
       where: { nodeId },
       include: {
@@ -100,6 +99,7 @@ export class FilesService {
         workspace_name: string;
         member_role: string | null;
         share_role: string | null;
+        user_active: boolean | null;
       }[]
     >(Prisma.sql`
       SELECT * FROM (
@@ -129,7 +129,7 @@ export class FilesService {
   }
 
   async versions(user: AuthenticatedUser, nodeId: string): Promise<FileVersionDto[]> {
-    await this.requireFile(user, nodeId, 'VIEWER');
+    await this.access.requireNode(user, nodeId, 'VIEWER', AS_FILE);
     const [info, rows] = await Promise.all([
       this.prisma.client.fileInfo.findUnique({ where: { nodeId } }),
       this.prisma.client.fileVersion.findMany({
@@ -142,14 +142,18 @@ export class FilesService {
   }
 
   async preview(user: AuthenticatedUser, nodeId: string, versionId?: string) {
-    await this.requireFile(user, nodeId, 'VIEWER');
+    await this.access.requireNode(user, nodeId, 'VIEWER', AS_FILE);
     const version = await this.findVersion(nodeId, versionId);
     if (!version?.preview || version.previewKind === 'none') {
       return { kind: 'none' as const, mime: null, url: null, expiresAt: null };
     }
-    const signed = await this.storage.presignGet(version.preview, {
-      fileName: previewFileName(version.fileName, version.preview.mime),
+    const signed = await this.store.presignGet(version.preview, {
+      ...PREVIEW_URL,
       contentType: version.preview.mime,
+      disposition: {
+        type: 'inline',
+        fileName: previewFileName(version.fileName, version.preview.mime),
+      },
     });
     return {
       kind: version.previewKind as 'pdf' | 'image' | 'text',
@@ -159,12 +163,13 @@ export class FilesService {
   }
 
   async thumbnailUrl(user: AuthenticatedUser, nodeId: string): Promise<string> {
-    await this.requireFile(user, nodeId, 'VIEWER');
+    await this.access.requireNode(user, nodeId, 'VIEWER', AS_FILE);
     const version = await this.findVersion(nodeId);
     if (!version?.thumbnail) throw AppError.notFound('This file has no thumbnail');
-    const { url } = await this.storage.presignGet(version.thumbnail, {
-      fileName: 'thumbnail.webp',
+    const { url } = await this.store.presignGet(version.thumbnail, {
+      ...PREVIEW_URL,
       contentType: version.thumbnail.mime,
+      disposition: { type: 'inline', fileName: 'thumbnail.webp' },
     });
     return url;
   }
@@ -174,12 +179,13 @@ export class FilesService {
     nodeId: string,
     versionId: string | undefined,
     ctx: RequestContext,
+    { inactiveUser }: { inactiveUser?: string } = {},
   ): Promise<{ body: Readable; size: number; mime: string; fileName: string }> {
-    const node = await this.access.requireNode(user as AuthenticatedUser, nodeId, 'VIEWER');
+    const node = await this.access.requireNode(user, nodeId, 'VIEWER', { inactiveUser });
     this.assertDownloadable(node);
     const version = await this.findVersion(nodeId, versionId);
     if (!version) throw AppError.notFound('This file has no uploaded content yet');
-    const { body } = await this.storage.forRef(version.original).getStream(version.original);
+    const { body } = await this.store.getStream(version.original);
     await this.audit.log({
       actorId: user.id,
       action: 'file.download',
@@ -198,7 +204,7 @@ export class FilesService {
   }
 
   async createDownloadLink(user: AuthenticatedUser, nodeId: string, versionId?: string) {
-    const node = await this.requireFile(user, nodeId, 'VIEWER');
+    const node = await this.access.requireNode(user, nodeId, 'VIEWER', AS_FILE);
     this.assertDownloadable(node);
     const version = await this.findVersion(nodeId, versionId);
     if (!version) throw AppError.notFound('This file has no uploaded content yet');
@@ -215,13 +221,9 @@ export class FilesService {
     const raw = await this.redis.getdel(`dl:${token}`);
     if (!raw) throw AppError.notFound('Download link is invalid or has expired');
     const grant = JSON.parse(raw) as DownloadGrant;
-    const user = await this.prisma.client.user.findUnique({
-      where: { id: grant.userId },
-      select: { id: true, status: true },
+    return this.openDownload({ id: grant.userId }, grant.nodeId, grant.versionId, ctx, {
+      inactiveUser: 'Download link is invalid or has expired',
     });
-    if (user?.status !== 'ACTIVE')
-      throw AppError.notFound('Download link is invalid or has expired');
-    return this.openDownload(user, grant.nodeId, grant.versionId, ctx);
   }
 
   async restoreVersion(
@@ -230,7 +232,7 @@ export class FilesService {
     versionId: string,
     ctx: RequestContext,
   ) {
-    const node = await this.requireFile(user, nodeId, 'EDITOR');
+    const node = await this.access.requireNode(user, nodeId, 'EDITOR', AS_FILE);
     const version = await this.findVersion(nodeId, versionId);
     if (!version) throw AppError.notFound('Version not found');
     const current = await this.prisma.client.node.findUnique({
@@ -265,7 +267,7 @@ export class FilesService {
   }
 
   async regenerate(user: AuthenticatedUser, nodeId: string, ctx: RequestContext) {
-    const node = await this.requireFile(user, nodeId, 'EDITOR');
+    const node = await this.access.requireNode(user, nodeId, 'EDITOR', AS_FILE);
     const version = await this.findVersion(nodeId);
     if (!version) throw AppError.notFound('This file has no uploaded content yet');
     const current = await this.prisma.client.node.findUnique({
@@ -278,16 +280,7 @@ export class FilesService {
     if (node.type === 'VIDEO') {
       await this.transcodes.enqueue(nodeId, version.id);
     } else {
-      await this.fileQueue.add(
-        JOBS.REGENERATE,
-        { nodeId, versionId: version.id } satisfies RegenerateJob,
-        {
-          attempts: 3,
-          backoff: { type: 'exponential', delay: 5000 },
-          removeOnComplete: 100,
-          removeOnFail: 500,
-        },
-      );
+      await enqueueFileJob(this.fileQueue, 'regenerate', { nodeId, versionId: version.id });
     }
     await this.prisma.client.node.update({ where: { id: nodeId }, data: { status: 'PROCESSING' } });
     await this.events.publish({ nodeId, status: 'PROCESSING' });
@@ -338,12 +331,6 @@ export class FilesService {
       fileCount: Number(row!.files),
       trashBytes: Number(row!.trash),
     };
-  }
-
-  private async requireFile(user: AuthenticatedUser, nodeId: string, min: 'VIEWER' | 'EDITOR') {
-    const node = await this.access.requireNode(user, nodeId, min);
-    if (node.type !== 'FILE' && node.type !== 'VIDEO') throw AppError.notFound('File not found');
-    return node;
   }
 
   private assertDownloadable(node: { type: string }) {

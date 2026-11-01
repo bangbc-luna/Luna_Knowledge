@@ -1,8 +1,7 @@
 import { PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
-import { QUEUES, redisConnection } from '@luna/shared';
+import { ObjectStore, QUEUES, redisConnection } from '@luna/shared';
 import { Queue } from 'bullmq';
 import request from 'supertest';
-import { BUCKETS, type Buckets, S3 } from '../src/infra/s3/s3.module.js';
 import { PART_SIZE } from '../src/files/uploads.service.js';
 import {
   createTestApp,
@@ -24,7 +23,7 @@ describe('Uploads and files (e2e)', () => {
   let outsider: LoggedIn;
   let wsId: string;
   let s3: S3Client;
-  let buckets: Buckets;
+  let buckets: ObjectStore['buckets'];
   let fileQueue: Queue;
   const http = () => request(ctx.app.getHttpServer());
 
@@ -105,8 +104,8 @@ describe('Uploads and files (e2e)', () => {
   beforeAll(async () => {
     ctx = await createTestApp();
     await resetDatabase(ctx.prisma);
-    s3 = ctx.app.get(S3);
-    buckets = ctx.app.get(BUCKETS);
+    s3 = ctx.app.get(ObjectStore).s3;
+    buckets = ctx.app.get(ObjectStore).buckets;
     fileQueue = new Queue(QUEUES.FILE_PROCESS, {
       connection: redisConnection(process.env.REDIS_URL!),
       prefix: 'luna',
@@ -446,6 +445,26 @@ describe('Uploads and files (e2e)', () => {
       expect(link.body.url).toMatch(/^\/api\/v1\/downloads\//);
       await http().get(link.body.url).expect(200);
       await http().get(link.body.url).expect(404);
+    });
+
+    it('tài khoản bị khoá sau khi lấy link tải: link trả 404 hết hạn', async () => {
+      const temp = await loginAs(ctx, 'locked.editor@lunatech.vn');
+      await http()
+        .post(`/api/v1/workspaces/${wsId}/members`)
+        .set(sysadmin.auth)
+        .send({ email: 'locked.editor@lunatech.vn', role: 'MEMBER' })
+        .expect(201);
+      const link = await http()
+        .post(`/api/v1/files/${nodeId}/download-link`)
+        .set(temp.auth)
+        .expect(201);
+      await http()
+        .patch(`/api/v1/admin/users/${temp.userId}`)
+        .set(sysadmin.auth)
+        .send({ status: 'DISABLED' })
+        .expect(200);
+      const res = await http().get(link.body.url).expect(404);
+      expect(res.body.error.message).toBe('Download link is invalid or has expired');
     });
 
     it('phiên bản mới, lịch sử, khôi phục bản cũ', async () => {

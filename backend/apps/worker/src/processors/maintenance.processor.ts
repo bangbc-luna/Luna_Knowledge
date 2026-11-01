@@ -3,13 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AbortMultipartUploadCommand } from '@aws-sdk/client-s3';
 import { purgeExpiredTrash, RetentionError, type RetentionResult, runRetention } from '@luna/db';
-import { JOBS, QUEUES } from '@luna/shared';
+import { JOBS, ObjectStore, QUEUES, type QueueJob, unknownJob } from '@luna/shared';
 import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import type { Job, Queue } from 'bullmq';
 import { WORKER_CONFIG, type WorkerConfig } from '../config/worker-config.js';
 import { PrismaService } from '../infra/prisma.provider.js';
-import { StorageService } from '../infra/storage.provider.js';
 
 const GC_BATCH = 200;
 const GC_MAX_ATTEMPTS = 10;
@@ -22,7 +21,7 @@ export class MaintenanceProcessor extends WorkerHost implements OnApplicationBoo
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly storage: StorageService,
+    private readonly store: ObjectStore,
     @InjectQueue(QUEUES.MAINTENANCE) private readonly queue: Queue,
     @Inject(WORKER_CONFIG) private readonly config: WorkerConfig,
   ) {
@@ -54,8 +53,9 @@ export class MaintenanceProcessor extends WorkerHost implements OnApplicationBoo
   }
 
   async process(job: Job): Promise<unknown> {
-    switch (job.name) {
-      case JOBS.PURGE_TRASH: {
+    const j = job as unknown as QueueJob<'maintenance'>;
+    switch (j.name) {
+      case 'purge-trash': {
         const purged = await purgeExpiredTrash(this.prisma.client, {
           onError: (err, context) =>
             this.logger.error({ ...context, err }, 'Trash purge failed for a workspace'),
@@ -64,14 +64,14 @@ export class MaintenanceProcessor extends WorkerHost implements OnApplicationBoo
         const gc = await this.collectGarbage();
         return { purged, ...gc };
       }
-      case JOBS.RETENTION:
+      case 'retention':
         return this.retention();
-      case JOBS.CLEAN_UPLOADS:
+      case 'clean-uploads':
         return { ...(await this.cleanUploads()), staleWorkDirs: await this.cleanWorkDirs() };
-      case JOBS.BLOB_GC:
+      case 'blob-gc':
         return this.collectGarbage();
       default:
-        throw new Error(`Unknown job "${job.name}" on queue ${QUEUES.MAINTENANCE}`);
+        throw new Error(`Unknown job "${unknownJob(j)}" on queue ${QUEUES.MAINTENANCE}`);
     }
   }
 
@@ -118,7 +118,7 @@ export class MaintenanceProcessor extends WorkerHost implements OnApplicationBoo
       if (rows.length === 0) break;
       for (const row of rows) {
         try {
-          await this.storage.forRef(row).delete(row);
+          await this.store.delete(row);
           await this.prisma.client.blobGc.delete({ where: { id: row.id } });
           deleted++;
         } catch (err) {
@@ -157,10 +157,10 @@ export class MaintenanceProcessor extends WorkerHost implements OnApplicationBoo
       take: 500,
     });
     for (const s of expired) {
-      await this.storage.s3
+      await this.store.s3
         .send(
           new AbortMultipartUploadCommand({
-            Bucket: this.storage.buckets.tmp,
+            Bucket: this.store.buckets.tmp,
             Key: s.tmpKey,
             UploadId: s.s3UploadId,
           }),

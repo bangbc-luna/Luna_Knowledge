@@ -1,42 +1,21 @@
-import { randomBytes } from 'node:crypto';
-import { GetObjectCommand, type S3Client } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { openVideoKey } from '@luna/shared';
+import { ObjectStore } from '@luna/shared';
 import { Inject, Injectable } from '@nestjs/common';
 import type { Redis } from 'ioredis';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
 import { AppError } from '../common/errors/app-error.js';
-import { ErrorCode } from '../common/errors/error-codes.js';
 import type { RequestContext } from '../common/http/request-context.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
-import { ContentAccessService } from '../content/content-access.service.js';
+import { ContentAccessService, AS_VIDEO } from '../content/content-access.service.js';
 import { NodeDtoService } from '../content/node-dto.service.js';
 import { NodeEventsService } from '../files/node-events.service.js';
-import { StorageService } from '../files/storage.service.js';
 import { TranscodeQueueService } from '../files/transcode-queue.service.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { REDIS } from '../infra/redis/redis.module.js';
-import { S3_PRESIGN } from '../infra/s3/s3.module.js';
-import { playbackIndexKey, playbackKey } from './playback-keys.js';
+import { PREVIEW_URL } from '../infra/s3/storage-urls.js';
+import { HlsSessions } from './hls-sessions.service.js';
 
-const SESSION_IDLE_SEC = 15 * 60;
-const SESSION_MAX_SEC = 8 * 3600;
-const SEGMENT_URL_TTL_SEC = 120;
-const MAX_KEY_FETCHES = 30;
 const VIEW_DEDUPE_SEC = 30 * 60;
-
-const RENDITION_RE = /^\d{1,4}p$/;
-const SEGMENT_RE = /^seg_\d{4,6}\.ts$/;
-
-interface Session {
-  userId: string;
-  sessionId: string;
-  nodeId: string;
-  prefix: string;
-  bucket: string;
-  createdAt: number;
-}
 
 @Injectable()
 export class VideosService {
@@ -44,17 +23,17 @@ export class VideosService {
     private readonly prisma: PrismaService,
     private readonly access: ContentAccessService,
     private readonly dto: NodeDtoService,
-    private readonly storage: StorageService,
+    private readonly store: ObjectStore,
     private readonly audit: AuditService,
     private readonly events: NodeEventsService,
     @Inject(REDIS) private readonly redis: Redis,
-    @Inject(S3_PRESIGN) private readonly presigner: S3Client,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly transcodes: TranscodeQueueService,
+    private readonly hls: HlsSessions,
   ) {}
 
   async detail(user: AuthenticatedUser, nodeId: string, ctx: RequestContext) {
-    const node = await this.requireVideo(user, nodeId, 'VIEWER');
+    const node = await this.access.requireNode(user, nodeId, 'VIEWER', AS_VIDEO);
     await this.audit.logView(user.id, node, ctx);
     const [video, info, watch] = await Promise.all([
       this.prisma.client.video.findUnique({ where: { nodeId } }),
@@ -91,7 +70,7 @@ export class VideosService {
   }
 
   async saveProgress(user: AuthenticatedUser, nodeId: string, positionSec: number) {
-    await this.requireVideo(user, nodeId, 'VIEWER');
+    await this.access.requireNode(user, nodeId, 'VIEWER', AS_VIDEO);
     await this.prisma.client.videoWatch.upsert({
       where: { userId_nodeId: { userId: user.id, nodeId } },
       create: { userId: user.id, nodeId, positionSec },
@@ -106,7 +85,7 @@ export class VideosService {
     sessionId: string,
     opts: { viaTunnel: boolean },
   ) {
-    const node = await this.requireVideo(user, nodeId, 'VIEWER');
+    const node = await this.access.requireNode(user, nodeId, 'VIEWER', AS_VIDEO);
     const video = await this.prisma.client.video.findUnique({ where: { nodeId } });
     if (!video) throw AppError.conflict('This video is not ready to play yet');
     const [hls, poster, me, watch] = await Promise.all([
@@ -123,21 +102,12 @@ export class VideosService {
       }),
     ]);
 
-    const token = randomBytes(24).toString('base64url');
-    const session: Session = {
+    const { token, masterUrl, expiresAt } = await this.hls.open({
       userId: user.id,
       sessionId,
       nodeId,
-      prefix: hls.key,
-      bucket: hls.container,
-      createdAt: Date.now(),
-    };
-    await this.redis
-      .multi()
-      .set(playbackKey(token), JSON.stringify(session), 'EX', SESSION_IDLE_SEC)
-      .sadd(playbackIndexKey(sessionId), token)
-      .expire(playbackIndexKey(sessionId), SESSION_MAX_SEC)
-      .exec();
+      hls,
+    });
 
     const fresh = await this.redis
       .set(`video:view:${user.id}:${nodeId}`, '1', 'EX', VIEW_DEDUPE_SEC, 'NX')
@@ -159,14 +129,15 @@ export class VideosService {
     }
 
     return {
-      masterUrl: `/api/v1/videos/${nodeId}/hls/master.m3u8?s=${token}`,
+      masterUrl,
       token,
-      expiresAt: new Date(Date.now() + SESSION_IDLE_SEC * 1000),
+      expiresAt,
       posterUrl: poster
         ? (
-            await this.storage.presignGet(poster, {
-              fileName: 'poster.jpg',
+            await this.store.presignGet(poster, {
+              ...PREVIEW_URL,
               contentType: poster.mime,
+              disposition: { type: 'inline', fileName: 'poster.jpg' },
             })
           ).url
         : null,
@@ -177,86 +148,8 @@ export class VideosService {
     };
   }
 
-  async masterPlaylist(nodeId: string, token: string): Promise<string> {
-    const s = await this.requireSession(nodeId, token, { checkAccess: true });
-    const body = await this.readPlaylist(s, 'master.m3u8');
-    return body
-      .split('\n')
-      .map((line) => {
-        const m = /^(\d{1,4}p)\/index\.m3u8$/.exec(line.trim());
-        return m ? `/api/v1/videos/${nodeId}/hls/${m[1]}/index.m3u8?s=${token}` : line;
-      })
-      .join('\n');
-  }
-
-  async mediaPlaylist(nodeId: string, rendition: string, token: string): Promise<string> {
-    if (!RENDITION_RE.test(rendition)) throw AppError.notFound('Playlist not found');
-    const s = await this.requireSession(nodeId, token, { checkAccess: true });
-    const body = await this.readPlaylist(s, `${rendition}/index.m3u8`);
-    return body
-      .split('\n')
-      .map((line) => {
-        if (line.startsWith('#EXT-X-KEY:')) {
-          return line.replace(/URI="[^"]*"/, `URI="/api/v1/videos/${nodeId}/key?s=${token}"`);
-        }
-        const seg = line.trim();
-        return SEGMENT_RE.test(seg)
-          ? `/api/v1/videos/${nodeId}/hls/${rendition}/${seg}?s=${token}`
-          : line;
-      })
-      .join('\n');
-  }
-
-  async segmentUrl(
-    nodeId: string,
-    rendition: string,
-    segment: string,
-    token: string,
-  ): Promise<string> {
-    if (!RENDITION_RE.test(rendition) || !SEGMENT_RE.test(segment))
-      throw AppError.notFound('Segment not found');
-    const s = await this.requireSession(nodeId, token);
-    return getSignedUrl(
-      this.presigner,
-      new GetObjectCommand({
-        Bucket: s.bucket,
-        Key: `${s.prefix}${rendition}/${segment}`,
-        ResponseContentType: 'video/mp2t',
-        ResponseContentDisposition: 'inline',
-        ResponseCacheControl: 'private, max-age=60',
-      }),
-      { expiresIn: SEGMENT_URL_TTL_SEC },
-    );
-  }
-
-  async key(nodeId: string, token: string): Promise<Buffer> {
-    const session = await this.requireSession(nodeId, token, { checkAccess: true });
-    const count = await this.redis.incr(`pb:${token}:keys`);
-    if (count === 1) await this.redis.expire(`pb:${token}:keys`, SESSION_MAX_SEC);
-    if (count > MAX_KEY_FETCHES) {
-      throw new AppError(
-        ErrorCode.RATE_LIMITED,
-        'Too many key requests for this playback session',
-        429,
-      );
-    }
-    const video = await this.prisma.client.video.findUnique({
-      where: { nodeId },
-      select: { keyEncrypted: true, hlsBlobId: true },
-    });
-    if (!video) throw AppError.notFound('Video not found');
-    const hls = await this.prisma.client.blob.findUnique({
-      where: { id: video.hlsBlobId },
-      select: { key: true },
-    });
-    if (hls?.key !== session.prefix) {
-      throw AppError.notFound('Playback session is out of date, start playback again');
-    }
-    return openVideoKey(video.keyEncrypted, this.config.VIDEO_MASTER_KEY);
-  }
-
   async posterUrl(user: AuthenticatedUser, nodeId: string): Promise<string> {
-    await this.requireVideo(user, nodeId, 'VIEWER');
+    await this.access.requireNode(user, nodeId, 'VIEWER', AS_VIDEO);
     const video = await this.prisma.client.video.findUnique({
       where: { nodeId },
       select: { posterBlobId: true },
@@ -266,12 +159,16 @@ export class VideosService {
       : null;
     if (!poster) throw AppError.notFound('This video has no poster yet');
     return (
-      await this.storage.presignGet(poster, { fileName: 'poster.jpg', contentType: poster.mime })
+      await this.store.presignGet(poster, {
+        ...PREVIEW_URL,
+        contentType: poster.mime,
+        disposition: { type: 'inline', fileName: 'poster.jpg' },
+      })
     ).url;
   }
 
   async spriteVtt(user: AuthenticatedUser, nodeId: string): Promise<string> {
-    await this.requireVideo(user, nodeId, 'VIEWER');
+    await this.access.requireNode(user, nodeId, 'VIEWER', AS_VIDEO);
     const video = await this.prisma.client.video.findUnique({
       where: { nodeId },
       select: { spriteBlobId: true, spriteVtt: true },
@@ -281,15 +178,16 @@ export class VideosService {
       : null;
     if (!sprite || !video?.spriteVtt)
       throw AppError.notFound('This video has no preview thumbnails yet');
-    const { url } = await this.storage.presignGet(sprite, {
-      fileName: 'sprite.jpg',
+    const { url } = await this.store.presignGet(sprite, {
+      ...PREVIEW_URL,
       contentType: sprite.mime,
+      disposition: { type: 'inline', fileName: 'sprite.jpg' },
     });
     return video.spriteVtt.replaceAll('sprite.jpg#', `${url}#`);
   }
 
   async retranscode(user: AuthenticatedUser, nodeId: string, ctx: RequestContext) {
-    const node = await this.requireVideo(user, nodeId, 'EDITOR');
+    const node = await this.access.requireNode(user, nodeId, 'EDITOR', AS_VIDEO);
     const current = await this.prisma.client.node.findUniqueOrThrow({
       where: { id: nodeId },
       select: { status: true, file: { select: { currentVersionId: true } } },
@@ -315,51 +213,5 @@ export class VideosService {
     await this.transcodes.enqueue(nodeId, versionId);
     await this.prisma.client.node.update({ where: { id: nodeId }, data: { status: 'PROCESSING' } });
     await this.events.publish({ nodeId, status: 'PROCESSING', progress: 0 });
-  }
-
-  private async requireVideo(user: AuthenticatedUser, nodeId: string, min: 'VIEWER' | 'EDITOR') {
-    const node = await this.access.requireNode(user, nodeId, min);
-    if (node.type !== 'VIDEO') throw AppError.notFound('Video not found');
-    return node;
-  }
-
-  private async requireSession(
-    nodeId: string,
-    token: string,
-    { checkAccess = false } = {},
-  ): Promise<Session> {
-    const raw = await this.redis.get(playbackKey(token));
-    const s = raw ? (JSON.parse(raw) as Session) : null;
-    if (!s || s.nodeId !== nodeId || Date.now() - s.createdAt > SESSION_MAX_SEC * 1000) {
-      throw AppError.notFound('Playback session is invalid or has expired');
-    }
-    if (checkAccess) {
-      const user = await this.prisma.client.user.findUnique({
-        where: { id: s.userId },
-        select: { id: true, status: true },
-      });
-      if (user?.status !== 'ACTIVE')
-        throw AppError.notFound('Playback session is invalid or has expired');
-      await this.requireVideo({ id: user.id } as unknown as AuthenticatedUser, nodeId, 'VIEWER');
-    }
-    await this.redis.expire(playbackKey(token), SESSION_IDLE_SEC);
-    return s;
-  }
-
-  private async readPlaylist(s: Session, path: string): Promise<string> {
-    const cacheKey = `hlspl:${s.prefix}${path}`;
-    const cached = await this.redis.get(cacheKey);
-    if (cached) return cached;
-    const { body } = await this.storage
-      .forRef({ provider: 'S3' })
-      .getStream({ provider: 'S3', container: s.bucket, key: `${s.prefix}${path}` })
-      .catch(() => {
-        throw AppError.notFound('Playlist not found');
-      });
-    const chunks: Buffer[] = [];
-    for await (const c of body) chunks.push(Buffer.from(c as Buffer));
-    const text = Buffer.concat(chunks).toString('utf8');
-    await this.redis.set(cacheKey, text, 'EX', 600);
-    return text;
   }
 }

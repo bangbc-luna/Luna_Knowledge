@@ -5,31 +5,26 @@ import {
   CreateMultipartUploadCommand,
   ListPartsCommand,
   type Part,
-  type S3Client,
-  UploadPartCommand,
 } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { UploadSession } from '@luna/db';
 import {
-  JOBS,
-  type ProcessUploadJob,
+  enqueueFileJob,
+  type JobQueue,
+  ObjectStore,
   QUEUES,
   ALLOWED_EXTENSIONS,
   ruleForFileName,
 } from '@luna/shared';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import type { Queue } from 'bullmq';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
 import { AppError } from '../common/errors/app-error.js';
 import type { RequestContext } from '../common/http/request-context.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { ContentAccessService } from '../content/content-access.service.js';
-import { nameKey } from '../content/node-names.js';
-import { NodesService } from '../content/nodes.service.js';
+import { NodeTree } from '../content/node-tree.service.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
-import { BUCKETS, type Buckets, S3, S3_PRESIGN } from '../infra/s3/s3.module.js';
 import { NodeEventsService } from './node-events.service.js';
 import type { CreateUploadBody, PartsQuery } from './uploads.schemas.js';
 
@@ -46,14 +41,12 @@ export class UploadsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: ContentAccessService,
-    private readonly nodes: NodesService,
+    private readonly tree: NodeTree,
     private readonly audit: AuditService,
     private readonly events: NodeEventsService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
-    @Inject(S3) private readonly s3: S3Client,
-    @Inject(S3_PRESIGN) private readonly presigner: S3Client,
-    @Inject(BUCKETS) private readonly buckets: Buckets,
-    @InjectQueue(QUEUES.FILE_PROCESS) private readonly fileQueue: Queue,
+    private readonly store: ObjectStore,
+    @InjectQueue(QUEUES.FILE_PROCESS) private readonly fileQueue: JobQueue<'file-process'>,
   ) {}
 
   async create(
@@ -81,39 +74,21 @@ export class UploadsService {
       }
       nodeId = node.id;
     } else {
-      const parentId = body.parentId ?? null;
-      const name = body.title ?? body.fileName;
-      const section = body.kind === 'VIDEO' ? 'VIDEOS' : 'DOCS';
-      await this.nodes.requireContainer(user, workspaceId, parentId, section);
-      try {
-        const node = await this.nodes.withTreeLock(workspaceId, (tx) =>
-          tx.node.create({
-            data: {
-              workspaceId,
-              parentId,
-              section,
-              type: body.kind,
-              name,
-              nameNormalized: nameKey(name),
-              description: body.description ?? null,
-              status: 'UPLOADING',
-              createdById: user.id,
-              updatedById: user.id,
-            },
-          }),
-        );
-        nodeId = node.id;
-        createdNode = true;
-      } catch (err) {
-        throw await this.nodes.mapNameConflict(
-          err,
+      const node = await this.tree.create(
+        user,
+        {
           workspaceId,
-          parentId,
-          name,
-          undefined,
-          section,
-        );
-      }
+          parentId: body.parentId ?? null,
+          section: body.kind === 'VIDEO' ? 'VIDEOS' : 'DOCS',
+          type: body.kind,
+          name: body.title ?? body.fileName,
+          extra: { description: body.description ?? null, status: 'UPLOADING' },
+        },
+        ctx,
+        { announce: false },
+      );
+      nodeId = node.id;
+      createdNode = true;
     }
 
     const id = randomUUID();
@@ -122,8 +97,8 @@ export class UploadsService {
     let s3UploadId: string | undefined;
     let session: UploadSession;
     try {
-      const multipart = await this.s3.send(
-        new CreateMultipartUploadCommand({ Bucket: this.buckets.tmp, Key: tmpKey }),
+      const multipart = await this.store.s3.send(
+        new CreateMultipartUploadCommand({ Bucket: this.store.buckets.tmp, Key: tmpKey }),
       );
       s3UploadId = multipart.UploadId;
       session = await this.prisma.client.uploadSession.create({
@@ -145,10 +120,10 @@ export class UploadsService {
       });
     } catch (err) {
       if (s3UploadId) {
-        await this.s3
+        await this.store.s3
           .send(
             new AbortMultipartUploadCommand({
-              Bucket: this.buckets.tmp,
+              Bucket: this.store.buckets.tmp,
               Key: tmpKey,
               UploadId: s3UploadId,
             }),
@@ -243,9 +218,9 @@ export class UploadsService {
       });
     }
 
-    await this.s3.send(
+    await this.store.s3.send(
       new CompleteMultipartUploadCommand({
-        Bucket: this.buckets.tmp,
+        Bucket: this.store.buckets.tmp,
         Key: session.tmpKey,
         UploadId: session.s3UploadId,
         MultipartUpload: {
@@ -265,13 +240,7 @@ export class UploadsService {
         data: { status: 'PROCESSING', updatedById: user.id },
       }),
     ]);
-    await this.fileQueue.add(JOBS.PROCESS_UPLOAD, { uploadId } satisfies ProcessUploadJob, {
-      jobId: `upload-${uploadId}`,
-      attempts: 3,
-      backoff: { type: 'exponential', delay: 5000 },
-      removeOnComplete: 100,
-      removeOnFail: 500,
-    });
+    await enqueueFileJob(this.fileQueue, 'process-upload', { uploadId }, `upload-${uploadId}`);
     await this.events.publish({ nodeId: session.nodeId, status: 'PROCESSING' });
     await this.audit.log({
       actorId: user.id,
@@ -305,10 +274,10 @@ export class UploadsService {
   }
 
   async abortSession(session: UploadSession) {
-    await this.s3
+    await this.store.s3
       .send(
         new AbortMultipartUploadCommand({
-          Bucket: this.buckets.tmp,
+          Bucket: this.store.buckets.tmp,
           Key: session.tmpKey,
           UploadId: session.s3UploadId,
         }),
@@ -366,15 +335,11 @@ export class UploadsService {
   private async signParts(session: UploadSession, from: number, to: number) {
     const parts: { partNumber: number; url: string }[] = [];
     for (let partNumber = from; partNumber <= to; partNumber++) {
-      const url = await getSignedUrl(
-        this.presigner,
-        new UploadPartCommand({
-          Bucket: this.buckets.tmp,
-          Key: session.tmpKey,
-          UploadId: session.s3UploadId,
-          PartNumber: partNumber,
-        }),
-        { expiresIn: PART_URL_TTL_SEC },
+      const url = await this.store.presignUploadPart(
+        { container: this.store.buckets.tmp, key: session.tmpKey },
+        session.s3UploadId,
+        partNumber,
+        PART_URL_TTL_SEC,
       );
       parts.push({ partNumber, url });
     }
@@ -385,9 +350,9 @@ export class UploadsService {
     const parts: Part[] = [];
     let marker: string | undefined;
     for (;;) {
-      const res = await this.s3.send(
+      const res = await this.store.s3.send(
         new ListPartsCommand({
-          Bucket: this.buckets.tmp,
+          Bucket: this.store.buckets.tmp,
           Key: session.tmpKey,
           UploadId: session.s3UploadId,
           PartNumberMarker: marker,

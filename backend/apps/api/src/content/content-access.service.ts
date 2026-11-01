@@ -15,6 +15,11 @@ import { PrismaService } from '../infra/prisma/prisma.service.js';
 
 export type { ContentRole };
 
+export const AS_DOCUMENT = { types: ['DOCUMENT'], notFound: 'Document not found' } as const;
+export const AS_VIDEO = { types: ['VIDEO'], notFound: 'Video not found' } as const;
+export const AS_FILE = { types: ['FILE', 'VIDEO'], notFound: 'File not found' } as const;
+export const AS_FILE_ONLY = { types: ['FILE'], notFound: 'File not found' } as const;
+
 export const MEMBER_RANK: Record<WorkspaceRole, number> = { VIEWER: 1, MEMBER: 2, ADMIN: 3 };
 
 export interface NodeAccess {
@@ -31,6 +36,7 @@ export interface NodeAccess {
   isMember: boolean;
   memberRole: WorkspaceRole | null;
   role: ContentRole | null;
+  userActive: boolean;
 }
 
 interface AccessRow {
@@ -46,13 +52,18 @@ interface AccessRow {
   deleted_by: string | null;
   member_role: string | null;
   share_role: string | null;
+  user_active: boolean | null;
 }
 
 @Injectable()
 export class ContentAccessService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async resolveMany(userId: string, nodeIds: string[]): Promise<Map<string, NodeAccess>> {
+  async resolveMany(
+    userId: string,
+    nodeIds: string[],
+    { ignoreStatus = false }: { ignoreStatus?: boolean } = {},
+  ): Promise<Map<string, NodeAccess>> {
     if (nodeIds.length === 0) return new Map();
     const rows = await this.prisma.client.$queryRaw<AccessRow[]>`
       SELECT n.id, n.workspace_id, n.parent_id, n.type, n.section, n.name, n.created_by,
@@ -76,19 +87,31 @@ export class ContentAccessService {
           deletedById: r.deleted_by,
           isMember: !!r.member_role,
           memberRole: (r.member_role as WorkspaceRole | null) ?? null,
-          role: effectiveRole(r),
+          role: ignoreStatus
+            ? effectiveRole({ member_role: r.member_role, share_role: r.share_role })
+            : effectiveRole(r),
+          userActive: r.user_active === true,
         },
       ]),
     );
   }
 
   async requireNode(
-    user: AuthenticatedUser,
+    user: Pick<AuthenticatedUser, 'id'>,
     nodeId: string,
     min: ContentRole,
-    { allowDeleted = false } = {},
+    opts: {
+      allowDeleted?: boolean;
+      types?: readonly NodeType[];
+      notFound?: string;
+      inactiveUser?: string;
+    } = {},
   ): Promise<NodeAccess & { role: ContentRole }> {
+    const { allowDeleted = false, types, notFound = 'Item not found', inactiveUser } = opts;
     const access = (await this.resolveMany(user.id, [nodeId])).get(nodeId);
+    if (inactiveUser && !(access ? access.userActive : await this.isActive(user.id))) {
+      throw AppError.notFound(inactiveUser);
+    }
     if (!access || !access.role || (access.deletedAt && !allowDeleted)) {
       throw AppError.notFound('Item not found');
     }
@@ -99,7 +122,16 @@ export class ContentAccessService {
           : 'You only have view access to this item',
       );
     }
+    if (types && !types.includes(access.type)) throw AppError.notFound(notFound);
     return access as NodeAccess & { role: ContentRole };
+  }
+
+  private async isActive(userId: string): Promise<boolean> {
+    const user = await this.prisma.client.user.findUnique({
+      where: { id: userId },
+      select: { status: true },
+    });
+    return user?.status === 'ACTIVE';
   }
 
   async requireMember(

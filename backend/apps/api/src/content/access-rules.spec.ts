@@ -19,6 +19,16 @@ describe('effectiveRole', () => {
   });
 });
 
+describe('effectiveRole theo trạng thái tài khoản', () => {
+  it.each([
+    [false, null],
+    [null, null],
+    [true, 'OWNER'],
+  ])('user_active %s → %s', (user_active, expected) => {
+    expect(effectiveRole({ member_role: 'ADMIN', share_role: null, user_active })).toBe(expected);
+  });
+});
+
 describe('contentRoleAtLeast', () => {
   it('so sánh theo thứ bậc VIEWER < EDITOR < OWNER', () => {
     expect(contentRoleAtLeast('OWNER', 'EDITOR')).toBe(true);

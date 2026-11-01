@@ -25,33 +25,6 @@ export const JOBS = {
   TRANSCODE: 'transcode',
 } as const;
 
-export interface ProcessUploadJob {
-  uploadId: string;
-}
-export function transcodePriority(sizeBytes: number | bigint): number {
-  return Math.min(1000, 1 + Math.floor(Number(sizeBytes) / (50 * 1024 * 1024)));
-}
-
-export function transcodeJobOptions(sizeBytes: number | bigint, jobId?: string) {
-  return {
-    ...(jobId ? { jobId } : {}),
-    priority: transcodePriority(sizeBytes),
-    attempts: 3,
-    backoff: { type: 'exponential' as const, delay: 30_000 },
-    removeOnComplete: 100,
-    removeOnFail: 500,
-  };
-}
-
-export interface TranscodeJob {
-  nodeId: string;
-  versionId: string;
-}
-export interface RegenerateJob {
-  nodeId: string;
-  versionId: string;
-}
-
 export interface NodeEvent {
   nodeId: string;
   status: 'UPLOADING' | 'PROCESSING' | 'READY' | 'FAILED';

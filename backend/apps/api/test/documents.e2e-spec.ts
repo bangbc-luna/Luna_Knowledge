@@ -9,14 +9,13 @@ import {
   latexJSON,
   stateToJSON,
 } from '@luna/editor';
-import { COLLAB_ACCESS_CHANNEL, COLLAB_TOKEN_AUDIENCE } from '@luna/shared';
+import { COLLAB_ACCESS_CHANNEL, COLLAB_TOKEN_AUDIENCE, ObjectStore } from '@luna/shared';
 import { Redis } from 'ioredis';
 import { jwtVerify } from 'jose';
 import JSZip from 'jszip';
 import request from 'supertest';
 import { CollabClient } from '../src/documents/collab-client.service.js';
 import { PrismaService } from '../src/infra/prisma/prisma.service.js';
-import { BUCKETS, type Buckets, S3 } from '../src/infra/s3/s3.module.js';
 import {
   createTestApp,
   type LoggedIn,
@@ -66,7 +65,7 @@ describe('Documents, versions, comments, notifications (e2e)', () => {
   let outsider: LoggedIn;
   let wsId: string;
   let s3: S3Client;
-  let buckets: Buckets;
+  let buckets: ObjectStore['buckets'];
   const http = () => request(ctx.app.getHttpServer());
   const create = (as: LoggedIn, name: string, parentId?: string) =>
     http().post(`/api/v1/workspaces/${wsId}/documents`).set(as.auth).send({ name, parentId });
@@ -95,8 +94,8 @@ describe('Documents, versions, comments, notifications (e2e)', () => {
     ctx = await createTestApp([[CollabClient, collab]]);
     collab.prisma = ctx.app.get(PrismaService);
     await resetDatabase(ctx.prisma);
-    s3 = ctx.app.get(S3);
-    buckets = ctx.app.get(BUCKETS);
+    s3 = ctx.app.get(ObjectStore).s3;
+    buckets = ctx.app.get(ObjectStore).buckets;
     admin = await loginAsAdmin(ctx);
     owner = await loginAs(ctx, 'owner@lunatech.vn', { name: 'Chủ Tài Liệu' });
     editor = await loginAs(ctx, 'editor@lunatech.vn', { name: 'Biên Tập' });
@@ -506,6 +505,35 @@ $A = P(1 + r)^n$`;
       .set(outsider.auth)
       .send({ body: 'x' })
       .expect(404);
+  });
+
+  it('comment: thành viên bị khoá vẫn được @mention và nhận thông báo như trước', async () => {
+    const creator = await loginAs(ctx, 'locked.creator@lunatech.vn');
+    const mentioned = await loginAs(ctx, 'locked.mentioned@lunatech.vn');
+    for (const email of ['locked.creator@lunatech.vn', 'locked.mentioned@lunatech.vn'])
+      await http()
+        .post(`/api/v1/workspaces/${wsId}/members`)
+        .set(owner.auth)
+        .send({ email, role: 'MEMBER' })
+        .expect(201);
+    const id = (await create(creator, 'Thảo luận người bị khoá').expect(201)).body.node.id;
+    await ctx.prisma.user.updateMany({
+      where: { id: { in: [creator.userId, mentioned.userId] } },
+      data: { status: 'DISABLED' },
+    });
+    const t = await http()
+      .post(`/api/v1/documents/${id}/threads`)
+      .set(editor.auth)
+      .send({ body: 'Nhờ xem', mentions: [mentioned.userId] })
+      .expect(201);
+    expect(t.body.ignoredMentions).toEqual([]);
+    expect(t.body.comments[0].mentions.map((m: { id: string }) => m.id)).toEqual([
+      mentioned.userId,
+    ]);
+    const types = async (userId: string) =>
+      (await ctx.prisma.notification.findMany({ where: { userId } })).map((n) => n.type);
+    expect(await types(mentioned.userId)).toEqual(['comment.mention']);
+    expect(await types(creator.userId)).toContain('comment.new');
   });
 
   it('chia sẻ cho người khác tạo thông báo share.added', async () => {

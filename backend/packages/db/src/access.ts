@@ -17,7 +17,8 @@ export function accessColumns(userId: string): Prisma.Sql {
       WHERE m.workspace_id = n.workspace_id AND m.user_id = ${userId}::uuid) AS member_role,
     (SELECT s.role::text FROM node_shares s JOIN nodes a ON a.id = s.node_id
       WHERE s.user_id = ${userId}::uuid AND a.path @> n.path
-      ORDER BY s.role ASC LIMIT 1) AS share_role`;
+      ORDER BY s.role ASC LIMIT 1) AS share_role,
+    (SELECT u.status = 'ACTIVE' FROM users u WHERE u.id = ${userId}::uuid) AS user_active`;
 }
 
 const MEMBER_ROLE: Record<string, ContentRole> = {
@@ -30,7 +31,9 @@ const SHARE_ROLE: Record<string, ContentRole> = { EDITOR: 'OWNER', VIEWER: 'VIEW
 export function effectiveRole(r: {
   member_role: string | null;
   share_role: string | null;
+  user_active?: boolean | null;
 }): ContentRole | null {
+  if (r.user_active === false || r.user_active === null) return null;
   const base = r.member_role ? (MEMBER_ROLE[r.member_role] ?? null) : null;
   const shared = r.share_role ? (SHARE_ROLE[r.share_role] ?? null) : null;
   if (!base) return shared;

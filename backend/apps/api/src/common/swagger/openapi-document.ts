@@ -11,7 +11,16 @@ type Operation = {
   responses: Record<string, Record<string, unknown>>;
 };
 
-const DESCRIPTION = (config: AppConfig) => `
+type OpenApiConfig = Pick<
+  AppConfig,
+  | 'ACCESS_TOKEN_TTL_SEC'
+  | 'RATE_LIMIT_USER_PER_MIN'
+  | 'RATE_LIMIT_ANON_PER_MIN'
+  | 'BODY_LIMIT'
+  | 'API_PUBLIC_URL'
+>;
+
+const DESCRIPTION = (config: OpenApiConfig) => `
 Backend của **Luna Knowledge**, kho tài liệu và video nội bộ của LunaTech.
 Tổng quan luồng nghiệp vụ và sơ đồ: \`docs/API_OVERVIEW.md\`. Bộ request chạy được: \`backend/tests/*.http\` (httpYac).
 
@@ -234,7 +243,7 @@ function enrich(doc: OpenAPIObject) {
   return doc;
 }
 
-export function buildOpenApiDocument(app: INestApplication, config: AppConfig) {
+export function buildOpenApiDocument(app: INestApplication, config: OpenApiConfig) {
   const builder = new DocumentBuilder()
     .setTitle('Luna Knowledge API')
     .setDescription(DESCRIPTION(config))

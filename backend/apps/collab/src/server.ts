@@ -4,6 +4,7 @@ import {
   createPrismaClient,
   type PrismaClient,
   resolveDocumentAccess,
+  writeAudit,
 } from '@luna/db';
 import {
   type DocJSON,
@@ -17,6 +18,7 @@ import {
   COLLAB_ACCESS_CHANNEL,
   type CollabAccessEvent,
   createMetricsRegistry,
+  enqueueIndexNode,
   listenHost,
   metricsAllowed,
   QUEUES,
@@ -30,7 +32,6 @@ import { pino } from 'pino';
 import * as Y from 'yjs';
 import { verifyCollabToken } from './auth.js';
 import type { CollabConfig } from './config.js';
-import { enqueueIndexNode } from './index-queue.js';
 
 export interface CollabContext {
   userId: string;
@@ -137,24 +138,20 @@ export function createCollabServer(
       isAuto: true,
       createdById,
     });
-    await prisma.auditLog
-      .create({
-        data: {
-          actorId: createdById,
-          action: 'document.edit',
-          targetType: 'node',
-          targetId: nodeId,
-          workspaceId: row.node.workspaceId,
-          metadata: {
-            name: row.node.name,
-            versionId: version.id,
-            versionNo: version.versionNo,
-            wordsAdded: version.wordsAdded,
-            wordsRemoved: version.wordsRemoved,
-          },
-        },
-      })
-      .catch((err) => logger.error({ err, nodeId }, 'Could not write edit log'));
+    await writeAudit(prisma, {
+      actorId: createdById,
+      action: 'document.edit',
+      targetType: 'node',
+      targetId: nodeId,
+      workspaceId: row.node.workspaceId,
+      metadata: {
+        name: row.node.name,
+        versionId: version.id,
+        versionNo: version.versionNo,
+        wordsAdded: version.wordsAdded,
+        wordsRemoved: version.wordsRemoved,
+      },
+    }).catch((err) => logger.error({ err, nodeId }, 'Could not write edit log'));
   };
 
   const closeSession = (server: Server, sessionId: string) => {
@@ -345,9 +342,9 @@ export function createCollabServer(
         data: { updatedById: editor ?? undefined },
         select: { createdAt: true },
       });
-      await enqueueIndexNode(searchQueue, nodeId, config.COLLAB_INDEX_DELAY_MS).catch(
-        () => undefined,
-      );
+      await enqueueIndexNode(searchQueue, nodeId, {
+        debounceMs: config.COLLAB_INDEX_DELAY_MS,
+      }).catch(() => undefined);
       const since = row.lastVersionAt ?? node.createdAt;
       const due = now.getTime() - since.getTime() >= config.COLLAB_AUTO_VERSION_MIN * 60_000;
       if (due && !lastContext?.internal) await autoVersion(nodeId, editor);
