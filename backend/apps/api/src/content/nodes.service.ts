@@ -258,8 +258,9 @@ export class NodesService {
     ctx: RequestContext,
     type?: NodeType,
   ): Promise<NodeDto> {
-    const node = await this.access.requireNode(user, nodeId, 'EDITOR');
-    if (type && node.type !== type) throw AppError.notFound('Item not found');
+    const node = await this.access.requireNode(user, nodeId, 'EDITOR', {
+      types: type && [type],
+    });
     const { name, description } = details;
     const before =
       description === undefined

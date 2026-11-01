@@ -8,7 +8,7 @@ import { AppError } from '../common/errors/app-error.js';
 import { ErrorCode } from '../common/errors/error-codes.js';
 import type { RequestContext } from '../common/http/request-context.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
-import { ContentAccessService } from '../content/content-access.service.js';
+import { ContentAccessService, AS_VIDEO } from '../content/content-access.service.js';
 import { NodeDtoService } from '../content/node-dto.service.js';
 import { NodeEventsService } from '../files/node-events.service.js';
 import { TranscodeQueueService } from '../files/transcode-queue.service.js';
@@ -50,7 +50,7 @@ export class VideosService {
   ) {}
 
   async detail(user: AuthenticatedUser, nodeId: string, ctx: RequestContext) {
-    const node = await this.requireVideo(user, nodeId, 'VIEWER');
+    const node = await this.access.requireNode(user, nodeId, 'VIEWER', AS_VIDEO);
     await this.audit.logView(user.id, node, ctx);
     const [video, info, watch] = await Promise.all([
       this.prisma.client.video.findUnique({ where: { nodeId } }),
@@ -87,7 +87,7 @@ export class VideosService {
   }
 
   async saveProgress(user: AuthenticatedUser, nodeId: string, positionSec: number) {
-    await this.requireVideo(user, nodeId, 'VIEWER');
+    await this.access.requireNode(user, nodeId, 'VIEWER', AS_VIDEO);
     await this.prisma.client.videoWatch.upsert({
       where: { userId_nodeId: { userId: user.id, nodeId } },
       create: { userId: user.id, nodeId, positionSec },
@@ -102,7 +102,7 @@ export class VideosService {
     sessionId: string,
     opts: { viaTunnel: boolean },
   ) {
-    const node = await this.requireVideo(user, nodeId, 'VIEWER');
+    const node = await this.access.requireNode(user, nodeId, 'VIEWER', AS_VIDEO);
     const video = await this.prisma.client.video.findUnique({ where: { nodeId } });
     if (!video) throw AppError.conflict('This video is not ready to play yet');
     const [hls, poster, me, watch] = await Promise.all([
@@ -252,7 +252,7 @@ export class VideosService {
   }
 
   async posterUrl(user: AuthenticatedUser, nodeId: string): Promise<string> {
-    await this.requireVideo(user, nodeId, 'VIEWER');
+    await this.access.requireNode(user, nodeId, 'VIEWER', AS_VIDEO);
     const video = await this.prisma.client.video.findUnique({
       where: { nodeId },
       select: { posterBlobId: true },
@@ -271,7 +271,7 @@ export class VideosService {
   }
 
   async spriteVtt(user: AuthenticatedUser, nodeId: string): Promise<string> {
-    await this.requireVideo(user, nodeId, 'VIEWER');
+    await this.access.requireNode(user, nodeId, 'VIEWER', AS_VIDEO);
     const video = await this.prisma.client.video.findUnique({
       where: { nodeId },
       select: { spriteBlobId: true, spriteVtt: true },
@@ -290,7 +290,7 @@ export class VideosService {
   }
 
   async retranscode(user: AuthenticatedUser, nodeId: string, ctx: RequestContext) {
-    const node = await this.requireVideo(user, nodeId, 'EDITOR');
+    const node = await this.access.requireNode(user, nodeId, 'EDITOR', AS_VIDEO);
     const current = await this.prisma.client.node.findUniqueOrThrow({
       where: { id: nodeId },
       select: { status: true, file: { select: { currentVersionId: true } } },
@@ -318,12 +318,6 @@ export class VideosService {
     await this.events.publish({ nodeId, status: 'PROCESSING', progress: 0 });
   }
 
-  private async requireVideo(user: AuthenticatedUser, nodeId: string, min: 'VIEWER' | 'EDITOR') {
-    const node = await this.access.requireNode(user, nodeId, min);
-    if (node.type !== 'VIDEO') throw AppError.notFound('Video not found');
-    return node;
-  }
-
   private async requireSession(
     nodeId: string,
     token: string,
@@ -341,7 +335,7 @@ export class VideosService {
       });
       if (user?.status !== 'ACTIVE')
         throw AppError.notFound('Playback session is invalid or has expired');
-      await this.requireVideo({ id: user.id } as unknown as AuthenticatedUser, nodeId, 'VIEWER');
+      await this.access.requireNode({ id: user.id }, nodeId, 'VIEWER', AS_VIDEO);
     }
     await this.redis.expire(playbackKey(token), SESSION_IDLE_SEC);
     return s;

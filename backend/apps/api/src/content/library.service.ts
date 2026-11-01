@@ -5,6 +5,7 @@ import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
 import { decodeKeysetCursor, encodeKeysetCursor, type Page } from '../common/pagination/cursor.js';
 import { AppError } from '../common/errors/app-error.js';
+import { mapUnique } from '../common/errors/map-unique.js';
 import type { RequestContext } from '../common/http/request-context.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { ContentAccessService } from './content-access.service.js';
@@ -41,8 +42,9 @@ export class LibraryService {
     ctx: RequestContext,
   ) {
     await this.access.requireMember(user, workspaceId, 'MEMBER');
-    const tag = await this.withTagConflict(() =>
-      this.prisma.client.tag.create({ data: { workspaceId, ...body }, select: tagSelect }),
+    const tag = await mapUnique(
+      () => this.prisma.client.tag.create({ data: { workspaceId, ...body }, select: tagSelect }),
+      'A tag with this name already exists in this workspace',
     );
     await this.auditTag(user, 'tag.create', workspaceId, tag.id, body, ctx);
     return tag;
@@ -55,8 +57,9 @@ export class LibraryService {
     ctx: RequestContext,
   ) {
     const tag = await this.requireTag(user, tagId);
-    const updated = await this.withTagConflict(() =>
-      this.prisma.client.tag.update({ where: { id: tagId }, data: body, select: tagSelect }),
+    const updated = await mapUnique(
+      () => this.prisma.client.tag.update({ where: { id: tagId }, data: body, select: tagSelect }),
+      'A tag with this name already exists in this workspace',
     );
     await this.auditTag(user, 'tag.update', tag.workspaceId, tagId, body, ctx);
     await this.reindexTagged(tagId);
@@ -191,17 +194,6 @@ export class LibraryService {
     if (!tag) throw AppError.notFound('Tag not found');
     if (!user.isSystemAdmin) await this.access.requireMember(user, tag.workspaceId, 'ADMIN');
     return tag;
-  }
-
-  private async withTagConflict<T>(fn: () => Promise<T>): Promise<T> {
-    try {
-      return await fn();
-    } catch (err) {
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-        throw AppError.conflict('A tag with this name already exists in this workspace');
-      }
-      throw err;
-    }
   }
 
   private auditTag(

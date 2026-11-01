@@ -10,7 +10,7 @@ import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
 import { AppError } from '../common/errors/app-error.js';
 import type { RequestContext } from '../common/http/request-context.js';
-import { ContentAccessService } from '../content/content-access.service.js';
+import { ContentAccessService, AS_FILE } from '../content/content-access.service.js';
 import { NodeDtoService } from '../content/node-dto.service.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { REDIS } from '../infra/redis/redis.module.js';
@@ -54,7 +54,7 @@ export class FilesService {
   ) {}
 
   async detail(user: AuthenticatedUser, nodeId: string, ctx: RequestContext) {
-    const node = await this.requireFile(user, nodeId, 'VIEWER');
+    const node = await this.access.requireNode(user, nodeId, 'VIEWER', AS_FILE);
     await this.audit.logView(user.id, node, ctx);
     const info = await this.prisma.client.fileInfo.findUnique({
       where: { nodeId },
@@ -73,7 +73,7 @@ export class FilesService {
   }
 
   async duplicateInfo(user: AuthenticatedUser, nodeId: string) {
-    await this.requireFile(user, nodeId, 'VIEWER');
+    await this.access.requireNode(user, nodeId, 'VIEWER', AS_FILE);
     const info = await this.prisma.client.fileInfo.findUnique({
       where: { nodeId },
       include: {
@@ -128,7 +128,7 @@ export class FilesService {
   }
 
   async versions(user: AuthenticatedUser, nodeId: string): Promise<FileVersionDto[]> {
-    await this.requireFile(user, nodeId, 'VIEWER');
+    await this.access.requireNode(user, nodeId, 'VIEWER', AS_FILE);
     const [info, rows] = await Promise.all([
       this.prisma.client.fileInfo.findUnique({ where: { nodeId } }),
       this.prisma.client.fileVersion.findMany({
@@ -141,7 +141,7 @@ export class FilesService {
   }
 
   async preview(user: AuthenticatedUser, nodeId: string, versionId?: string) {
-    await this.requireFile(user, nodeId, 'VIEWER');
+    await this.access.requireNode(user, nodeId, 'VIEWER', AS_FILE);
     const version = await this.findVersion(nodeId, versionId);
     if (!version?.preview || version.previewKind === 'none') {
       return { kind: 'none' as const, mime: null, url: null, expiresAt: null };
@@ -162,7 +162,7 @@ export class FilesService {
   }
 
   async thumbnailUrl(user: AuthenticatedUser, nodeId: string): Promise<string> {
-    await this.requireFile(user, nodeId, 'VIEWER');
+    await this.access.requireNode(user, nodeId, 'VIEWER', AS_FILE);
     const version = await this.findVersion(nodeId);
     if (!version?.thumbnail) throw AppError.notFound('This file has no thumbnail');
     const { url } = await this.store.presignGet(version.thumbnail, {
@@ -202,7 +202,7 @@ export class FilesService {
   }
 
   async createDownloadLink(user: AuthenticatedUser, nodeId: string, versionId?: string) {
-    const node = await this.requireFile(user, nodeId, 'VIEWER');
+    const node = await this.access.requireNode(user, nodeId, 'VIEWER', AS_FILE);
     this.assertDownloadable(node);
     const version = await this.findVersion(nodeId, versionId);
     if (!version) throw AppError.notFound('This file has no uploaded content yet');
@@ -234,7 +234,7 @@ export class FilesService {
     versionId: string,
     ctx: RequestContext,
   ) {
-    const node = await this.requireFile(user, nodeId, 'EDITOR');
+    const node = await this.access.requireNode(user, nodeId, 'EDITOR', AS_FILE);
     const version = await this.findVersion(nodeId, versionId);
     if (!version) throw AppError.notFound('Version not found');
     const current = await this.prisma.client.node.findUnique({
@@ -269,7 +269,7 @@ export class FilesService {
   }
 
   async regenerate(user: AuthenticatedUser, nodeId: string, ctx: RequestContext) {
-    const node = await this.requireFile(user, nodeId, 'EDITOR');
+    const node = await this.access.requireNode(user, nodeId, 'EDITOR', AS_FILE);
     const version = await this.findVersion(nodeId);
     if (!version) throw AppError.notFound('This file has no uploaded content yet');
     const current = await this.prisma.client.node.findUnique({
@@ -333,12 +333,6 @@ export class FilesService {
       fileCount: Number(row!.files),
       trashBytes: Number(row!.trash),
     };
-  }
-
-  private async requireFile(user: AuthenticatedUser, nodeId: string, min: 'VIEWER' | 'EDITOR') {
-    const node = await this.access.requireNode(user, nodeId, min);
-    if (node.type !== 'FILE' && node.type !== 'VIDEO') throw AppError.notFound('File not found');
-    return node;
   }
 
   private assertDownloadable(node: { type: string }) {

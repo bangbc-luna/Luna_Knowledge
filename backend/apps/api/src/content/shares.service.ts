@@ -4,6 +4,7 @@ import { Injectable } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
 import { AppError } from '../common/errors/app-error.js';
+import { mapUnique } from '../common/errors/map-unique.js';
 import type { RequestContext } from '../common/http/request-context.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { CollabEventsService } from '../infra/redis/collab-events.service.js';
@@ -63,7 +64,7 @@ export class SharesService {
   ) {
     const node = await this.requireManager(user, nodeId);
     const target = await this.users.findOrProvision(body.email);
-    try {
+    return mapUnique(async () => {
       const share = await this.prisma.client.nodeShare.create({
         data: { nodeId, userId: target.id, role: body.role, grantedById: user.id },
         select: shareSelect,
@@ -91,14 +92,7 @@ export class SharesService {
         });
       }
       return share;
-    } catch (err) {
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-        throw AppError.conflict(
-          'This item is already shared with this user; update the role instead',
-        );
-      }
-      throw err;
-    }
+    }, 'This item is already shared with this user; update the role instead');
   }
 
   async update(

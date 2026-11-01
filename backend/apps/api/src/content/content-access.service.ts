@@ -15,6 +15,11 @@ import { PrismaService } from '../infra/prisma/prisma.service.js';
 
 export type { ContentRole };
 
+export const AS_DOCUMENT = { types: ['DOCUMENT'], notFound: 'Document not found' } as const;
+export const AS_VIDEO = { types: ['VIDEO'], notFound: 'Video not found' } as const;
+export const AS_FILE = { types: ['FILE', 'VIDEO'], notFound: 'File not found' } as const;
+export const AS_FILE_ONLY = { types: ['FILE'], notFound: 'File not found' } as const;
+
 export const MEMBER_RANK: Record<WorkspaceRole, number> = { VIEWER: 1, MEMBER: 2, ADMIN: 3 };
 
 export interface NodeAccess {
@@ -83,11 +88,12 @@ export class ContentAccessService {
   }
 
   async requireNode(
-    user: AuthenticatedUser,
+    user: Pick<AuthenticatedUser, 'id'>,
     nodeId: string,
     min: ContentRole,
-    { allowDeleted = false } = {},
+    opts: { allowDeleted?: boolean; types?: readonly NodeType[]; notFound?: string } = {},
   ): Promise<NodeAccess & { role: ContentRole }> {
+    const { allowDeleted = false, types, notFound = 'Item not found' } = opts;
     const access = (await this.resolveMany(user.id, [nodeId])).get(nodeId);
     if (!access || !access.role || (access.deletedAt && !allowDeleted)) {
       throw AppError.notFound('Item not found');
@@ -99,6 +105,7 @@ export class ContentAccessService {
           : 'You only have view access to this item',
       );
     }
+    if (types && !types.includes(access.type)) throw AppError.notFound(notFound);
     return access as NodeAccess & { role: ContentRole };
   }
 

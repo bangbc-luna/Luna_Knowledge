@@ -24,7 +24,11 @@ import type { AuthenticatedUser } from '../auth/auth.service.js';
 import { AppError } from '../common/errors/app-error.js';
 import type { RequestContext } from '../common/http/request-context.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
-import { ContentAccessService } from '../content/content-access.service.js';
+import {
+  ContentAccessService,
+  AS_DOCUMENT,
+  AS_FILE_ONLY,
+} from '../content/content-access.service.js';
 import { NodeDtoService } from '../content/node-dto.service.js';
 import { nameKey, suggestName } from '../content/node-names.js';
 import { NodesService } from '../content/nodes.service.js';
@@ -104,7 +108,7 @@ export class DocumentsService {
   }
 
   async copy(user: AuthenticatedUser, nodeId: string, body: CopyDocumentBody, ctx: RequestContext) {
-    const source = await this.requireDocument(user, nodeId, 'VIEWER');
+    const source = await this.access.requireNode(user, nodeId, 'VIEWER', AS_DOCUMENT);
     const workspaceId = body.workspaceId ?? source.workspaceId;
     const parentId =
       body.parentId !== undefined
@@ -154,7 +158,7 @@ export class DocumentsService {
   }
 
   async get(user: AuthenticatedUser, nodeId: string, ctx: RequestContext) {
-    const node = await this.requireDocument(user, nodeId, 'VIEWER');
+    const node = await this.access.requireNode(user, nodeId, 'VIEWER', AS_DOCUMENT);
     await this.audit.logView(user.id, node, ctx);
     await this.prisma.client.recentView.upsert({
       where: { userId_nodeId: { userId: user.id, nodeId } },
@@ -165,7 +169,7 @@ export class DocumentsService {
   }
 
   async collabToken(user: AuthenticatedUser, nodeId: string, sessionId: string) {
-    const node = await this.requireDocument(user, nodeId, 'VIEWER');
+    const node = await this.access.requireNode(user, nodeId, 'VIEWER', AS_DOCUMENT);
     const expiresAt = new Date(Date.now() + COLLAB_TOKEN_TTL_SEC * 1000);
     const token = await new SignJWT({ doc: nodeId, name: user.name, sid: sessionId })
       .setProtectedHeader({ alg: 'HS256' })
@@ -191,7 +195,7 @@ export class DocumentsService {
     format: 'html' | 'md' | 'tex',
     ctx: RequestContext,
   ) {
-    const node = await this.requireDocument(user, nodeId, 'VIEWER');
+    const node = await this.access.requireNode(user, nodeId, 'VIEWER', AS_DOCUMENT);
     const doc = await this.prisma.client.document.findUnique({ where: { nodeId } });
     const json = await this.withFreshAssetUrls(
       nodeId,
@@ -228,7 +232,7 @@ export class DocumentsService {
   }
 
   async uploadAsset(user: AuthenticatedUser, nodeId: string, file: UploadedAsset | undefined) {
-    await this.requireDocument(user, nodeId, 'EDITOR');
+    await this.access.requireNode(user, nodeId, 'EDITOR', AS_DOCUMENT);
     if (!file?.buffer?.length) throw AppError.validation('Attach a file in the "file" field');
     if (file.size > MAX_ASSET_BYTES)
       throw AppError.tooLarge('Embedded files are limited to 20 MB', { maxBytes: MAX_ASSET_BYTES });
@@ -249,7 +253,7 @@ export class DocumentsService {
   }
 
   async listAssets(user: AuthenticatedUser, nodeId: string) {
-    await this.requireDocument(user, nodeId, 'VIEWER');
+    await this.access.requireNode(user, nodeId, 'VIEWER', AS_DOCUMENT);
     const assets = await this.prisma.client.documentAsset.findMany({
       where: { nodeId },
       include: { blob: true },
@@ -259,8 +263,7 @@ export class DocumentsService {
   }
 
   async importDocx(user: AuthenticatedUser, fileNodeId: string, ctx: RequestContext) {
-    const file = await this.access.requireNode(user, fileNodeId, 'VIEWER');
-    if (file.type !== 'FILE') throw AppError.notFound('File not found');
+    const file = await this.access.requireNode(user, fileNodeId, 'VIEWER', AS_FILE_ONLY);
     await this.nodes.requireContainer(user, file.workspaceId, file.parentId);
     const info = await this.prisma.client.fileInfo.findUnique({
       where: { nodeId: fileNodeId },
@@ -349,12 +352,6 @@ export class DocumentsService {
     });
     await this.search.node(nodeId);
     return this.detail(user, nodeId);
-  }
-
-  async requireDocument(user: AuthenticatedUser, nodeId: string, min: 'VIEWER' | 'EDITOR') {
-    const node = await this.access.requireNode(user, nodeId, min);
-    if (node.type !== 'DOCUMENT') throw AppError.notFound('Document not found');
-    return node;
   }
 
   async detail(user: AuthenticatedUser, nodeId: string) {

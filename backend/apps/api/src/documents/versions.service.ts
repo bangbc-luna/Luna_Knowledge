@@ -6,9 +6,9 @@ import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
 import { AppError } from '../common/errors/app-error.js';
 import type { RequestContext } from '../common/http/request-context.js';
+import { AS_DOCUMENT, ContentAccessService } from '../content/content-access.service.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { CollabClient } from './collab-client.service.js';
-import { DocumentsService } from './documents.service.js';
 
 const userSummary = { id: true, email: true, name: true, avatarUrl: true } as const;
 const summarySelect = {
@@ -41,13 +41,13 @@ type SummaryRow = {
 export class VersionsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly documents: DocumentsService,
+    private readonly access: ContentAccessService,
     private readonly collab: CollabClient,
     private readonly audit: AuditService,
   ) {}
 
   async list(user: AuthenticatedUser, nodeId: string) {
-    await this.documents.requireDocument(user, nodeId, 'VIEWER');
+    await this.access.requireNode(user, nodeId, 'VIEWER', AS_DOCUMENT);
     const rows = await this.prisma.client.documentVersion.findMany({
       where: { nodeId },
       select: summarySelect,
@@ -57,7 +57,7 @@ export class VersionsService {
   }
 
   async createNamed(user: AuthenticatedUser, nodeId: string, name: string, ctx: RequestContext) {
-    const node = await this.documents.requireDocument(user, nodeId, 'EDITOR');
+    const node = await this.access.requireNode(user, nodeId, 'EDITOR', AS_DOCUMENT);
     const state = await this.collab.snapshot(nodeId, node.workspaceId, user.id);
     const version = await this.save(nodeId, state, { name, createdById: user.id });
     await this.audit.log({
@@ -73,14 +73,14 @@ export class VersionsService {
   }
 
   async get(user: AuthenticatedUser, nodeId: string, versionId: string) {
-    await this.documents.requireDocument(user, nodeId, 'VIEWER');
+    await this.access.requireNode(user, nodeId, 'VIEWER', AS_DOCUMENT);
     const v = await this.find(nodeId, versionId);
     const [summary] = await this.withRestoredFrom([v]);
     return { ...summary!, contentJson: v.contentJson, html: jsonToHTML(v.contentJson as DocJSON) };
   }
 
   async diff(user: AuthenticatedUser, nodeId: string, versionId: string, withId: string) {
-    const node = await this.documents.requireDocument(user, nodeId, 'VIEWER');
+    const node = await this.access.requireNode(user, nodeId, 'VIEWER', AS_DOCUMENT);
     const from = await this.find(nodeId, versionId);
     let toText: string;
     let to: { id: string; versionNo: number | null };
@@ -108,7 +108,7 @@ export class VersionsService {
   }
 
   async restore(user: AuthenticatedUser, nodeId: string, versionId: string, ctx: RequestContext) {
-    const node = await this.documents.requireDocument(user, nodeId, 'EDITOR');
+    const node = await this.access.requireNode(user, nodeId, 'EDITOR', AS_DOCUMENT);
     const source = await this.find(nodeId, versionId);
     const state = await this.collab.replace(
       nodeId,
