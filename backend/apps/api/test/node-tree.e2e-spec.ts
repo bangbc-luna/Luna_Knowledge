@@ -5,6 +5,9 @@ import { ObjectStore, type JobQueue } from '@luna/shared';
 import { getQueueToken } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
 import request from 'supertest';
+import { TREE_LOCK_NAMESPACE } from '@luna/db';
+import { type AuthenticatedUser, toAuthenticatedUser } from '../src/auth/auth.service.js';
+import { NodeTree } from '../src/content/node-tree.service.js';
 import {
   createTestApp,
   type LoggedIn,
@@ -541,5 +544,97 @@ describe('Node tree create, move and restore behaviour (e2e)', () => {
       ['node.restore', 'node', { restoredTo: null, movedToRoot: true }],
     ]);
     expect(await indexJobsFor(child)).toEqual(['index-node', 'index-tree', 'index-tree']);
+  });
+
+  describe('NodeTree.create', () => {
+    const tree = () => ctx.app.get(NodeTree);
+    const reqCtx = { ip: '127.0.0.1', userAgent: 'vitest' };
+    let aliceUser: AuthenticatedUser;
+    let viewerUser: AuthenticatedUser;
+
+    beforeAll(async () => {
+      const viewer = await loginAs(ctx, 'viewer@lunatech.vn', { name: 'Viewer' });
+      await http()
+        .post(`/api/v1/workspaces/${wsId}/members`)
+        .set(alice.auth)
+        .send({ email: 'viewer@lunatech.vn' })
+        .expect(201);
+      await ctx.prisma.workspaceMember.updateMany({
+        where: { workspaceId: wsId, userId: viewer.userId },
+        data: { role: 'VIEWER' },
+      });
+      aliceUser = toAuthenticatedUser(
+        await ctx.prisma.user.findUniqueOrThrow({ where: { id: alice.userId } }),
+      );
+      viewerUser = toAuthenticatedUser(
+        await ctx.prisma.user.findUniqueOrThrow({ where: { id: viewer.userId } }),
+      );
+    });
+
+    it('fill lỗi: xoá mục vừa tạo, không ghi audit, ném lại đúng lỗi', async () => {
+      const boom = new Error('copy failed');
+      await expect(
+        tree().create(
+          aliceUser,
+          { workspaceId: wsId, parentId: f, type: 'FOLDER', name: 'Hỏng' },
+          reqCtx,
+          { fill: () => Promise.reject(boom) },
+        ),
+      ).rejects.toBe(boom);
+      expect(await ctx.prisma.node.count({ where: { workspaceId: wsId, name: 'Hỏng' } })).toBe(0);
+      expect(
+        await ctx.prisma.auditLog.count({
+          where: { metadata: { path: ['name'], equals: 'Hỏng' } },
+        }),
+      ).toBe(0);
+    });
+
+    it('fill chạy sau khi đã nhả khoá cây', async () => {
+      let free: boolean | undefined;
+      await tree().create(
+        aliceUser,
+        { workspaceId: wsId, parentId: f, type: 'FOLDER', name: `Rảnh ${seq}` },
+        reqCtx,
+        {
+          fill: async () => {
+            const [r] = await ctx.prisma.$transaction(
+              (tx) =>
+                tx.$queryRaw<
+                  { ok: boolean }[]
+                >`SELECT pg_try_advisory_xact_lock(${TREE_LOCK_NAMESPACE}::int, hashtext(${wsId})) AS ok`,
+            );
+            free = r!.ok;
+          },
+        },
+      );
+      expect(free).toBe(true);
+    });
+
+    it('extra dạng hàm chạy sau kiểm tra container: người chỉ xem bị 403 và extra không được gọi', async () => {
+      const extra = vi.fn();
+      await expect(
+        tree().create(
+          viewerUser,
+          { workspaceId: wsId, parentId: f, type: 'DOCUMENT', name: 'x', extra },
+          reqCtx,
+        ),
+      ).rejects.toMatchObject({ status: 403 });
+      expect(extra).not.toHaveBeenCalled();
+    });
+
+    it('autoRename trong khoá: hai lần tạo đồng thời cùng tên đều thành công, tên khác nhau', async () => {
+      const input = {
+        workspaceId: wsId,
+        parentId: f,
+        type: 'FOLDER' as const,
+        name: `Song song ${seq}`,
+        autoRename: true,
+      };
+      const [a, b] = await Promise.all([
+        tree().create(aliceUser, input, reqCtx),
+        tree().create(aliceUser, input, reqCtx),
+      ]);
+      expect(new Set([a.name, b.name]).size).toBe(2);
+    });
   });
 });

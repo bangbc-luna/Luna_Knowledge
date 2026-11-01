@@ -4,6 +4,7 @@ import { ContentAccessService } from './content-access.service.js';
 import { LibraryController } from './library.controller.js';
 import { LibraryService } from './library.service.js';
 import { NodeDtoService } from './node-dto.service.js';
+import { NodeTree } from './node-tree.service.js';
 import { NodesController } from './nodes.controller.js';
 import { NodesService } from './nodes.service.js';
 import { SharesController } from './shares.controller.js';
@@ -17,11 +18,12 @@ import { TrashService } from './trash.service.js';
   providers: [
     ContentAccessService,
     NodeDtoService,
+    NodeTree,
     NodesService,
     TrashService,
     SharesService,
     LibraryService,
   ],
-  exports: [ContentAccessService, NodeDtoService, NodesService],
+  exports: [ContentAccessService, NodeDtoService, NodeTree, NodesService],
 })
 export class ContentModule {}

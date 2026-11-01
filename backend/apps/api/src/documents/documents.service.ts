@@ -1,4 +1,3 @@
-import { SearchQueueService } from '../infra/queue/search-queue.service.js';
 import {
   type DocJSON,
   emptyDoc,
@@ -28,8 +27,7 @@ import {
   AS_FILE_ONLY,
 } from '../content/content-access.service.js';
 import { NodeDtoService } from '../content/node-dto.service.js';
-import { nameKey, suggestName } from '../content/node-names.js';
-import { NodesService } from '../content/nodes.service.js';
+import { NodeTree } from '../content/node-tree.service.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import {
   DOCX_MIME,
@@ -54,12 +52,11 @@ export class DocumentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: ContentAccessService,
-    private readonly nodes: NodesService,
+    private readonly tree: NodeTree,
     private readonly dto: NodeDtoService,
     private readonly store: ObjectStore,
     private readonly assets: DocumentAssets,
     private readonly audit: AuditService,
-    private readonly search: SearchQueueService,
     private readonly collab: CollabClient,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
@@ -70,26 +67,34 @@ export class DocumentsService {
     body: CreateDocumentBody,
     ctx: RequestContext,
   ) {
-    const parentId = body.parentId ?? null;
-    await this.nodes.requireContainer(user, workspaceId, parentId, 'DOCS');
-    const nodeId = await this.createNode(
+    const node = await this.tree.create(
       user,
-      workspaceId,
-      parentId,
-      body.name,
-      body.format === 'LATEX' ? latexJSON(LATEX_TEMPLATE) : emptyDoc(),
-    );
-    await this.audit.log({
-      actorId: user.id,
-      action: 'node.create',
-      targetType: 'node',
-      targetId: nodeId,
-      workspaceId,
-      metadata: { type: 'DOCUMENT', format: body.format, name: body.name, parentId },
+      {
+        workspaceId,
+        parentId: body.parentId ?? null,
+        section: 'DOCS',
+        type: 'DOCUMENT',
+        name: body.name,
+        extra: {
+          document: this.documentFields(
+            body.format === 'LATEX' ? latexJSON(LATEX_TEMPLATE) : emptyDoc(),
+          ),
+        },
+      },
       ctx,
-    });
-    await this.search.node(nodeId);
-    return this.detail(user, nodeId);
+      {
+        announce: {
+          action: 'node.create',
+          metadata: (n) => ({
+            type: 'DOCUMENT',
+            format: body.format,
+            name: n.name,
+            parentId: n.parentId,
+          }),
+        },
+      },
+    );
+    return this.detail(user, node.id);
   }
 
   async copy(user: AuthenticatedUser, nodeId: string, body: CopyDocumentBody, ctx: RequestContext) {
@@ -101,45 +106,40 @@ export class DocumentsService {
         : workspaceId === source.workspaceId
           ? source.parentId
           : null;
-    await this.nodes.requireContainer(user, workspaceId, parentId, 'DOCS');
-    const json = await this.latestContent(source.id, source.workspaceId, user.id);
-    let name = body.name;
-    if (!name) {
-      const taken = await this.nodes.siblingKeys(workspaceId, parentId);
-      const base = `${source.name} (bản sao)`;
-      name = taken.has(nameKey(base)) ? suggestName(base, taken) : base;
-    }
-    const copyId = await this.createNode(
+    let json: DocJSON = emptyDoc();
+    const copy = await this.tree.create(
       user,
-      workspaceId,
-      parentId,
-      name,
-      isLatexJSON(json) ? latexJSON('') : emptyDoc(),
-    );
-    try {
-      const assetIds = await this.assets.copyAll(user.id, source.id, copyId);
-      await this.writeContent(copyId, remapAssets(json, assetIds));
-    } catch (err) {
-      await this.prisma.client.node.delete({ where: { id: copyId } }).catch(() => undefined);
-      throw err;
-    }
-    await this.audit.log({
-      actorId: user.id,
-      action: 'document.copy',
-      targetType: 'node',
-      targetId: copyId,
-      workspaceId,
-      metadata: {
-        name,
+      {
+        workspaceId,
         parentId,
-        fromNodeId: source.id,
-        fromName: source.name,
-        fromWorkspaceId: source.workspaceId,
+        section: 'DOCS',
+        type: 'DOCUMENT',
+        name: body.name || `${source.name} (bản sao)`,
+        autoRename: !body.name,
+        extra: async () => {
+          json = await this.latestContent(source.id, source.workspaceId, user.id);
+          return { document: this.documentFields(isLatexJSON(json) ? latexJSON('') : emptyDoc()) };
+        },
       },
       ctx,
-    });
-    await this.search.node(copyId);
-    return this.detail(user, copyId);
+      {
+        fill: async (n) => {
+          const assetIds = await this.assets.copyAll(user.id, source.id, n.id);
+          await this.writeContent(n.id, remapAssets(json, assetIds));
+        },
+        announce: {
+          action: 'document.copy',
+          metadata: (n) => ({
+            name: n.name,
+            parentId: n.parentId,
+            fromNodeId: source.id,
+            fromName: source.name,
+            fromWorkspaceId: source.workspaceId,
+          }),
+        },
+      },
+    );
+    return this.detail(user, copy.id);
   }
 
   async get(user: AuthenticatedUser, nodeId: string, ctx: RequestContext) {
@@ -228,7 +228,47 @@ export class DocumentsService {
 
   async importDocx(user: AuthenticatedUser, fileNodeId: string, ctx: RequestContext) {
     const file = await this.access.requireNode(user, fileNodeId, 'VIEWER', AS_FILE_ONLY);
-    await this.nodes.requireContainer(user, file.workspaceId, file.parentId);
+    let buffer: Buffer = Buffer.alloc(0);
+    const node = await this.tree.create(
+      user,
+      {
+        workspaceId: file.workspaceId,
+        parentId: file.parentId,
+        type: 'DOCUMENT',
+        name: file.name.replace(/\.docx$/i, '') || 'Tài liệu',
+        autoRename: true,
+        extra: async () => {
+          buffer = await this.readDocx(fileNodeId);
+          return { document: this.documentFields(emptyDoc()) };
+        },
+      },
+      ctx,
+      {
+        fill: async (n) => {
+          try {
+            const result = await mammoth.convertToHtml(
+              { buffer },
+              {
+                convertImage: mammoth.images.imgElement(this.assets.docxImage(user.id, n.id)),
+              },
+            );
+            await this.writeContent(n.id, htmlToJSON(result.value));
+          } catch (err) {
+            throw err instanceof AppError
+              ? err
+              : AppError.unsupportedType('This Word document could not be converted');
+          }
+        },
+        announce: {
+          action: 'document.import',
+          metadata: (n) => ({ name: n.name, fromNodeId: fileNodeId, fromName: file.name }),
+        },
+      },
+    );
+    return this.detail(user, node.id);
+  }
+
+  private async readDocx(fileNodeId: string): Promise<Buffer> {
     const info = await this.prisma.client.fileInfo.findUnique({
       where: { nodeId: fileNodeId },
       include: { currentVersion: { include: { original: true } } },
@@ -267,37 +307,7 @@ export class DocumentsService {
         },
       );
     }
-
-    const taken = await this.nodes.siblingKeys(file.workspaceId, file.parentId);
-    const base = file.name.replace(/\.docx$/i, '') || 'Tài liệu';
-    const name = taken.has(nameKey(base)) ? suggestName(base, taken) : base;
-    const nodeId = await this.createNode(user, file.workspaceId, file.parentId, name, emptyDoc());
-    try {
-      const result = await mammoth.convertToHtml(
-        { buffer },
-        {
-          convertImage: mammoth.images.imgElement(this.assets.docxImage(user.id, nodeId)),
-        },
-      );
-      const json = htmlToJSON(result.value);
-      await this.writeContent(nodeId, json);
-    } catch (err) {
-      await this.prisma.client.node.delete({ where: { id: nodeId } }).catch(() => undefined);
-      throw err instanceof AppError
-        ? err
-        : AppError.unsupportedType('This Word document could not be converted');
-    }
-    await this.audit.log({
-      actorId: user.id,
-      action: 'document.import',
-      targetType: 'node',
-      targetId: nodeId,
-      workspaceId: file.workspaceId,
-      metadata: { name, fromNodeId: fileNodeId, fromName: file.name },
-      ctx,
-    });
-    await this.search.node(nodeId);
-    return this.detail(user, nodeId);
+    return buffer;
   }
 
   async detail(user: AuthenticatedUser, nodeId: string) {
@@ -328,34 +338,8 @@ export class DocumentsService {
     };
   }
 
-  private async createNode(
-    user: AuthenticatedUser,
-    workspaceId: string,
-    parentId: string | null,
-    name: string,
-    json: DocJSON,
-  ) {
-    try {
-      const node = await this.nodes.withTreeLock(workspaceId, (tx) =>
-        tx.node.create({
-          data: {
-            workspaceId,
-            parentId,
-            type: 'DOCUMENT',
-            name,
-            nameNormalized: nameKey(name),
-            createdById: user.id,
-            updatedById: user.id,
-            document: {
-              create: { ...this.contentFields(json), format: isLatexJSON(json) ? 'LATEX' : 'RICH' },
-            },
-          },
-        }),
-      );
-      return node.id;
-    } catch (err) {
-      throw await this.nodes.mapNameConflict(err, workspaceId, parentId, name);
-    }
+  private documentFields(json: DocJSON) {
+    return { ...this.contentFields(json), format: isLatexJSON(json) ? 'LATEX' : 'RICH' } as const;
   }
 
   private async latestContent(nodeId: string, workspaceId: string, actorId: string) {

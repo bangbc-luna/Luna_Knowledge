@@ -23,8 +23,7 @@ import { AppError } from '../common/errors/app-error.js';
 import type { RequestContext } from '../common/http/request-context.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { ContentAccessService } from '../content/content-access.service.js';
-import { nameKey } from '../content/node-names.js';
-import { NodesService } from '../content/nodes.service.js';
+import { NodeTree } from '../content/node-tree.service.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { NodeEventsService } from './node-events.service.js';
 import type { CreateUploadBody, PartsQuery } from './uploads.schemas.js';
@@ -42,7 +41,7 @@ export class UploadsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: ContentAccessService,
-    private readonly nodes: NodesService,
+    private readonly tree: NodeTree,
     private readonly audit: AuditService,
     private readonly events: NodeEventsService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
@@ -75,39 +74,21 @@ export class UploadsService {
       }
       nodeId = node.id;
     } else {
-      const parentId = body.parentId ?? null;
-      const name = body.title ?? body.fileName;
-      const section = body.kind === 'VIDEO' ? 'VIDEOS' : 'DOCS';
-      await this.nodes.requireContainer(user, workspaceId, parentId, section);
-      try {
-        const node = await this.nodes.withTreeLock(workspaceId, (tx) =>
-          tx.node.create({
-            data: {
-              workspaceId,
-              parentId,
-              section,
-              type: body.kind,
-              name,
-              nameNormalized: nameKey(name),
-              description: body.description ?? null,
-              status: 'UPLOADING',
-              createdById: user.id,
-              updatedById: user.id,
-            },
-          }),
-        );
-        nodeId = node.id;
-        createdNode = true;
-      } catch (err) {
-        throw await this.nodes.mapNameConflict(
-          err,
+      const node = await this.tree.create(
+        user,
+        {
           workspaceId,
-          parentId,
-          name,
-          undefined,
-          section,
-        );
-      }
+          parentId: body.parentId ?? null,
+          section: body.kind === 'VIDEO' ? 'VIDEOS' : 'DOCS',
+          type: body.kind,
+          name: body.title ?? body.fileName,
+          extra: { description: body.description ?? null, status: 'UPLOADING' },
+        },
+        ctx,
+        { announce: false },
+      );
+      nodeId = node.id;
+      createdNode = true;
     }
 
     const id = randomUUID();
