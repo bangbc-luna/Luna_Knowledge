@@ -7,6 +7,7 @@ import type { Queue } from 'bullmq';
 import request from 'supertest';
 import { TREE_LOCK_NAMESPACE } from '@luna/db';
 import { type AuthenticatedUser, toAuthenticatedUser } from '../src/auth/auth.service.js';
+import { ContentAccessService } from '../src/content/content-access.service.js';
 import { NodeTree } from '../src/content/node-tree.service.js';
 import {
   createTestApp,
@@ -573,12 +574,18 @@ describe('Node tree create, move and restore behaviour (e2e)', () => {
 
     it('fill lỗi: xoá mục vừa tạo, không ghi audit, ném lại đúng lỗi', async () => {
       const boom = new Error('copy failed');
+      let createdId = '';
       await expect(
         tree().create(
           aliceUser,
           { workspaceId: wsId, parentId: f, type: 'FOLDER', name: 'Hỏng' },
           reqCtx,
-          { fill: () => Promise.reject(boom) },
+          {
+            fill: (n) => {
+              createdId = n.id;
+              return Promise.reject(boom);
+            },
+          },
         ),
       ).rejects.toBe(boom);
       expect(await ctx.prisma.node.count({ where: { workspaceId: wsId, name: 'Hỏng' } })).toBe(0);
@@ -587,6 +594,8 @@ describe('Node tree create, move and restore behaviour (e2e)', () => {
           where: { metadata: { path: ['name'], equals: 'Hỏng' } },
         }),
       ).toBe(0);
+      expect(createdId).not.toBe('');
+      expect(await indexJobsFor(createdId)).toEqual([]);
     });
 
     it('fill chạy sau khi đã nhả khoá cây', async () => {
@@ -610,6 +619,31 @@ describe('Node tree create, move and restore behaviour (e2e)', () => {
       expect(free).toBe(true);
     });
 
+    it('extra dạng hàm chạy ngoài khoá cây', async () => {
+      let free: boolean | undefined;
+      await tree().create(
+        aliceUser,
+        {
+          workspaceId: wsId,
+          parentId: f,
+          type: 'FOLDER',
+          name: `Ngoài khoá ${seq}`,
+          extra: async () => {
+            const [r] = await ctx.prisma.$transaction(
+              (tx) =>
+                tx.$queryRaw<
+                  { ok: boolean }[]
+                >`SELECT pg_try_advisory_xact_lock(${TREE_LOCK_NAMESPACE}::int, hashtext(${wsId})) AS ok`,
+            );
+            free = r!.ok;
+            return { fields: {}, context: undefined };
+          },
+        },
+        reqCtx,
+      );
+      expect(free).toBe(true);
+    });
+
     it('extra dạng hàm chạy sau kiểm tra container: người chỉ xem bị 403 và extra không được gọi', async () => {
       const extra = vi.fn();
       await expect(
@@ -620,6 +654,19 @@ describe('Node tree create, move and restore behaviour (e2e)', () => {
         ),
       ).rejects.toMatchObject({ status: 403 });
       expect(extra).not.toHaveBeenCalled();
+    });
+
+    it('restore qua NodeTree trả tên cuối cùng và parentId thực tế', async () => {
+      const y = (await createFolder(alice, 'Y', f).expect(201)).body.id as string;
+      await trash(alice, y).expect(204);
+      await createFolder(alice, 'Y', f).expect(201);
+      const rootAccess = (
+        await ctx.app.get(ContentAccessService).resolveMany(alice.userId, [y])
+      ).get(y)!;
+      await expect(tree().restore(aliceUser, rootAccess, reqCtx)).resolves.toEqual({
+        parentId: f,
+        name: 'Y (1)',
+      });
     });
 
     it('autoRename trong khoá: hai lần tạo đồng thời cùng tên đều thành công, tên khác nhau', async () => {

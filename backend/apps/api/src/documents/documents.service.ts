@@ -106,7 +106,6 @@ export class DocumentsService {
         : workspaceId === source.workspaceId
           ? source.parentId
           : null;
-    let json: DocJSON = emptyDoc();
     const copy = await this.tree.create(
       user,
       {
@@ -117,13 +116,18 @@ export class DocumentsService {
         name: body.name || `${source.name} (bản sao)`,
         autoRename: !body.name,
         extra: async () => {
-          json = await this.latestContent(source.id, source.workspaceId, user.id);
-          return { document: this.documentFields(isLatexJSON(json) ? latexJSON('') : emptyDoc()) };
+          const json = await this.latestContent(source.id, source.workspaceId, user.id);
+          return {
+            fields: {
+              document: this.documentFields(isLatexJSON(json) ? latexJSON('') : emptyDoc()),
+            },
+            context: json,
+          };
         },
       },
       ctx,
       {
-        fill: async (n) => {
+        fill: async (n, json) => {
           const assetIds = await this.assets.copyAll(user.id, source.id, n.id);
           await this.writeContent(n.id, remapAssets(json, assetIds));
         },
@@ -228,7 +232,6 @@ export class DocumentsService {
 
   async importDocx(user: AuthenticatedUser, fileNodeId: string, ctx: RequestContext) {
     const file = await this.access.requireNode(user, fileNodeId, 'VIEWER', AS_FILE_ONLY);
-    let buffer: Buffer = Buffer.alloc(0);
     const node = await this.tree.create(
       user,
       {
@@ -237,14 +240,14 @@ export class DocumentsService {
         type: 'DOCUMENT',
         name: file.name.replace(/\.docx$/i, '') || 'Tài liệu',
         autoRename: true,
-        extra: async () => {
-          buffer = await this.readDocx(fileNodeId);
-          return { document: this.documentFields(emptyDoc()) };
-        },
+        extra: async () => ({
+          fields: { document: this.documentFields(emptyDoc()) },
+          context: await this.readDocx(fileNodeId),
+        }),
       },
       ctx,
       {
-        fill: async (n) => {
+        fill: async (n, buffer) => {
           try {
             const result = await mammoth.convertToHtml(
               { buffer },

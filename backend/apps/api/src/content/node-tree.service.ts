@@ -15,7 +15,8 @@ import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { SearchQueueService } from '../infra/queue/search-queue.service.js';
 import { isNameConflict, isTreeBusy, isTreeViolation } from './conflicts.js';
-import { ContentAccessService } from './content-access.service.js';
+import { CollabEventsService } from '../infra/redis/collab-events.service.js';
+import { ContentAccessService, type NodeAccess } from './content-access.service.js';
 import { nameKey, suggestName } from './node-names.js';
 
 const TREE_LOCK_WAIT_MS = 5_000;
@@ -28,14 +29,19 @@ export type NodeExtra = {
   document?: Prisma.DocumentCreateWithoutNodeInput;
 };
 
-export interface NewNode {
+export interface PreparedExtra<C> {
+  fields: NodeExtra;
+  context: C;
+}
+
+export interface NewNode<C = undefined> {
   workspaceId: string;
   parentId: string | null;
   section?: NodeSection;
   type: NodeType;
   name: string;
   autoRename?: boolean;
-  extra?: NodeExtra | (() => Promise<NodeExtra>);
+  extra?: NodeExtra | (() => Promise<PreparedExtra<C>>);
 }
 
 export interface CreatedNode {
@@ -79,18 +85,22 @@ export class NodeTree {
     private readonly access: ContentAccessService,
     private readonly audit: AuditService,
     private readonly search: SearchQueueService,
+    private readonly collab: CollabEventsService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
-  async create(
+  async create<C = undefined>(
     user: AuthenticatedUser,
-    input: NewNode,
+    input: NewNode<C>,
     ctx: RequestContext,
-    opts: { fill?: (node: CreatedNode) => Promise<void>; announce?: Announce } = {},
+    opts: { fill?: (node: CreatedNode, context: C) => Promise<void>; announce?: Announce } = {},
   ): Promise<CreatedNode> {
     const { workspaceId, parentId, type } = input;
     const section = await this.requireContainer(user, workspaceId, parentId, input.section);
-    const extra = typeof input.extra === 'function' ? await input.extra() : (input.extra ?? {});
+    const { fields: extra, context } =
+      typeof input.extra === 'function'
+        ? await input.extra()
+        : { fields: input.extra ?? {}, context: undefined as C };
     let name = input.name;
     let node: CreatedNode;
     try {
@@ -122,7 +132,7 @@ export class NodeTree {
 
     if (opts.fill) {
       try {
-        await opts.fill(node);
+        await opts.fill(node, context);
       } catch (err) {
         await this.prisma.client.node.delete({ where: { id: node.id } }).catch(() => undefined);
         throw err;
@@ -143,6 +153,99 @@ export class NodeTree {
       await this.search.node(node.id);
     }
     return node;
+  }
+
+  async move(
+    user: AuthenticatedUser,
+    nodeId: string,
+    targetParentId: string | null,
+    ctx: RequestContext,
+  ): Promise<void> {
+    const node = await this.access.requireNode(user, nodeId, 'EDITOR');
+    if (targetParentId === node.id) throw AppError.validation('Cannot move an item into itself');
+    await this.requireContainer(user, node.workspaceId, targetParentId, node.section);
+    if (targetParentId === node.parentId) return;
+
+    try {
+      await this.withLock(node.workspaceId, async (tx) => {
+        const [current] = await tx.$queryRaw<{ deleted_at: Date | null }[]>`
+          SELECT deleted_at FROM nodes WHERE id = ${nodeId}::uuid FOR UPDATE`;
+        if (!current || current.deleted_at) {
+          throw AppError.conflict('This item was just moved or deleted, refresh and try again');
+        }
+        if (targetParentId) {
+          const [target] = await tx.$queryRaw<{ inside: boolean }[]>`
+            SELECT (t.path <@ n.path) AS inside
+              FROM nodes t, nodes n
+             WHERE t.id = ${targetParentId}::uuid AND n.id = ${nodeId}::uuid`;
+          if (target?.inside)
+            throw AppError.validation('Cannot move a folder into its own subfolder');
+        }
+        await this.placeAt(tx, node, targetParentId, { autoRename: false, userId: user.id });
+      });
+    } catch (err) {
+      throw await this.mapConflict(err, {
+        workspaceId: node.workspaceId,
+        parentId: targetParentId,
+        section: node.section,
+        name: node.name,
+        excludeId: nodeId,
+      });
+    }
+
+    await this.audit.log({
+      actorId: user.id,
+      action: 'node.move',
+      targetType: 'node',
+      targetId: nodeId,
+      workspaceId: node.workspaceId,
+      metadata: { from: node.parentId, to: targetParentId },
+      ctx,
+    });
+    await this.search.tree(nodeId);
+    await this.collab.accessChanged({ workspaceId: node.workspaceId });
+  }
+
+  async restore(
+    user: AuthenticatedUser,
+    root: NodeAccess,
+    ctx: RequestContext,
+  ): Promise<{ parentId: string | null; name: string }> {
+    const result = await this.withLock(root.workspaceId, async (tx) => {
+      const [current] = await tx.$queryRaw<{ deleted_root_id: string | null }[]>`
+        SELECT deleted_root_id FROM nodes WHERE id = ${root.id}::uuid FOR UPDATE`;
+      if (!current) throw AppError.notFound('Item not found');
+      if (current.deleted_root_id !== root.id) {
+        throw AppError.validation('Item is not in the trash');
+      }
+      const [parent] = root.parentId
+        ? await tx.$queryRaw<{ deleted_at: Date | null }[]>`
+            SELECT deleted_at FROM nodes WHERE id = ${root.parentId}::uuid FOR SHARE`
+        : [];
+      const parentId = parent && !parent.deleted_at ? root.parentId : null;
+      const name = await this.placeAt(tx, root, parentId, { autoRename: true, userId: user.id });
+      await tx.node.updateMany({
+        where: { deletedRootId: root.id },
+        data: { deletedAt: null, deletedById: null, deletedRootId: null },
+      });
+      return { parentId, name };
+    });
+
+    await this.audit.log({
+      actorId: user.id,
+      action: 'node.restore',
+      targetType: 'node',
+      targetId: root.id,
+      workspaceId: root.workspaceId,
+      metadata: {
+        restoredTo: result.parentId,
+        movedToRoot: result.parentId !== root.parentId,
+        renamedTo: result.name !== root.name ? result.name : undefined,
+      },
+      ctx,
+    });
+    await this.search.tree(root.id);
+    return result;
   }
 
   async withLock<T>(
@@ -183,7 +286,32 @@ export class NodeTree {
     });
   }
 
-  async requireContainer(
+  private async placeAt(
+    tx: Prisma.TransactionClient,
+    node: { id: string; workspaceId: string; section: NodeSection; name: string },
+    parentId: string | null,
+    opts: { autoRename: boolean; userId: string },
+  ): Promise<string> {
+    let name = node.name;
+    if (opts.autoRename) {
+      const taken = await this.siblingKeys(
+        { workspaceId: node.workspaceId, parentId, section: node.section },
+        tx,
+      );
+      if (taken.has(nameKey(name))) name = suggestName(name, taken);
+    }
+    await tx.node.update({
+      where: { id: node.id },
+      data: {
+        parentId,
+        updatedById: opts.userId,
+        ...(name !== node.name ? { name, nameNormalized: nameKey(name) } : {}),
+      },
+    });
+    return name;
+  }
+
+  private async requireContainer(
     user: AuthenticatedUser,
     workspaceId: string,
     parentId: string | null,
@@ -208,7 +336,7 @@ export class NodeTree {
     return parent.section;
   }
 
-  async siblingKeys(
+  private async siblingKeys(
     scope: Omit<NameScope, 'name'>,
     db: Prisma.TransactionClient = this.prisma.client,
   ): Promise<Set<string>> {

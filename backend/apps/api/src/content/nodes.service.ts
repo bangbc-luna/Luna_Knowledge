@@ -274,52 +274,7 @@ export class NodesService {
     targetParentId: string | null,
     ctx: RequestContext,
   ): Promise<NodeDto> {
-    const node = await this.access.requireNode(user, nodeId, 'EDITOR');
-    if (targetParentId === node.id) throw AppError.validation('Cannot move an item into itself');
-    await this.tree.requireContainer(user, node.workspaceId, targetParentId, node.section);
-    if (targetParentId === node.parentId) return this.dto.one(user.id, nodeId);
-
-    try {
-      await this.tree.withLock(node.workspaceId, async (tx) => {
-        const [current] = await tx.$queryRaw<{ deleted_at: Date | null }[]>`
-          SELECT deleted_at FROM nodes WHERE id = ${nodeId}::uuid FOR UPDATE`;
-        if (!current || current.deleted_at) {
-          throw AppError.conflict('This item was just moved or deleted, refresh and try again');
-        }
-        if (targetParentId) {
-          const [target] = await tx.$queryRaw<{ inside: boolean }[]>`
-            SELECT (t.path <@ n.path) AS inside
-              FROM nodes t, nodes n
-             WHERE t.id = ${targetParentId}::uuid AND n.id = ${nodeId}::uuid`;
-          if (target?.inside)
-            throw AppError.validation('Cannot move a folder into its own subfolder');
-        }
-        await tx.node.update({
-          where: { id: nodeId },
-          data: { parentId: targetParentId, updatedById: user.id },
-        });
-      });
-    } catch (err) {
-      throw await this.tree.mapConflict(err, {
-        workspaceId: node.workspaceId,
-        parentId: targetParentId,
-        section: node.section,
-        name: node.name,
-        excludeId: nodeId,
-      });
-    }
-
-    await this.audit.log({
-      actorId: user.id,
-      action: 'node.move',
-      targetType: 'node',
-      targetId: nodeId,
-      workspaceId: node.workspaceId,
-      metadata: { from: node.parentId, to: targetParentId },
-      ctx,
-    });
-    await this.search.tree(nodeId);
-    await this.collab.accessChanged({ workspaceId: node.workspaceId });
+    await this.tree.move(user, nodeId, targetParentId, ctx);
     return this.dto.one(user.id, nodeId);
   }
 
