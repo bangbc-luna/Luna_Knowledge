@@ -81,7 +81,8 @@ describe('Meeting rooms (e2e)', () => {
 
   it('two simultaneous joins start the meeting only once', async () => {
     const id = await create(alice);
-    await Promise.all([join(alice, id), join(bob, id)]);
+    const results = await Promise.all([join(alice, id), join(bob, id)]);
+    expect(results.map((r) => r.status)).toEqual([200, 200]);
     expect(await countAudit('meeting.start', id)).toBe(1);
   });
 
@@ -187,7 +188,7 @@ describe('Meeting rooms (e2e)', () => {
     const muteAudit = await ctx.prisma.auditLog.findFirstOrThrow({
       where: { action: 'meeting.mute_participant', targetId: id },
     });
-    expect(muteAudit.metadata).toEqual({ userId: bob.userId });
+    expect(muteAudit.metadata).toEqual({ userId: bob.userId, muted: true });
     const absent = await http()
       .post(`/api/v1/meetings/${id}/participants/${carol.userId}/mute`)
       .set(alice.auth)
@@ -248,5 +249,79 @@ describe('Meeting rooms (e2e)', () => {
 
     ctx.media.failNext('joinToken', new Error('token fail'));
     await join(bob, id).expect(503);
+  });
+
+  it('ai-notes media failure gives 503 and a retry re-syncs the room metadata', async () => {
+    const id = await create(alice);
+    await join(alice, id).expect(200);
+    const original = ctx.media.setRoomMetadata.bind(ctx.media);
+    ctx.media.setRoomMetadata = async () => {
+      throw new Error('livekit down');
+    };
+    const res = await http()
+      .put(`/api/v1/meetings/${id}/ai-notes`)
+      .set(alice.auth)
+      .send({ enabled: false })
+      .expect(503);
+    expect(res.body.error.message).toBe(
+      'The meeting service is unavailable, try again in a moment',
+    );
+    ctx.media.setRoomMetadata = original;
+    await http()
+      .put(`/api/v1/meetings/${id}/ai-notes`)
+      .set(alice.auth)
+      .send({ enabled: false })
+      .expect(200);
+    expect(JSON.parse(ctx.media.rooms.get(`luna-${id}`)!.metadata).aiNotesEnabled).toBe(false);
+  });
+
+  it('ai-notes sync retries once after a single media failure', async () => {
+    const id = await create(alice);
+    await join(alice, id).expect(200);
+    ctx.media.failNext('setRoomMetadata', new Error('blip'));
+    await http()
+      .put(`/api/v1/meetings/${id}/ai-notes`)
+      .set(alice.auth)
+      .send({ enabled: false })
+      .expect(200);
+    expect(JSON.parse(ctx.media.rooms.get(`luna-${id}`)!.metadata).aiNotesEnabled).toBe(false);
+  });
+
+  it('join syncs the room metadata and response with the current DB value', async () => {
+    const id = await create(alice);
+    await join(alice, id).expect(200);
+    await ctx.prisma.meeting.update({ where: { id }, data: { aiNotesEnabled: false } });
+    const res = await join(bob, id).expect(200);
+    expect(res.body.aiNotesEnabled).toBe(false);
+    expect(JSON.parse(ctx.media.rooms.get(`luna-${id}`)!.metadata).aiNotesEnabled).toBe(false);
+  });
+
+  it('mute records muted in the audit, rejects a bad user id and maps media failure to 503', async () => {
+    const id = await create(alice);
+    await join(alice, id).expect(200);
+    await http()
+      .post(`/api/v1/meetings/${id}/participants/${carol.userId}/mute`)
+      .set(alice.auth)
+      .expect(200);
+    const audit = await ctx.prisma.auditLog.findFirstOrThrow({
+      where: { action: 'meeting.mute_participant', targetId: id },
+    });
+    expect(audit.metadata).toEqual({ userId: carol.userId, muted: false });
+    await http()
+      .post(`/api/v1/meetings/${id}/participants/not-a-uuid/mute`)
+      .set(alice.auth)
+      .expect(400);
+    ctx.media.failNext('muteMicrophone', new Error('livekit down'));
+    await http()
+      .post(`/api/v1/meetings/${id}/participants/${carol.userId}/mute`)
+      .set(alice.auth)
+      .expect(503);
+  });
+
+  it('a deactivated user cannot join (rejected by the auth guard with 401)', async () => {
+    const id = await create(alice);
+    await ctx.prisma.user.update({ where: { id: bob.userId }, data: { status: 'DISABLED' } });
+    await join(bob, id).expect(401);
+    await ctx.prisma.user.update({ where: { id: bob.userId }, data: { status: 'ACTIVE' } });
   });
 });

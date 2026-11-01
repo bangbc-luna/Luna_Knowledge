@@ -37,7 +37,7 @@ export class MeetingRoomService {
     if (seen.status === 'ENDED' || seen.status === 'CANCELLED') {
       throw AppError.conflict(ENDED_MESSAGE);
     }
-    const meeting = await this.prisma.client.$transaction(async (tx) => {
+    await this.prisma.client.$transaction(async (tx) => {
       const started = await tx.$queryRaw<{ id: string }[]>`UPDATE meetings
            SET status = 'LIVE', started_at = now(), updated_at = now()
          WHERE id = ${meetingId}::uuid AND status = 'SCHEDULED'
@@ -58,12 +58,17 @@ export class MeetingRoomService {
           userAgent: ctx.userAgent,
         });
       }
-      return current;
     });
     const roomName = roomNameFor(meetingId);
     let token: string;
+    let aiNotesEnabled: boolean;
     try {
-      await this.media.ensureRoom(roomName, roomMetadata(meeting));
+      const fresh = await this.prisma.client.meeting.findUniqueOrThrow({
+        where: { id: meetingId },
+      });
+      aiNotesEnabled = fresh.aiNotesEnabled;
+      await this.media.ensureRoom(roomName, roomMetadata(fresh));
+      await this.media.setRoomMetadata(roomName, roomMetadata(fresh));
       token = await this.media.joinToken({
         roomName,
         identity: user.id,
@@ -80,7 +85,7 @@ export class MeetingRoomService {
       token,
       roomName,
       identity: user.id,
-      aiNotesEnabled: meeting.aiNotesEnabled,
+      aiNotesEnabled,
       isHost,
       expiresInSec: this.config.MEETING_TOKEN_TTL_SEC,
     };
@@ -109,16 +114,20 @@ export class MeetingRoomService {
       console.error('meeting mute failed', { meetingId, err });
       throw AppError.unavailable(MEDIA_UNAVAILABLE);
     }
-    await writeAudit(this.prisma.client, {
-      actorId: user.id,
-      action: 'meeting.mute_participant',
-      targetType: 'meeting',
-      targetId: meetingId,
-      workspaceId: meeting.workspaceId,
-      metadata: { userId: targetId },
-      ip: ctx.ip,
-      userAgent: ctx.userAgent,
-    });
+    try {
+      await writeAudit(this.prisma.client, {
+        actorId: user.id,
+        action: 'meeting.mute_participant',
+        targetType: 'meeting',
+        targetId: meetingId,
+        workspaceId: meeting.workspaceId,
+        metadata: { userId: targetId, muted },
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+      });
+    } catch (err) {
+      console.error('meeting mute audit failed', { meetingId, err });
+    }
     return { muted };
   }
 
@@ -149,19 +158,24 @@ export class MeetingRoomService {
         userAgent: ctx.userAgent,
       });
     });
-    if (meeting.status === 'LIVE') {
+    const fresh = await this.prisma.client.meeting.findUniqueOrThrow({ where: { id: meetingId } });
+    if (fresh.status === 'LIVE') {
       const roomName = roomNameFor(meetingId);
+      const sync = async () => {
+        await this.media.setRoomMetadata(roomName, roomMetadata(fresh));
+        await this.media.broadcast(roomName, 'luna.meeting', {
+          type: 'ai_notes',
+          enabled: fresh.aiNotesEnabled,
+        });
+      };
       try {
-        await this.media.setRoomMetadata(
-          roomName,
-          roomMetadata({ ...meeting, aiNotesEnabled: enabled }),
-        );
-        await this.media.broadcast(roomName, 'luna.meeting', { type: 'ai_notes', enabled });
+        await sync().catch(() => sync());
       } catch (err) {
         console.error('meeting ai notes sync failed', { meetingId, err });
+        throw AppError.unavailable(MEDIA_UNAVAILABLE);
       }
     }
-    return { aiNotesEnabled: enabled };
+    return { aiNotesEnabled: fresh.aiNotesEnabled };
   }
 
   private requireLive(meeting: Meeting) {
