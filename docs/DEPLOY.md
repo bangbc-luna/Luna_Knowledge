@@ -353,3 +353,40 @@ Sự cố thường gặp:
 - **Báo lỗi 429 "Too many requests"**: route xem video không bị giới hạn. Nếu người dùng từ xa gặp 429, kiểm tra `CLOUDFLARED_IP` khớp IP thật của container cloudflared (`docker inspect` container cloudflared); nếu sai, mọi người từ xa bị tính chung một IP. Với người dùng trong LAN, có thể một người vượt `RATE_LIMIT_USER_PER_MIN` (mặc định 600 request/phút); tăng nếu cần rồi `luna up -d api`.
 - **Nhật ký hoạt động không sửa/xoá được**: bảng `audit_logs` có trigger chỉ cho ghi thêm, chỉ xoá được bản ghi cũ hơn 1 năm. Đây là chủ đích, không phải lỗi.
 - **Mất điện xong máy lên lại**: các dịch vụ có `restart: unless-stopped` nên tự chạy; kiểm tra `luna ps` và log Postgres.
+
+## 10. Phòng họp
+
+Phòng họp (âm thanh, video, chia sẻ màn hình) chạy trên LiveKit. Production dùng LiveKit Cloud: trình duyệt nối thẳng tới LiveKit, API chỉ cấp token ngắn hạn và nhận webhook, nên không thêm service nào vào compose.
+
+1. Tạo project trên LiveKit Cloud (cloud.livekit.io), vào Project Settings → Keys, tạo một cặp API key và secret.
+2. Điền các biến trong `.env.prod`:
+
+   | Biến | Ý nghĩa |
+   |---|---|
+   | `LIVEKIT_URL` | URL của project, dạng `wss://<project>.livekit.cloud` |
+   | `LIVEKIT_API_KEY` | API key vừa tạo |
+   | `LIVEKIT_API_SECRET` | Secret vừa tạo (ít nhất 32 ký tự) |
+   | `MEETING_TOKEN_TTL_SEC`, `MEETING_EMPTY_GRACE_SEC`, `MEETING_MAX_PARTICIPANTS`, `MEETING_REMINDER_MINUTES` | Có giá trị mặc định trong `.env.prod.example` |
+
+   Cả **api và worker** đều đọc `LIVEKIT_*` và `MEETING_*` từ `.env.prod` (qua `env_file`): api cấp token và nhận webhook, worker gửi nhắc họp và đối soát phòng đã kết thúc mà không có webhook. Compose không xoá các biến này (khác với các secret chủ DB ở mục 4).
+3. Webhook: Project Settings → Webhooks → thêm `https://${APP_HOST}/api/v1/meetings/livekit/webhook` (ví dụ `https://knowledge.lunatech.vn/api/v1/meetings/livekit/webhook`), ký bằng cùng API key. Webhook được xác thực bằng chữ ký, không cần đăng nhập.
+4. `LIVEKIT_URL` cũng được dùng khi build frontend (`LIVEKIT_ORIGIN`, thêm vào `connect-src` của CSP: cả `wss://` và `https://` cùng host, cộng `*.livekit.cloud` cho host theo vùng). Đổi `LIVEKIT_URL` thì phải build lại frontend: `luna build frontend && luna up -d`. Thiếu `LIVEKIT_URL`, `luna build` báo lỗi ngay.
+5. Kiểm tra: `luna up -d`, mở một buổi họp bằng "Họp ngay", vào phòng từ hai máy và xem log `luna logs api | grep livekit`.
+
+Chi phí: gói Build của LiveKit Cloud miễn phí nhưng chỉ dành cho dev vì không có giá vượt mức (hết hạn mức là dừng). Production cần gói Ship (50 USD/tháng) nếu vượt 5.000 participant-phút mỗi tháng. Số buổi họp và số phút của từng workspace xem ở trang quản trị (`GET /api/v1/admin/meetings/usage`).
+
+LiveKit không nằm trong health check của API, để API không báo "down" khi LiveKit Cloud gặp sự cố; khi đó chỉ việc vào phòng họp mới lỗi (503).
+
+### Chạy LiveKit cục bộ để phát triển
+
+Không cần tài khoản cloud. Từ `backend/`:
+
+```bash
+docker compose -f docker/docker-compose.dev.yml --profile meetings up -d livekit
+```
+
+Service `livekit` (image `livekit/livekit-server:v1.13.10`, chế độ `--dev`) nghe ở `localhost:7880` (WebSocket/HTTP), `7881` (TCP) và UDP `50000-50020`. Khoá `devkey` / `devsecret-0123456789-abcdefghijklmnop` khớp sẵn với `LIVEKIT_*` trong `.env.example`. Webhook của server dev trỏ tới `http://host.docker.internal:${API_PORT:-4000}/api/v1/meetings/livekit/webhook` (API chạy trên máy host), nên không cần cấu hình thêm. Dừng bằng `docker compose -f docker/docker-compose.dev.yml --profile meetings stop livekit`.
+
+### Đo thử với nhóm thật
+
+Chưa thực hiện (cần 8-10 người thật trên project LiveKit Cloud thử). Khi đo, ghi băng thông lên/xuống của máy văn phòng (`chrome://webrtc-internals`), CPU trình duyệt và chất lượng chữ khi chia sẻ màn hình vào đây.
