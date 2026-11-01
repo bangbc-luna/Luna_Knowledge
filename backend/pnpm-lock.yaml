@@ -35,6 +35,9 @@ importers:
       '@luna/editor':
         specifier: workspace:^
         version: link:../../packages/editor
+      '@luna/meetings':
+        specifier: workspace:*
+        version: link:../../packages/meetings
       '@luna/shared':
         specifier: workspace:*
         version: link:../../packages/shared

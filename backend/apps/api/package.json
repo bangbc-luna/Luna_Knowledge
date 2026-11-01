@@ -18,6 +18,7 @@
     "@aws-sdk/client-s3": "^3.1150.0",
     "@luna/db": "workspace:*",
     "@luna/editor": "workspace:^",
+    "@luna/meetings": "workspace:*",
     "@luna/shared": "workspace:*",
     "@nest-lab/throttler-storage-redis": "^1.2.0",
     "@nestjs/bullmq": "^12.0.0",

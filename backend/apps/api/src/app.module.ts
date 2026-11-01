@@ -18,6 +18,7 @@ import { RedisModule } from './infra/redis/redis.module.js';
 import { S3Module } from './infra/s3/s3.module.js';
 import { VideosModule } from './videos/videos.module.js';
 import { DocumentsModule } from './documents/documents.module.js';
+import { MeetingsModule } from './meetings/meetings.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
 import { UsersModule } from './users/users.module.js';
 import { WorkspacesModule } from './workspaces/workspaces.module.js';
@@ -48,6 +49,7 @@ const isDevelopment = loadAppConfig().NODE_ENV === 'development';
     DocumentsModule,
     AdminModule,
     SearchModule,
+    MeetingsModule,
     ...(isDevelopment ? [DevModule] : []),
   ],
 })

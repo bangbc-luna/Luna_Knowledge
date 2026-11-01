@@ -10,6 +10,9 @@ const placeholderSecrets: Record<string, string> = {
   COLLAB_TOKEN_SECRET: 'openapi-export-placeholder-collab-token-secret',
   COLLAB_INTERNAL_SECRET: 'openapi-export-placeholder-collab-internal-secret',
   JWT_ACCESS_SECRET: 'openapi-export-placeholder-jwt-access-secret',
+  LIVEKIT_URL: 'wss://openapi-export-placeholder.livekit.test',
+  LIVEKIT_API_KEY: 'openapi-export-placeholder-key',
+  LIVEKIT_API_SECRET: 'openapi-export-placeholder-livekit-secret',
   GOOGLE_CLIENT_ID: 'openapi-export-placeholder-client-id',
   GOOGLE_CLIENT_SECRET: 'openapi-export-placeholder-client-secret',
 };

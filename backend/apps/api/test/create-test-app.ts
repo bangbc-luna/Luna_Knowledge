@@ -1,4 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
+import { MEETING_MEDIA } from '@luna/meetings';
+import { FakeMeetingMedia } from '@luna/meetings/testing';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import type TestAgent from 'supertest/lib/agent.js';
@@ -12,6 +14,7 @@ import { companyClaims, FakeGoogleIdentity } from './fake-google-identity.js';
 export interface TestContext {
   app: INestApplication;
   google: FakeGoogleIdentity;
+  media: FakeMeetingMedia;
   prisma: PrismaService['client'];
   close(): Promise<void>;
 }
@@ -20,16 +23,19 @@ export async function createTestApp(
   overrides: Array<[unknown, unknown]> = [],
 ): Promise<TestContext> {
   const google = new FakeGoogleIdentity();
+  const media = new FakeMeetingMedia();
   let builder = Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(GOOGLE_IDENTITY)
-    .useValue(google);
+    .useValue(google)
+    .overrideProvider(MEETING_MEDIA)
+    .useValue(media);
   for (const [token, value] of overrides)
     builder = builder.overrideProvider(token as never).useValue(value);
   const moduleRef = await builder.compile();
   const app = moduleRef.createNestApplication({ logger: ['error'] });
   setupApp(app, app.get<AppConfig>(APP_CONFIG));
   await app.init();
-  return { app, google, prisma: app.get(PrismaService).client, close: () => app.close() };
+  return { app, google, media, prisma: app.get(PrismaService).client, close: () => app.close() };
 }
 
 export async function resetDatabase(prisma: TestContext['prisma']) {

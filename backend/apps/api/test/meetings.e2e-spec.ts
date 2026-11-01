@@ -1,0 +1,315 @@
+import request from 'supertest';
+import {
+  createTestApp,
+  type LoggedIn,
+  loginAs,
+  resetDatabase,
+  type TestContext,
+} from './create-test-app.js';
+
+describe('Meetings (e2e)', () => {
+  let ctx: TestContext;
+  let alice: LoggedIn;
+  let bob: LoggedIn;
+  let vera: LoggedIn;
+  let outsider: LoggedIn;
+  let wsId: string;
+  const http = () => request(ctx.app.getHttpServer());
+  const create = (as: LoggedIn, body: Record<string, unknown>, ws = wsId) =>
+    http().post(`/api/v1/workspaces/${ws}/meetings`).set(as.auth).send(body);
+  const inHours = (h: number) => new Date(Date.now() + h * 3600_000).toISOString();
+  const notificationsOf = (userId: string, type: string) =>
+    ctx.prisma.notification.findMany({ where: { userId, type } });
+
+  beforeAll(async () => {
+    ctx = await createTestApp();
+    await resetDatabase(ctx.prisma);
+    alice = await loginAs(ctx, 'alice@lunatech.vn', { name: 'Alice' });
+    bob = await loginAs(ctx, 'bob@lunatech.vn', { name: 'Bob' });
+    vera = await loginAs(ctx, 'vera@lunatech.vn', { name: 'Vera' });
+    outsider = await loginAs(ctx, 'outsider@lunatech.vn', { name: 'Outsider' });
+    const ws = await http()
+      .post('/api/v1/workspaces')
+      .set(alice.auth)
+      .send({ name: 'Meet', slug: 'meet', kind: 'TEAM' })
+      .expect(201);
+    wsId = ws.body.id;
+    await ctx.prisma.workspaceMember.createMany({
+      data: [
+        { workspaceId: wsId, userId: bob.userId, role: 'MEMBER' },
+        { workspaceId: wsId, userId: vera.userId, role: 'VIEWER' },
+      ],
+    });
+  });
+
+  afterAll(async () => {
+    await ctx.close();
+  });
+
+  it('tạo họp ngay và đặt lịch: MEMBER/ADMIN tạo được, VIEWER 403, người ngoài 404; ghi audit meeting.create', async () => {
+    const instant = await create(bob, { title: ' Họp nhanh ', mode: 'instant' }).expect(201);
+    expect(instant.body).toMatchObject({
+      workspaceId: wsId,
+      title: 'Họp nhanh',
+      status: 'SCHEDULED',
+      startedAt: null,
+      endedAt: null,
+      aiNotesEnabled: true,
+      attendeeCount: 0,
+      createdBy: { id: bob.userId },
+    });
+    expect(instant.body.scheduledAt).toBeTruthy();
+
+    const at = inHours(2);
+    const scheduled = await create(alice, {
+      title: 'Planning',
+      mode: 'scheduled',
+      scheduledAt: at,
+      aiNotesEnabled: false,
+    }).expect(201);
+    expect(scheduled.body).toMatchObject({ aiNotesEnabled: false });
+    expect(new Date(scheduled.body.scheduledAt).toISOString()).toBe(at);
+
+    await create(vera, { title: 'x', mode: 'instant' }).expect(403);
+    await create(outsider, { title: 'x', mode: 'instant' }).expect(404);
+
+    const audit = await ctx.prisma.auditLog.findFirst({
+      where: { action: 'meeting.create', targetId: scheduled.body.id },
+    });
+    expect(audit).toMatchObject({ actorId: alice.userId, workspaceId: wsId });
+    expect(audit?.metadata).toMatchObject({
+      title: 'Planning',
+      mode: 'scheduled',
+      aiNotesEnabled: false,
+      inviteeCount: 0,
+    });
+  });
+
+  it('đặt lịch thiếu giờ hoặc giờ trong quá khứ → 400', async () => {
+    await create(alice, { title: 'x', mode: 'scheduled' }).expect(400);
+    await create(alice, {
+      title: 'x',
+      mode: 'scheduled',
+      scheduledAt: new Date(Date.now() - 3600_000).toISOString(),
+    }).expect(400);
+    await create(alice, { title: '', mode: 'instant' }).expect(400);
+  });
+
+  it('mời người ngoài workspace: tạo tài khoản như share, gửi thông báo meeting.invited, người được mời xem được buổi họp nhưng không thấy trong danh sách workspace', async () => {
+    const res = await create(alice, {
+      title: 'Có khách',
+      mode: 'scheduled',
+      scheduledAt: inHours(3),
+      inviteeEmails: ['Guest@lunatech.vn', 'outsider@lunatech.vn'],
+    }).expect(201);
+    const id = res.body.id;
+
+    const detail = await http().get(`/api/v1/meetings/${id}`).set(alice.auth).expect(200);
+    expect(detail.body.invitees.map((u: { email: string }) => u.email).sort()).toEqual([
+      'guest@lunatech.vn',
+      'outsider@lunatech.vn',
+    ]);
+    expect(detail.body.canHost).toBe(true);
+
+    const guest = await ctx.prisma.user.findUniqueOrThrow({
+      where: { email: 'guest@lunatech.vn' },
+    });
+    const [note] = await notificationsOf(outsider.userId, 'meeting.invited');
+    expect(note?.payload).toMatchObject({
+      meetingId: id,
+      workspaceId: wsId,
+      title: 'Có khách',
+      byName: 'Alice',
+    });
+    expect(await notificationsOf(guest.id, 'meeting.invited')).toHaveLength(1);
+
+    const asInvitee = await http().get(`/api/v1/meetings/${id}`).set(outsider.auth).expect(200);
+    expect(asInvitee.body.canHost).toBe(false);
+    const list = await http()
+      .get(`/api/v1/workspaces/${wsId}/meetings`)
+      .query({ scope: 'upcoming' })
+      .set(outsider.auth);
+    expect(list.status).toBe(404);
+
+    await http()
+      .post(`/api/v1/meetings/${id}/invites`)
+      .set(alice.auth)
+      .send({ emails: ['someone@gmail.com'] })
+      .expect(400);
+
+    const added = await http()
+      .post(`/api/v1/meetings/${id}/invites`)
+      .set(alice.auth)
+      .send({ emails: ['late@lunatech.vn', 'guest@lunatech.vn'] })
+      .expect(201);
+    expect(added.body.added.map((u: { email: string }) => u.email)).toEqual(['late@lunatech.vn']);
+    expect(
+      await ctx.prisma.auditLog.count({ where: { action: 'meeting.invite', targetId: id } }),
+    ).toBe(1);
+
+    await http().delete(`/api/v1/meetings/${id}/invites/${guest.id}`).set(bob.auth).expect(403);
+    await http().delete(`/api/v1/meetings/${id}/invites/${guest.id}`).set(alice.auth).expect(204);
+    expect(
+      await ctx.prisma.auditLog.count({ where: { action: 'meeting.uninvite', targetId: id } }),
+    ).toBe(1);
+    expect(await ctx.prisma.meetingInvite.count({ where: { meetingId: id } })).toBe(2);
+  });
+
+  it('xem buổi họp: thành viên mọi vai trò xem được; người ngoài và người bị khoá tài khoản 404', async () => {
+    const res = await create(bob, { title: 'Xem', mode: 'instant' }).expect(201);
+    const id = res.body.id;
+    for (const as of [alice, bob, vera]) {
+      const got = await http().get(`/api/v1/meetings/${id}`).set(as.auth).expect(200);
+      expect(got.body).toMatchObject({ id, title: 'Xem', invitees: [], attendees: [] });
+    }
+    expect((await http().get(`/api/v1/meetings/${id}`).set(vera.auth)).body.canHost).toBe(false);
+    await http().get(`/api/v1/meetings/${id}`).set(outsider.auth).expect(404);
+    await http()
+      .get('/api/v1/meetings/00000000-0000-7000-8000-000000000000')
+      .set(alice.auth)
+      .expect(404);
+
+    await ctx.prisma.user.update({ where: { id: vera.userId }, data: { status: 'DISABLED' } });
+    const blocked = await http().get(`/api/v1/meetings/${id}`).set(vera.auth);
+    expect([401, 404]).toContain(blocked.status);
+    await ctx.prisma.user.update({ where: { id: vera.userId }, data: { status: 'ACTIVE' } });
+  });
+
+  it('chỉ người tạo sửa, huỷ, mời; huỷ gửi meeting.cancelled; sửa buổi họp đã kết thúc → 409', async () => {
+    const res = await create(bob, {
+      title: 'Của Bob',
+      mode: 'scheduled',
+      scheduledAt: inHours(5),
+      inviteeEmails: ['outsider@lunatech.vn'],
+    }).expect(201);
+    const id = res.body.id;
+
+    await http()
+      .patch(`/api/v1/meetings/${id}`)
+      .set(alice.auth)
+      .send({ title: 'Hack' })
+      .expect(403);
+    await http().post(`/api/v1/meetings/${id}/cancel`).set(alice.auth).expect(403);
+    await http()
+      .post(`/api/v1/meetings/${id}/invites`)
+      .set(alice.auth)
+      .send({ emails: ['x@lunatech.vn'] })
+      .expect(403);
+    await http()
+      .patch(`/api/v1/meetings/${id}`)
+      .set(outsider.auth)
+      .send({ title: 'Hack' })
+      .expect(403);
+
+    const next = inHours(6);
+    const patched = await http()
+      .patch(`/api/v1/meetings/${id}`)
+      .set(bob.auth)
+      .send({ title: 'Đổi tên', scheduledAt: next, aiNotesEnabled: false })
+      .expect(200);
+    expect(patched.body).toMatchObject({ title: 'Đổi tên', aiNotesEnabled: false });
+    expect(new Date(patched.body.scheduledAt).toISOString()).toBe(next);
+    expect(
+      await ctx.prisma.auditLog.count({ where: { action: 'meeting.update', targetId: id } }),
+    ).toBe(1);
+
+    await http().post(`/api/v1/meetings/${id}/cancel`).set(bob.auth).expect(204);
+    expect(
+      await ctx.prisma.auditLog.count({ where: { action: 'meeting.cancel', targetId: id } }),
+    ).toBe(1);
+    const [note] = await notificationsOf(outsider.userId, 'meeting.cancelled');
+    expect(note?.payload).toMatchObject({ meetingId: id, title: 'Đổi tên' });
+    const after = await http().get(`/api/v1/meetings/${id}`).set(bob.auth).expect(200);
+    expect(after.body.status).toBe('CANCELLED');
+
+    const cancelled = await http().post(`/api/v1/meetings/${id}/cancel`).set(bob.auth).expect(409);
+    expect(cancelled.body.error.message).toBe('This meeting has already ended');
+    await http().patch(`/api/v1/meetings/${id}`).set(bob.auth).send({ title: 'z' }).expect(409);
+    await http()
+      .post(`/api/v1/meetings/${id}/invites`)
+      .set(bob.auth)
+      .send({ emails: ['x@lunatech.vn'] })
+      .expect(409);
+
+    const ended = await create(bob, { title: 'Đã xong', mode: 'instant' }).expect(201);
+    await ctx.prisma.meeting.update({
+      where: { id: ended.body.id },
+      data: { status: 'ENDED', endedAt: new Date() },
+    });
+    await http()
+      .patch(`/api/v1/meetings/${ended.body.id}`)
+      .set(bob.auth)
+      .send({ title: 'z' })
+      .expect(409);
+  });
+
+  it('danh sách theo scope: upcoming theo scheduledAt tăng dần, past theo endedAt giảm dần, phân trang cursor', async () => {
+    const ws = (
+      await http()
+        .post('/api/v1/workspaces')
+        .set(alice.auth)
+        .send({ name: 'Lists', slug: 'lists', kind: 'TEAM' })
+        .expect(201)
+    ).body.id;
+    const mk = async (title: string, h: number) =>
+      (await create(alice, { title, mode: 'scheduled', scheduledAt: inHours(h) }, ws).expect(201))
+        .body.id as string;
+    const late = await mk('late', 30);
+    const soon = await mk('soon', 10);
+    const mid = await mk('mid', 20);
+    const live = await mk('live', 1);
+    const p1 = await mk('p1', 2);
+    const p2 = await mk('p2', 3);
+    const p3 = await mk('p3', 4);
+    const cancelled = await mk('cancelled', 5);
+    await http().post(`/api/v1/meetings/${cancelled}/cancel`).set(alice.auth).expect(204);
+    const now = Date.now();
+    await ctx.prisma.meeting.update({
+      where: { id: live },
+      data: { status: 'LIVE', startedAt: new Date(now) },
+    });
+    for (const [id, minutesAgo] of [
+      [p1, 30],
+      [p2, 10],
+      [p3, 20],
+    ] as const) {
+      await ctx.prisma.meeting.update({
+        where: { id },
+        data: {
+          status: 'ENDED',
+          startedAt: new Date(now - 3600_000),
+          endedAt: new Date(now - minutesAgo * 60_000),
+        },
+      });
+    }
+    const list = (scope: string, extra: Record<string, unknown> = {}) =>
+      http()
+        .get(`/api/v1/workspaces/${ws}/meetings`)
+        .query({ scope, ...extra })
+        .set(bob.auth);
+    await ctx.prisma.workspaceMember.create({
+      data: { workspaceId: ws, userId: bob.userId, role: 'MEMBER' },
+    });
+
+    const upcoming = await list('upcoming').expect(200);
+    expect(upcoming.body.items.map((m: { id: string }) => m.id)).toEqual([soon, mid, late]);
+    expect(upcoming.body.nextCursor).toBeNull();
+
+    const liveList = await list('live').expect(200);
+    expect(liveList.body.items.map((m: { id: string }) => m.id)).toEqual([live]);
+
+    const first = await list('past', { limit: 2 }).expect(200);
+    expect(first.body.items.map((m: { id: string }) => m.id)).toEqual([p2, p3]);
+    expect(first.body.nextCursor).toBeTruthy();
+    const second = await list('past', { limit: 2, cursor: first.body.nextCursor }).expect(200);
+    expect(second.body.items.map((m: { id: string }) => m.id)).toEqual([p1]);
+    expect(second.body.nextCursor).toBeNull();
+
+    await list('nonsense').expect(400);
+    await http()
+      .get(`/api/v1/workspaces/${ws}/meetings`)
+      .query({ scope: 'past' })
+      .set(outsider.auth)
+      .expect(404);
+  });
+});
