@@ -34,15 +34,24 @@ export interface PreparedExtra<C> {
   context: C;
 }
 
-export interface NewNode<C = undefined> {
+interface NewNodeBase {
   workspaceId: string;
   parentId: string | null;
   section?: NodeSection;
   type: NodeType;
   name: string;
   autoRename?: boolean;
-  extra?: NodeExtra | (() => Promise<PreparedExtra<C>>);
 }
+
+export interface PlainNode extends NewNodeBase {
+  extra?: NodeExtra;
+}
+
+export interface PreparedNode<C> extends NewNodeBase {
+  extra: () => Promise<PreparedExtra<C>>;
+}
+
+export type NewNode<C = undefined> = PlainNode | PreparedNode<C>;
 
 export interface CreatedNode {
   id: string;
@@ -89,18 +98,33 @@ export class NodeTree {
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
-  async create<C = undefined>(
+  create(
     user: AuthenticatedUser,
-    input: NewNode<C>,
+    input: PlainNode,
     ctx: RequestContext,
-    opts: { fill?: (node: CreatedNode, context: C) => Promise<void>; announce?: Announce } = {},
+    opts?: { fill?: (node: CreatedNode) => Promise<void>; announce?: Announce },
+  ): Promise<CreatedNode>;
+  create<C>(
+    user: AuthenticatedUser,
+    input: PreparedNode<C>,
+    ctx: RequestContext,
+    opts?: { fill?: (node: CreatedNode, context: C) => Promise<void>; announce?: Announce },
+  ): Promise<CreatedNode>;
+  async create(
+    user: AuthenticatedUser,
+    input: PlainNode | PreparedNode<unknown>,
+    ctx: RequestContext,
+    opts: {
+      fill?: (node: CreatedNode, context?: unknown) => Promise<void>;
+      announce?: Announce;
+    } = {},
   ): Promise<CreatedNode> {
     const { workspaceId, parentId, type } = input;
     const section = await this.requireContainer(user, workspaceId, parentId, input.section);
     const { fields: extra, context } =
       typeof input.extra === 'function'
         ? await input.extra()
-        : { fields: input.extra ?? {}, context: undefined as C };
+        : { fields: input.extra ?? {}, context: undefined };
     let name = input.name;
     let node: CreatedNode;
     try {
