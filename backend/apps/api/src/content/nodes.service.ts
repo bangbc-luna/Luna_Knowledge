@@ -1,4 +1,10 @@
-import { lockWorkspaceTree, type NodeSection, type NodeType, type Prisma } from '@luna/db';
+import {
+  type AuditAction,
+  lockWorkspaceTree,
+  type NodeSection,
+  type NodeType,
+  type Prisma,
+} from '@luna/db';
 import { SearchQueueService } from '../infra/queue/search-queue.service.js';
 import { Inject, Injectable } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service.js';
@@ -17,7 +23,7 @@ import type { CreateFolderBody, ListNodesQuery, NodeDto } from './nodes.schemas.
 
 const userSummary = { id: true, email: true, name: true, avatarUrl: true } as const;
 
-const ACTIVITY_ACTIONS = [
+const ACTIVITY_ACTIONS: readonly AuditAction[] = [
   'node.create',
   'node.rename',
   'node.move',
@@ -147,7 +153,7 @@ export class NodesService {
     const rows = await this.prisma.client.auditLog.findMany({
       where: {
         targetId: nodeId,
-        action: { in: ACTIVITY_ACTIONS },
+        action: { in: [...ACTIVITY_ACTIONS] },
         ...(q.cursor ? { id: { lt: BigInt(q.cursor) } } : {}),
       },
       orderBy: { id: 'desc' },

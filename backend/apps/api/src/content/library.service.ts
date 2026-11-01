@@ -1,4 +1,4 @@
-import { Prisma } from '@luna/db';
+import { type AuditAction, Prisma } from '@luna/db';
 import { SearchQueueService } from '../infra/queue/search-queue.service.js';
 import { Injectable } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service.js';
@@ -206,7 +206,7 @@ export class LibraryService {
 
   private auditTag(
     user: AuthenticatedUser,
-    action: string,
+    action: AuditAction,
     workspaceId: string,
     tagId: string,
     metadata: Prisma.InputJsonObject,

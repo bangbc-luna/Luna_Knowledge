@@ -1,4 +1,4 @@
-import { Prisma } from '@luna/db';
+import { type AuditAction, Prisma } from '@luna/db';
 import { SearchQueueService } from '../infra/queue/search-queue.service.js';
 import { Injectable } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service.js';
@@ -161,7 +161,7 @@ export class SharesService {
 
   private async auditShare(
     user: AuthenticatedUser,
-    action: string,
+    action: AuditAction,
     workspaceId: string,
     nodeId: string,
     metadata: Prisma.InputJsonObject,

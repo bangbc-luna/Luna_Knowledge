@@ -1,4 +1,4 @@
-import { Prisma, type WorkspaceKind, type WorkspaceRole } from '@luna/db';
+import { type AuditAction, Prisma, type WorkspaceKind, type WorkspaceRole } from '@luna/db';
 import { Injectable } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
@@ -347,7 +347,7 @@ export class WorkspacesService {
   private auditMember(
     actor: AuthenticatedUser,
     workspaceId: string,
-    action: string,
+    action: AuditAction,
     userId: string,
     metadata: Prisma.InputJsonObject,
     ctx: RequestContext,

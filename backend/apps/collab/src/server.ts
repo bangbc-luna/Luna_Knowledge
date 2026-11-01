@@ -4,6 +4,7 @@ import {
   createPrismaClient,
   type PrismaClient,
   resolveDocumentAccess,
+  writeAudit,
 } from '@luna/db';
 import {
   type DocJSON,
@@ -137,24 +138,20 @@ export function createCollabServer(
       isAuto: true,
       createdById,
     });
-    await prisma.auditLog
-      .create({
-        data: {
-          actorId: createdById,
-          action: 'document.edit',
-          targetType: 'node',
-          targetId: nodeId,
-          workspaceId: row.node.workspaceId,
-          metadata: {
-            name: row.node.name,
-            versionId: version.id,
-            versionNo: version.versionNo,
-            wordsAdded: version.wordsAdded,
-            wordsRemoved: version.wordsRemoved,
-          },
-        },
-      })
-      .catch((err) => logger.error({ err, nodeId }, 'Could not write edit log'));
+    await writeAudit(prisma, {
+      actorId: createdById,
+      action: 'document.edit',
+      targetType: 'node',
+      targetId: nodeId,
+      workspaceId: row.node.workspaceId,
+      metadata: {
+        name: row.node.name,
+        versionId: version.id,
+        versionNo: version.versionNo,
+        wordsAdded: version.wordsAdded,
+        wordsRemoved: version.wordsRemoved,
+      },
+    }).catch((err) => logger.error({ err, nodeId }, 'Could not write edit log'));
   };
 
   const closeSession = (server: Server, sessionId: string) => {
