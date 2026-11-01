@@ -14,11 +14,11 @@ import {
   enqueueIndexNode,
   enqueueTranscode,
   type JobQueue,
-  type ProcessUploadJob,
   QUEUES,
   type QueueJob,
   type RegenerateJob,
   reportError,
+  unknownJob,
 } from '@luna/shared';
 import { InjectQueue, OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger, type OnApplicationBootstrap } from '@nestjs/common';
@@ -75,9 +75,7 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
         return result;
       }
       default:
-        throw new Error(
-          `Unknown job "${(j as { name: string }).name}" on queue ${QUEUES.FILE_PROCESS}`,
-        );
+        throw new Error(`Unknown job "${unknownJob(j)}" on queue ${QUEUES.FILE_PROCESS}`);
     }
   }
 
@@ -88,12 +86,13 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
     if (!final) return;
     if (!(err instanceof UnrecoverableError))
       reportError(err, { queue: job.queueName, job: job.name, data: job.data });
+    const j = job as unknown as QueueJob<'file-process'>;
     const nodeId =
-      job.name === 'regenerate'
-        ? (job.data as RegenerateJob).nodeId
+      j.name === 'regenerate'
+        ? j.data.nodeId
         : (
             await this.prisma.client.uploadSession.findUnique({
-              where: { id: (job.data as ProcessUploadJob).uploadId },
+              where: { id: j.data.uploadId },
               select: { nodeId: true },
             })
           )?.nodeId;

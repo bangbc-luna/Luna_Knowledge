@@ -1,6 +1,4 @@
 import type { JobsOptions } from 'bullmq';
-import type { QUEUES } from './constants.js';
-import type { SEARCH_JOBS } from './search.js';
 
 export interface ProcessUploadJob {
   uploadId: string;
@@ -52,13 +50,9 @@ export interface JobQueue<Q extends JobQueueName> {
   ): Promise<unknown>;
 }
 
-type _QueueNames = (typeof QUEUES)[keyof typeof QUEUES];
-type _SearchJobNames = (typeof SEARCH_JOBS)[keyof typeof SEARCH_JOBS];
-type _Assert<T extends true> = T;
-export type _JobKeysMatchConstants = _Assert<
-  Exclude<JobQueueName, _QueueNames> extends never ? true : false
-> &
-  _Assert<Exclude<_SearchJobNames, JobName<'search-index'>> extends never ? true : false>;
+export function unknownJob(job: never): string {
+  return typeof job === 'string' ? job : (job as { name: string }).name;
+}
 
 export const SEARCH_JOB_OPTS = { removeOnComplete: true, removeOnFail: 100 } as const;
 

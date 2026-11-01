@@ -5,7 +5,14 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import type { BlobKind } from '@luna/db';
-import { QUEUES, type QueueJob, reportError, sealVideoKey, type TranscodeJob } from '@luna/shared';
+import {
+  QUEUES,
+  type QueueJob,
+  reportError,
+  sealVideoKey,
+  type TranscodeJob,
+  unknownJob,
+} from '@luna/shared';
 import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import { type Job, UnrecoverableError } from 'bullmq';
@@ -76,9 +83,7 @@ export class VideoTranscodeProcessor extends WorkerHost implements OnApplication
   async process(job: Job): Promise<unknown> {
     const j = job as unknown as QueueJob<'video-transcode'>;
     if (j.name !== 'transcode')
-      throw new Error(
-        `Unknown job "${(j as { name: string }).name}" on queue ${QUEUES.VIDEO_TRANSCODE}`,
-      );
+      throw new Error(`Unknown job "${unknownJob(j.name)}" on queue ${QUEUES.VIDEO_TRANSCODE}`);
     try {
       return await this.transcode(j.data);
     } catch (err) {

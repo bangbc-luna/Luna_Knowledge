@@ -1,11 +1,14 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
+import { JOBS, QUEUES } from './constants.js';
 import {
   enqueueFileJob,
   enqueueIndexNode,
   enqueueTranscode,
   type JobName,
+  type JobQueueName,
   transcodeJobOptions,
   type RegenerateJob,
+  SEARCH_JOBS,
 } from './index.js';
 
 const fakeQueue = () => {
@@ -86,6 +89,29 @@ describe('enqueue helpers', () => {
       .toEqualTypeOf<RegenerateJob>();
     expectTypeOf<JobName<'maintenance'>>().toEqualTypeOf<
       'purge-trash' | 'retention' | 'clean-uploads' | 'blob-gc'
+    >();
+    const q = fakeQueue();
+    // @ts-expect-error uploadId is required for process-upload
+    void enqueueFileJob(q, 'process-upload', { nodeId: 'n' });
+    // @ts-expect-error unknown job name
+    void enqueueFileJob(q, 'nope', {});
+  });
+
+  it('JobPayloads keys match the runtime constants', () => {
+    type Queues = (typeof QUEUES)[keyof typeof QUEUES];
+    expectTypeOf<JobQueueName>().toEqualTypeOf<Exclude<Queues, 'audit'>>();
+    expectTypeOf<JobName<'search-index'>>().toEqualTypeOf<
+      (typeof SEARCH_JOBS)[keyof typeof SEARCH_JOBS]
+    >();
+    expectTypeOf<JobName<'file-process'>>().toEqualTypeOf<
+      typeof JOBS.PROCESS_UPLOAD | typeof JOBS.REGENERATE
+    >();
+    expectTypeOf<JobName<'video-transcode'>>().toEqualTypeOf<typeof JOBS.TRANSCODE>();
+    expectTypeOf<JobName<'maintenance'>>().toEqualTypeOf<
+      | typeof JOBS.PURGE_TRASH
+      | typeof JOBS.RETENTION
+      | typeof JOBS.CLEAN_UPLOADS
+      | typeof JOBS.BLOB_GC
     >();
   });
 });

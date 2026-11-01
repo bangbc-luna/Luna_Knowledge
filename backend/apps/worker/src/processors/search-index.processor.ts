@@ -8,6 +8,7 @@ import {
   SEARCH_JOBS,
   type SearchDoc,
   searchSettings,
+  unknownJob,
 } from '@luna/shared';
 import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger, type OnApplicationBootstrap } from '@nestjs/common';
@@ -70,7 +71,7 @@ export class SearchIndexProcessor extends WorkerHost implements OnApplicationBoo
       case 'reindex-all':
         return this.reindexAll();
       default:
-        return { skipped: (j as { name: string }).name };
+        return { skipped: unknownJob(j) };
     }
   }
 

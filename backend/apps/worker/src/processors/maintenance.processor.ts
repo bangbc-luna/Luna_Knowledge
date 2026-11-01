@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AbortMultipartUploadCommand } from '@aws-sdk/client-s3';
 import { purgeExpiredTrash, RetentionError, type RetentionResult, runRetention } from '@luna/db';
-import { JOBS, QUEUES, type QueueJob } from '@luna/shared';
+import { JOBS, QUEUES, type QueueJob, unknownJob } from '@luna/shared';
 import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import type { Job, Queue } from 'bullmq';
@@ -72,9 +72,7 @@ export class MaintenanceProcessor extends WorkerHost implements OnApplicationBoo
       case 'blob-gc':
         return this.collectGarbage();
       default:
-        throw new Error(
-          `Unknown job "${(j as { name: string }).name}" on queue ${QUEUES.MAINTENANCE}`,
-        );
+        throw new Error(`Unknown job "${unknownJob(j)}" on queue ${QUEUES.MAINTENANCE}`);
     }
   }
 
