@@ -7,7 +7,7 @@ import { LoaderCircle, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ApiError, describeError } from "@/lib/api";
-import { endMeeting, joinMeeting, setAiNotes } from "@/lib/meetings";
+import { endMeeting, getMeeting, joinMeeting, setAiNotes } from "@/lib/meetings";
 import type { MeetingDetail, MeetingJoin } from "@/lib/meetings";
 import { useToast } from "../ui/toast";
 import { RoomControls } from "./room-controls";
@@ -32,6 +32,8 @@ export interface RoomChoices {
 }
 
 const MAX_REJOINS = 3;
+const MAX_TOTAL_REJOINS = 8;
+const STABLE_MS = 10_000;
 const MEETING_TOPIC = "luna.meeting";
 
 function parseJson(raw: string | Uint8Array | undefined): Record<string, unknown> | null {
@@ -58,11 +60,16 @@ function useAiNotes(initial: boolean) {
       const msg = parseJson(payload);
       if (msg?.type === "ai_notes" && typeof msg.enabled === "boolean") setOn(msg.enabled);
     };
-    fromMetadata(room.metadata);
+    const fromRoom = () => fromMetadata(room.metadata);
+    fromRoom();
     room.on(RoomEvent.RoomMetadataChanged, fromMetadata);
+    room.on(RoomEvent.Connected, fromRoom);
+    room.on(RoomEvent.Reconnected, fromRoom);
     room.on(RoomEvent.DataReceived, fromData);
     return () => {
       room.off(RoomEvent.RoomMetadataChanged, fromMetadata);
+      room.off(RoomEvent.Connected, fromRoom);
+      room.off(RoomEvent.Reconnected, fromRoom);
       room.off(RoomEvent.DataReceived, fromData);
     };
   }, [room]);
@@ -123,12 +130,15 @@ function RoomView({ meeting, join, onEnded, onMedia }: { meeting: MeetingDetail;
       const result = await setAiNotes(meeting.id, !aiOn);
       setAiOn(result.aiNotesEnabled);
     } catch (err) {
-      toast(
-        "error",
-        err instanceof ApiError && err.status === 503
-          ? "Chưa cập nhật được ghi biên bản AI cho phòng họp. Bấm lại công tắc để thử lại."
-          : describeError(err),
-      );
+      if (err instanceof ApiError && err.status === 503) {
+        try {
+          const fresh = await getMeeting(meeting.id);
+          setAiOn(fresh.aiNotesEnabled);
+        } catch {
+          setAiOn((v) => v);
+        }
+        toast("error", "Chưa cập nhật được ghi biên bản AI cho phòng họp. Bấm lại công tắc để thử lại.");
+      } else toast("error", describeError(err));
     }
   };
 
@@ -164,42 +174,77 @@ export function MeetingRoom({ meeting, join, choices, onLeft, onEnded }: { meeti
   const [session, setSession] = useState<{ join: MeetingJoin; gen: number; audio: boolean | { deviceId: string }; video: boolean | { deviceId: string } }>({ join, gen: 0, audio: choices.audioEnabled ? (choices.audioDeviceId ? { deviceId: choices.audioDeviceId } : true) : false, video: choices.videoEnabled ? (choices.videoDeviceId ? { deviceId: choices.videoDeviceId } : true) : false });
   const genRef = useRef(0);
   const attempts = useRef(0);
+  const total = useRef(0);
   const rejoining = useRef(false);
   const lastMedia = useRef(choices);
+  const aliveRef = useRef(true);
+  const cancelSleep = useRef<(() => void) | null>(null);
+  const stableTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const roomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    aliveRef.current = true;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+    const room = roomRef.current;
+    const inerted: Element[] = [];
+    for (const el of Array.from(document.body.children)) {
+      if (el === room || el.hasAttribute("aria-live") || el.hasAttribute("inert") || /^(SCRIPT|STYLE|LINK|NEXT-ROUTE-ANNOUNCER)$/.test(el.tagName)) continue;
+      el.setAttribute("inert", "");
+      inerted.push(el);
+    }
+    room?.focus();
     return () => {
+      aliveRef.current = false;
+      cancelSleep.current?.();
+      if (stableTimer.current) clearTimeout(stableTimer.current);
+      for (const el of inerted) el.removeAttribute("inert");
       document.body.style.overflow = prev;
     };
   }, []);
+
+  const sleep = (ms: number) =>
+    new Promise<void>((resolve) => {
+      const id = setTimeout(resolve, ms);
+      cancelSleep.current = () => {
+        clearTimeout(id);
+        resolve();
+      };
+    });
 
   const rejoin = async (gen: number) => {
     if (gen !== genRef.current || rejoining.current) return;
     rejoining.current = true;
     try {
-      if (attempts.current >= MAX_REJOINS) {
-        toast("error", "Mất kết nối với phòng họp. Hãy vào lại phòng.");
-        onLeft();
-        return;
-      }
-      attempts.current += 1;
-      await new Promise((resolve) => setTimeout(resolve, attempts.current * 1000));
-      const next = await joinMeeting(meeting.id);
-      genRef.current += 1;
-      const media = lastMedia.current;
-      setSession({
-        join: next,
-        gen: genRef.current,
-        audio: media.audioEnabled ? (media.audioDeviceId ? { deviceId: media.audioDeviceId } : true) : false,
-        video: media.videoEnabled ? (media.videoDeviceId ? { deviceId: media.videoDeviceId } : true) : false,
-      });
-    } catch (err) {
-      if (err instanceof ApiError && err.status >= 400 && err.status < 500) onEnded();
-      else {
-        toast("error", describeError(err));
-        onLeft();
+      while (aliveRef.current) {
+        if (attempts.current >= MAX_REJOINS || total.current >= MAX_TOTAL_REJOINS) {
+          toast("error", "Mất kết nối với phòng họp. Hãy vào lại phòng.");
+          onEnded();
+          return;
+        }
+        attempts.current += 1;
+        total.current += 1;
+        await sleep(attempts.current * 1000);
+        if (!aliveRef.current) return;
+        try {
+          const next = await joinMeeting(meeting.id);
+          if (!aliveRef.current) return;
+          genRef.current += 1;
+          const media = lastMedia.current;
+          setSession({
+            join: next,
+            gen: genRef.current,
+            audio: media.audioEnabled ? (media.audioDeviceId ? { deviceId: media.audioDeviceId } : true) : false,
+            video: media.videoEnabled ? (media.videoDeviceId ? { deviceId: media.videoDeviceId } : true) : false,
+          });
+          return;
+        } catch (err) {
+          if (!aliveRef.current) return;
+          if (err instanceof ApiError && err.status >= 400 && err.status < 500) {
+            onEnded();
+            return;
+          }
+        }
       }
     } finally {
       rejoining.current = false;
@@ -213,6 +258,7 @@ export function MeetingRoom({ meeting, join, choices, onLeft, onEnded }: { meeti
   const gen = session.gen;
   const handleDisconnected = (reason?: DisconnectReason) => {
     if (gen !== genRef.current) return;
+    if (stableTimer.current) clearTimeout(stableTimer.current);
     if (reason === DisconnectReason.CLIENT_INITIATED) onLeft();
     else if (reason === DisconnectReason.ROOM_DELETED) onEnded();
     else if (reason === DisconnectReason.DUPLICATE_IDENTITY) {
@@ -228,7 +274,7 @@ export function MeetingRoom({ meeting, join, choices, onLeft, onEnded }: { meeti
   };
 
   return createPortal(
-    <div className="luna-room fixed inset-0 z-45">
+    <div ref={roomRef} tabIndex={-1} className="luna-room fixed inset-0 z-45 outline-hidden">
       <LiveKitRoom
         key={session.gen}
         serverUrl={session.join.serverUrl}
@@ -238,7 +284,10 @@ export function MeetingRoom({ meeting, join, choices, onLeft, onEnded }: { meeti
         video={session.video}
         options={ROOM_OPTIONS}
         onConnected={() => {
-          attempts.current = 0;
+          if (stableTimer.current) clearTimeout(stableTimer.current);
+          stableTimer.current = setTimeout(() => {
+            attempts.current = 0;
+          }, STABLE_MS);
         }}
         onDisconnected={handleDisconnected}
         onError={handleError}

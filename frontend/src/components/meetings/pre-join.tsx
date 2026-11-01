@@ -18,6 +18,7 @@ export interface JoinChoices {
   videoEnabled: boolean;
   audioDeviceId?: string;
   videoDeviceId?: string;
+  aiNoticeShown: boolean;
 }
 
 export const AI_NOTICE = "Cuộc họp này đang được AI ghi biên bản. Âm thanh của bạn sẽ được chép lời để viết biên bản và bị xoá sau khi có biên bản.";
@@ -151,7 +152,7 @@ export function PreJoin({ meeting, onJoin, joining = false }: { meeting: Meeting
           size="touch"
           icon={Video}
           loading={joining}
-          onClick={() => onJoin({ audioEnabled: audioOn, videoEnabled: videoOn, audioDeviceId, videoDeviceId })}
+          onClick={() => onJoin({ audioEnabled: audioOn, videoEnabled: videoOn, audioDeviceId, videoDeviceId, aiNoticeShown: meeting.aiNotesEnabled })}
         >
           Vào phòng
         </Button>

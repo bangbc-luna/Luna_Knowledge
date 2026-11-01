@@ -2,7 +2,7 @@
   --lk-bg: var(--rail);
   --lk-bg2: var(--rail-item);
   --lk-fg: var(--rail-foreground);
-  --lk-accent-bg: color-mix(in srgb, var(--primary) 55%, white);
+  --lk-accent-bg: color-mix(in srgb, var(--primary) 55%, var(--rail-foreground));
   --lk-border-radius: 0.75rem;
   --lk-grid-gap: 0.5rem;
   --lk-bg-control: var(--rail-item);

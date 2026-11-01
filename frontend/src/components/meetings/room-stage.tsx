@@ -29,7 +29,7 @@ function TileBody() {
         </div>
       )}
       <div className="pointer-events-none absolute inset-x-2 bottom-2 flex items-center">
-        <span className="flex max-w-full min-w-0 items-center gap-1.5 rounded-md bg-black/60 px-2 py-1 text-xs text-white">
+        <span className="flex max-w-full min-w-0 items-center gap-1.5 rounded-md bg-rail/85 px-2 py-1 text-xs text-rail-foreground">
           {!isScreen && micMuted ? <MicOff className="size-3.5 shrink-0" aria-label="Đã tắt mic" /> : null}
           <span className="truncate">{isScreen ? `${name} đang chia sẻ màn hình` : participant.isLocal ? `${name} (Bạn)` : name}</span>
         </span>

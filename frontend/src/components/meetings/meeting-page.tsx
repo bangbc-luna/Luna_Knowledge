@@ -3,7 +3,7 @@
 import { CalendarX2, Clock, FileText, Users } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ApiError, describeError } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
 import { getMeeting, joinMeeting } from "@/lib/meetings";
@@ -12,9 +12,11 @@ import { useApi } from "@/lib/use-api";
 import { PageBody, TopBar } from "../shell/shell";
 import { Avatar, Badge, Breadcrumb, Card, ErrorBanner, SkeletonRows } from "../ui/misc";
 import { useToast } from "../ui/toast";
+import { Button } from "../ui/button";
+import { Dialog } from "../ui/dialog";
 import { dateOf, timeOf } from "./meeting-time";
 import { MeetingRoom } from "./meeting-room";
-import { PreJoin } from "./pre-join";
+import { AI_NOTICE, PreJoin } from "./pre-join";
 import type { JoinChoices } from "./pre-join";
 
 interface Entered {
@@ -114,14 +116,29 @@ export function MeetingPage() {
   const toast = useToast();
   const meeting = useApi(() => getMeeting(meetingId), [meetingId]);
   const [entered, setEntered] = useState<Entered | null>(null);
+  const [pending, setPending] = useState<Entered | null>(null);
   const [joining, setJoining] = useState(false);
   const data = meeting.data;
+  const lobby = !entered && (data?.status === "SCHEDULED" || data?.status === "LIVE");
+  const reload = meeting.reload;
+
+  useEffect(() => {
+    if (!lobby) return;
+    const refresh = () => void reload();
+    const id = setInterval(refresh, 15_000);
+    window.addEventListener("focus", refresh);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [lobby, reload]);
 
   const handleJoin = async (choices: JoinChoices) => {
     setJoining(true);
     try {
       const join = await joinMeeting(meetingId);
-      setEntered({ join, choices });
+      if (join.aiNotesEnabled && !choices.aiNoticeShown) setPending({ join, choices });
+      else setEntered({ join, choices });
       void meeting.reload();
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) void meeting.reload();
@@ -142,6 +159,28 @@ export function MeetingPage() {
 
   return (
     <>
+      <Dialog
+        open={!!pending}
+        onClose={() => setPending(null)}
+        title="Cuộc họp đang được AI ghi biên bản"
+        description={AI_NOTICE}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setPending(null)}>
+              Huỷ
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                setEntered(pending);
+                setPending(null);
+              }}
+            >
+              Tôi đã hiểu, vào phòng
+            </Button>
+          </>
+        }
+      />
       <TopBar>
         <div className="hidden sm:block">
           <Breadcrumb items={[{ label: "Cuộc họp", href: `/w/${wsId}/meetings` }, ...(data ? [{ label: data.title, href: `/w/${wsId}/meetings/${meetingId}` }] : [])]} />

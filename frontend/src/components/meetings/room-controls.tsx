@@ -21,7 +21,7 @@ export function ControlButton({ icon: Icon, label, active = true, danger, presse
       className={cn(
         "inline-flex size-11 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-full text-sm font-medium transition-colors",
         focusRing,
-        danger ? "bg-err text-white hover:bg-err/85" : active ? "bg-rail-item text-rail-foreground hover:bg-rail-item-hover" : "bg-err-bg text-err hover:bg-err-bg/85",
+        danger ? "bg-err text-rail-foreground hover:bg-err/85" : active ? "bg-rail-item text-rail-foreground hover:bg-rail-item-hover" : "bg-err-bg text-err hover:bg-err-bg/85",
         className,
       )}
     >
@@ -76,7 +76,10 @@ function HostMenu({ aiOn, onToggleAi, onEnd }: { aiOn: boolean; onToggleAi: () =
           </div>
         </PopoverPanel>
       </div>
-      <ConfirmDialog open={confirm} onClose={() => setConfirm(false)} title="Kết thúc cho mọi người?" confirmLabel="Kết thúc cuộc họp" icon={PhoneOff} onConfirm={onEnd}>
+      <ConfirmDialog open={confirm} onClose={() => setConfirm(false)} title="Kết thúc cho mọi người?" danger confirmLabel="Kết thúc cuộc họp" icon={PhoneOff} onConfirm={async () => {
+          setConfirm(false);
+          await onEnd();
+        }}>
         Mọi người sẽ bị đưa ra khỏi phòng và không vào lại được. Hành động này không hoàn tác.
       </ConfirmDialog>
     </>
@@ -119,7 +122,7 @@ export function RoomControls({ isHost, aiOn, onToggleAi, onEnd, extra }: { isHos
         type="button"
         aria-label="Rời phòng"
         onClick={() => void room.disconnect()}
-        className={cn("inline-flex h-11 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-full bg-err px-4 text-sm font-medium text-white hover:bg-err/85", focusRing)}
+        className={cn("inline-flex h-11 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-full bg-err px-4 text-sm font-medium text-rail-foreground hover:bg-err/85", focusRing)}
       >
         <PhoneOff className="size-5" aria-hidden />
         <span className="hidden sm:inline">Rời phòng</span>
