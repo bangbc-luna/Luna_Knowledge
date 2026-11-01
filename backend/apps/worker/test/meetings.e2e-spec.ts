@@ -9,6 +9,7 @@ import { Test } from '@nestjs/testing';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { RedisContainer, type StartedRedisContainer } from '@testcontainers/redis';
 import { Queue } from 'bullmq';
+import { Redis } from 'ioredis';
 import { redisConnection } from '../src/config/worker-config.js';
 import type { MeetingsProcessor } from '../src/processors/meetings.processor.js';
 
@@ -20,6 +21,7 @@ describe('Meetings worker (e2e)', () => {
   let processor: MeetingsProcessor;
   let media: FakeMeetingMedia;
   let queue: Queue;
+  let rawRedis: Redis;
   let seq = 0;
 
   const run = (name: string, data: object = {}) => processor.process({ name, data } as never);
@@ -101,6 +103,7 @@ describe('Meetings worker (e2e)', () => {
     ).init();
     processor = app.get(MeetingsProcessor);
     prisma = app.get(PrismaService).client;
+    rawRedis = new Redis(process.env.REDIS_URL!);
     queue = new Queue(QUEUES.MEETINGS, {
       connection: redisConnection(process.env.REDIS_URL!),
       prefix: 'luna',
@@ -109,6 +112,7 @@ describe('Meetings worker (e2e)', () => {
 
   afterAll(async () => {
     await queue?.close();
+    rawRedis?.disconnect();
     await app?.close();
     await Promise.all([pg?.stop(), redis?.stop()]);
   });
@@ -196,26 +200,84 @@ describe('Meetings worker (e2e)', () => {
     expect(att.leftAt).not.toBeNull();
   });
 
-  it('đối soát: phòng chưa quá thời gian chờ thì giữ LIVE, quá thời gian chờ mà không ai (hoặc chỉ người ẩn) thì kết thúc', async () => {
+  const emptyKey = (id: string) => `meeting-empty-since:${id}`;
+  const status = async (id: string) =>
+    (await prisma.meeting.findUniqueOrThrow({ where: { id } })).status;
+
+  it('đối soát: phòng vừa trống chưa bị kết thúc dù buổi họp đã diễn ra lâu', async () => {
     const owner = await user('owner');
     const ws = await workspace(owner.id, 'COMPANY');
+    const longRunning = await live(ws.id, owner.id, minutesAgo(90));
     const fresh = await live(ws.id, owner.id, minutesAgo(1));
+    media.rooms.set(roomNameFor(longRunning.id), { metadata: '{}', participants: [] });
+    media.rooms.set(roomNameFor(fresh.id), { metadata: '{}', participants: [] });
+    const freshNoRoom = await live(ws.id, owner.id, minutesAgo(1));
+    await run('reconcile');
+    expect(await status(longRunning.id)).toBe('LIVE');
+    expect(await status(fresh.id)).toBe('LIVE');
+    expect(await status(freshNoRoom.id)).toBe('LIVE');
+    const marker = Number(await rawRedis.get(emptyKey(longRunning.id)));
+    expect(Date.now() - marker).toBeLessThan(30_000);
+    const ttl = await rawRedis.ttl(emptyKey(longRunning.id));
+    expect(ttl).toBeGreaterThan(120);
+    expect(ttl).toBeLessThanOrEqual(600);
+  });
+
+  it('đối soát: phòng trống (hoặc chỉ người ẩn) quá thời gian chờ thì kết thúc và xoá dấu', async () => {
+    const owner = await user('owner');
+    const ws = await workspace(owner.id, 'COMPANY');
     const emptyOld = await live(ws.id, owner.id, minutesAgo(10));
     const hiddenOnly = await live(ws.id, owner.id, minutesAgo(10));
-    media.rooms.set(roomNameFor(fresh.id), { metadata: '{}', participants: [] });
     media.rooms.set(roomNameFor(emptyOld.id), { metadata: '{}', participants: [] });
     media.rooms.set(roomNameFor(hiddenOnly.id), {
       metadata: '{}',
       participants: [{ identity: 'luna-recorder', joinedAt: new Date(), hidden: true }],
     });
-    const freshNoRoom = await live(ws.id, owner.id, minutesAgo(1));
     await run('reconcile');
-    const status = async (id: string) =>
-      (await prisma.meeting.findUniqueOrThrow({ where: { id } })).status;
-    expect(await status(fresh.id)).toBe('LIVE');
-    expect(await status(freshNoRoom.id)).toBe('LIVE');
+    expect(await status(emptyOld.id)).toBe('LIVE');
+    expect(await status(hiddenOnly.id)).toBe('LIVE');
+    for (const m of [emptyOld, hiddenOnly]) {
+      await rawRedis.set(emptyKey(m.id), String(Date.now() - 300_000), 'EX', 600);
+    }
+    await run('reconcile');
     expect(await status(emptyOld.id)).toBe('ENDED');
     expect(await status(hiddenOnly.id)).toBe('ENDED');
+    expect(await rawRedis.get(emptyKey(emptyOld.id))).toBeNull();
+  });
+
+  it('đối soát: có người vào lại thì xoá dấu phòng trống', async () => {
+    const owner = await user('owner');
+    const ws = await workspace(owner.id, 'COMPANY');
+    const m = await live(ws.id, owner.id, minutesAgo(30));
+    media.rooms.set(roomNameFor(m.id), {
+      metadata: '{}',
+      participants: [{ identity: owner.id, joinedAt: new Date(), hidden: false }],
+    });
+    await rawRedis.set(emptyKey(m.id), String(Date.now() - 300_000), 'EX', 600);
+    await run('reconcile');
+    expect(await status(m.id)).toBe('LIVE');
+    expect(await rawRedis.get(emptyKey(m.id))).toBeNull();
+  });
+
+  it('đối soát: huỷ buổi họp SCHEDULED quá giờ hẹn hơn 24 giờ mà chưa ai vào, ghi audit', async () => {
+    const owner = await user('owner');
+    const ws = await workspace(owner.id, 'COMPANY');
+    const stale = await scheduled(ws.id, owner.id, new Date(Date.now() - 25 * 3_600_000));
+    const recent = await scheduled(ws.id, owner.id, new Date(Date.now() - 2 * 3_600_000));
+    const future = await scheduled(ws.id, owner.id, new Date(Date.now() + 3_600_000));
+    await run('reconcile');
+    for (const m of [stale]) {
+      expect(await prisma.meeting.findUniqueOrThrow({ where: { id: m.id } })).toMatchObject({
+        status: 'CANCELLED',
+        endReason: 'cancelled',
+      });
+      const audit = await prisma.auditLog.findFirst({
+        where: { action: 'meeting.cancel', targetId: m.id },
+      });
+      expect(audit?.actorId).toBeNull();
+    }
+    expect(await status(recent.id)).toBe('SCHEDULED');
+    expect(await status(future.id)).toBe('SCHEDULED');
   });
 
   it('đối soát: phòng còn người → giữ LIVE, đóng phiên của người đã rời mà thiếu webhook, giữ phiên mới vào', async () => {

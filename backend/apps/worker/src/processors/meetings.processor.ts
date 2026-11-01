@@ -6,7 +6,7 @@ import {
   type MeetingMedia,
   roomNameFor,
 } from '@luna/meetings';
-import { writeNotifications } from '@luna/db';
+import { writeAudit, writeNotifications } from '@luna/db';
 import { JOBS, QUEUES, type QueueJob, unknownJob } from '@luna/shared';
 import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger, type OnApplicationBootstrap } from '@nestjs/common';
@@ -20,11 +20,15 @@ const RECONCILE_PAGE = 200;
 const RECONCILE_CONCURRENCY = 8;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_LIVE_MS = 12 * 3_600_000;
+const STALE_SCHEDULED_MS = 24 * 3_600_000;
+const EMPTY_MARKER_TTL_FACTOR = 3;
+const emptyMarkerKey = (meetingId: string) => `meeting-empty-since:${meetingId}`;
 
 export interface ReconcileResult {
   checked: number;
   ended: number;
   failed: number;
+  cancelled: number;
 }
 
 async function forEachLimited<T>(
@@ -124,7 +128,7 @@ export class MeetingsProcessor extends WorkerHost implements OnApplicationBootst
   }
 
   async reconcile(): Promise<ReconcileResult> {
-    const result: ReconcileResult = { checked: 0, ended: 0, failed: 0 };
+    const result: ReconcileResult = { checked: 0, ended: 0, failed: 0, cancelled: 0 };
     let after: string | undefined;
     for (;;) {
       const page = await this.prisma.client.meeting.findMany({
@@ -146,12 +150,55 @@ export class MeetingsProcessor extends WorkerHost implements OnApplicationBootst
       });
       if (page.length < RECONCILE_PAGE) break;
     }
-    if (result.ended || result.failed) {
+    try {
+      result.cancelled = await this.cancelStaleScheduled();
+    } catch (err) {
+      this.logger.error({ err }, 'Stale scheduled meeting cleanup failed');
+    }
+    if (result.ended || result.failed || result.cancelled) {
       this.logger.log(
-        `Reconciled ${result.checked} live meeting(s): ${result.ended} ended, ${result.failed} failed`,
+        `Reconciled ${result.checked} live meeting(s): ${result.ended} ended, ${result.failed} failed, ${result.cancelled} stale cancelled`,
       );
     }
     return result;
+  }
+
+  private async cancelStaleScheduled(): Promise<number> {
+    const db = this.prisma.client;
+    const cutoff = new Date(Date.now() - STALE_SCHEDULED_MS);
+    let cancelled = 0;
+    for (;;) {
+      const stale = await db.meeting.findMany({
+        where: { status: 'SCHEDULED', scheduledAt: { lt: cutoff } },
+        orderBy: { id: 'asc' },
+        take: RECONCILE_PAGE,
+        select: { id: true, workspaceId: true, title: true },
+      });
+      if (stale.length === 0) break;
+      let progressed = 0;
+      for (const m of stale) {
+        const done = await db.$transaction(async (tx) => {
+          const { count } = await tx.meeting.updateMany({
+            where: { id: m.id, status: 'SCHEDULED', scheduledAt: { lt: cutoff } },
+            data: { status: 'CANCELLED', endedAt: new Date(), endReason: 'cancelled' },
+          });
+          if (count === 0) return false;
+          await writeAudit(tx, {
+            actorId: null,
+            action: 'meeting.cancel',
+            targetType: 'meeting',
+            targetId: m.id,
+            workspaceId: m.workspaceId,
+            metadata: { title: m.title, reason: 'never_started' },
+          });
+          return true;
+        });
+        if (done) progressed++;
+      }
+      cancelled += progressed;
+      if (progressed === 0 || stale.length < RECONCILE_PAGE) break;
+    }
+    return cancelled;
   }
 
   private end(meetingId: string): Promise<boolean> {
@@ -168,15 +215,34 @@ export class MeetingsProcessor extends WorkerHost implements OnApplicationBootst
     const startedMs = startedAt?.getTime() ?? now;
     if (now - startedMs > MAX_LIVE_MS) return this.end(meetingId);
     const graceMs = this.config.MEETING_EMPTY_GRACE_SEC * 1000;
-    const participants = await this.media.listParticipants(roomNameFor(meetingId));
-    const visible = participants?.filter((p) => !p.hidden) ?? [];
-    if (visible.length === 0) {
+    const roomName = roomNameFor(meetingId);
+    const participants = await this.media.listParticipants(roomName);
+    if (participants === null) {
       if (now - startedMs <= graceMs) return false;
-      const again = await this.media.listParticipants(roomNameFor(meetingId));
+      const again = await this.media.listParticipants(roomName);
       if (again?.some((p) => !p.hidden)) return false;
       return this.end(meetingId);
     }
-    const present = participants!.map((p) => p.identity).filter((id) => UUID.test(id));
+    const key = emptyMarkerKey(meetingId);
+    if (participants.every((p) => p.hidden)) {
+      await this.publisher.setIfAbsent(
+        key,
+        String(now),
+        this.config.MEETING_EMPTY_GRACE_SEC * EMPTY_MARKER_TTL_FACTOR,
+      );
+      const since = Number(await this.publisher.getValue(key));
+      if (!Number.isFinite(since) || now - since <= graceMs) return false;
+      const again = await this.media.listParticipants(roomName);
+      if (again?.some((p) => !p.hidden)) {
+        await this.publisher.deleteKey(key);
+        return false;
+      }
+      const ended = await this.end(meetingId);
+      await this.publisher.deleteKey(key);
+      return ended;
+    }
+    await this.publisher.deleteKey(key);
+    const present = participants.map((p) => p.identity).filter((id) => UUID.test(id));
     await this.prisma.client.meetingAttendance.updateMany({
       where: {
         meetingId,
