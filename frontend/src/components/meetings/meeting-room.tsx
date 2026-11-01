@@ -6,8 +6,9 @@ import type { RoomOptions } from "livekit-client";
 import { LoaderCircle, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ApiError, describeError } from "@/lib/api";
-import { endMeeting, getMeeting, joinMeeting, setAiNotes } from "@/lib/meetings";
+import { ApiError } from "@/lib/api";
+import { meetingErrorText } from "./meeting-errors";
+import { endMeeting, getMeeting, joinMeeting, setAiNotes, setHandRaised } from "@/lib/meetings";
 import type { MeetingDetail, MeetingJoin } from "@/lib/meetings";
 import { useToast } from "../ui/toast";
 import { useAuth } from "@/lib/auth";
@@ -160,7 +161,11 @@ function RoomView({ meeting, join, onEnded, onMedia }: { meeting: MeetingDetail;
   };
 
   const toggleHand = () => {
-    localParticipant.setAttributes({ handRaised: handRaised ? "" : "true" }).catch((err: unknown) => toast("error", `Không đổi được trạng thái giơ tay: ${describeError(err)}`));
+    setHandRaised(meeting.id, !handRaised).catch((err: unknown) => {
+      if (err instanceof ApiError && err.status === 409) toast("error", "Chưa giơ tay được. Hãy chờ kết nối vào phòng xong rồi thử lại.");
+      else if (err instanceof ApiError && err.status === 503) toast("error", "Chưa đổi được trạng thái giơ tay. Dịch vụ phòng họp đang bận, thử lại sau ít giây.");
+      else toast("error", `Không đổi được trạng thái giơ tay. ${meetingErrorText(err)}`);
+    });
   };
 
   const toggleAi = async () => {
@@ -176,7 +181,7 @@ function RoomView({ meeting, join, onEnded, onMedia }: { meeting: MeetingDetail;
           setAiOn((v) => v);
         }
         toast("error", "Chưa cập nhật được ghi biên bản AI cho phòng họp. Bấm lại công tắc để thử lại.");
-      } else toast("error", describeError(err));
+      } else toast("error", meetingErrorText(err));
     }
   };
 
@@ -185,7 +190,7 @@ function RoomView({ meeting, join, onEnded, onMedia }: { meeting: MeetingDetail;
       await endMeeting(meeting.id);
       onEnded();
     } catch (err) {
-      toast("error", describeError(err));
+      toast("error", meetingErrorText(err));
     }
   };
 

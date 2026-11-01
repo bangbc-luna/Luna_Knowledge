@@ -4,7 +4,7 @@ import { CalendarX2, Clock, FileText, Users } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ApiError, describeError } from "@/lib/api";
+import { ApiError } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
 import { getMeeting, joinMeeting } from "@/lib/meetings";
 import type { MeetingDetail, MeetingJoin } from "@/lib/meetings";
@@ -15,6 +15,8 @@ import { useToast } from "../ui/toast";
 import { Button } from "../ui/button";
 import { Dialog } from "../ui/dialog";
 import { dateOf, timeOf } from "./meeting-time";
+import { meetingErrorText } from "./meeting-errors";
+import { ManageActions } from "./meeting-manage";
 import { MeetingRoom } from "./meeting-room";
 import { AI_NOTICE, PreJoin } from "./pre-join";
 import type { JoinChoices } from "./pre-join";
@@ -117,6 +119,7 @@ export function MeetingPage() {
   const meeting = useApi(() => getMeeting(meetingId), [meetingId]);
   const [entered, setEntered] = useState<Entered | null>(null);
   const [pending, setPending] = useState<Entered | null>(null);
+  const [confirming, setConfirming] = useState<JoinChoices | null>(null);
   const [joining, setJoining] = useState(false);
   const data = meeting.data;
   const lobby = !entered && (data?.status === "SCHEDULED" || data?.status === "LIVE");
@@ -133,7 +136,7 @@ export function MeetingPage() {
     };
   }, [lobby, reload]);
 
-  const handleJoin = async (choices: JoinChoices) => {
+  const startJoin = async (choices: JoinChoices) => {
     setJoining(true);
     try {
       const join = await joinMeeting(meetingId);
@@ -142,10 +145,15 @@ export function MeetingPage() {
       void meeting.reload();
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) void meeting.reload();
-      toast("error", describeError(err));
+      toast("error", meetingErrorText(err));
     } finally {
       setJoining(false);
     }
+  };
+
+  const handleJoin = (choices: JoinChoices) => {
+    if (data?.aiNotesEnabled) setConfirming(choices);
+    else void startJoin(choices);
   };
 
   const leave = () => {
@@ -159,6 +167,29 @@ export function MeetingPage() {
 
   return (
     <>
+      <Dialog
+        open={!!confirming}
+        onClose={() => setConfirming(null)}
+        title="Cuộc họp đang được AI ghi biên bản"
+        description={AI_NOTICE}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setConfirming(null)}>
+              Huỷ
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                const choices = confirming;
+                setConfirming(null);
+                if (choices) void startJoin({ ...choices, aiNoticeShown: true });
+              }}
+            >
+              Tôi đã hiểu, vào phòng
+            </Button>
+          </>
+        }
+      />
       <Dialog
         open={!!pending}
         onClose={() => setPending(null)}
@@ -201,7 +232,10 @@ export function MeetingPage() {
         ) : data.status === "CANCELLED" ? (
           <CancelledBlock wsId={wsId} />
         ) : (
-          <PreJoin meeting={data} onJoin={(c) => void handleJoin(c)} joining={joining} />
+          <>
+            {data.canManage && data.status === "SCHEDULED" ? <ManageActions meeting={data} onChanged={() => void meeting.reload()} onCancelled={() => void meeting.reload()} /> : null}
+            <PreJoin meeting={data} onJoin={handleJoin} joining={joining} />
+          </>
         )}
       </PageBody>
     </>

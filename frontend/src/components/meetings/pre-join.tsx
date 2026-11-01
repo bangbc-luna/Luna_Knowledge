@@ -11,7 +11,7 @@ import { Button } from "../ui/button";
 import { Select } from "../ui/select";
 import { Badge, Card } from "../ui/misc";
 import { ControlButton } from "./room-controls";
-import { dateOf, timeOf } from "./meeting-time";
+import { dateOf, dayKeyOf, timeOf } from "./meeting-time";
 
 export interface JoinChoices {
   audioEnabled: boolean;
@@ -93,6 +93,17 @@ export function PreJoin({ meeting, onJoin, joining = false }: { meeting: Meeting
     };
   }, [videoTrack]);
 
+  const opensMs = !meeting.canManage && meeting.opensAt ? new Date(meeting.opensAt).getTime() : null;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (opensMs === null) return;
+    const wait = opensMs - Date.now();
+    if (wait <= 0) return;
+    const id = setTimeout(() => setNow(Date.now()), Math.min(wait + 50, 2_000_000_000));
+    return () => clearTimeout(id);
+  }, [opensMs, now]);
+  const locked = opensMs !== null && opensMs > now;
+
   const { me: user } = useAuth();
   const host = meeting.createdBy.name;
   const when = meeting.status === "LIVE" ? <Badge tone="ok">Đang họp</Badge> : meeting.scheduledAt ? <span className="text-sm text-muted">{`${timeOf(meeting.scheduledAt)} · ${dateOf(meeting.scheduledAt)}`}</span> : null;
@@ -152,10 +163,17 @@ export function PreJoin({ meeting, onJoin, joining = false }: { meeting: Meeting
           size="touch"
           icon={Video}
           loading={joining}
-          onClick={() => onJoin({ audioEnabled: audioOn, videoEnabled: videoOn, audioDeviceId, videoDeviceId, aiNoticeShown: meeting.aiNotesEnabled })}
+          disabled={locked}
+          onClick={() => onJoin({ audioEnabled: audioOn, videoEnabled: videoOn, audioDeviceId, videoDeviceId, aiNoticeShown: false })}
         >
           Vào phòng
         </Button>
+        {locked && meeting.opensAt ? (
+          <p role="status" className="-mt-2 text-sm text-muted">
+            Phòng mở lúc {timeOf(meeting.opensAt)}
+            {dayKeyOf(new Date(meeting.opensAt)) === dayKeyOf(new Date(now)) ? "" : ` · ${dateOf(meeting.opensAt)}`}
+          </p>
+        ) : null}
       </Card>
     </div>
   );
