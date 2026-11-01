@@ -15,6 +15,7 @@ COPY apps/collab/package.json apps/collab/
 COPY packages/db/package.json packages/db/
 COPY packages/shared/package.json packages/shared/
 COPY packages/editor/package.json packages/editor/
+COPY packages/meetings/package.json packages/meetings/
 COPY packages/tsconfig/package.json packages/tsconfig/
 COPY scripts/package.json scripts/
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
