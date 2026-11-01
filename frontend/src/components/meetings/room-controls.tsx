@@ -3,7 +3,7 @@
 import { useLocalParticipant, useRoomContext } from "@livekit/components-react";
 import { Hand, MessageSquare, Mic, MicOff, MonitorUp, PhoneOff, ScreenShareOff, Settings2, SmilePlus, Video, VideoOff, type LucideIcon } from "lucide-react";
 import { useState } from "react";
-import { describeError } from "@/lib/api";
+import { meetingErrorText } from "./meeting-errors";
 import { cn } from "@/lib/cn";
 import { ConfirmDialog } from "../ui/dialog";
 import { focusRing } from "../ui/focus";
@@ -127,7 +127,7 @@ export function RoomControls({ isHost, aiOn, onToggleAi, onEnd, onReact, handRai
   const { localParticipant, isMicrophoneEnabled, isCameraEnabled, isScreenShareEnabled } = useLocalParticipant();
   const canShare = typeof navigator !== "undefined" && typeof navigator.mediaDevices?.getDisplayMedia === "function";
   const run = (fn: () => Promise<unknown>, what: string) => () => {
-    fn().catch((err: unknown) => toast("error", `${what}: ${describeError(err)}`));
+    fn().catch((err: unknown) => toast("error", `${what}: ${meetingErrorText(err)}`));
   };
   return (
     <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 border-t border-rail-item px-3 py-3">

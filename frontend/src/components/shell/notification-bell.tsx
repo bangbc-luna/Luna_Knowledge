@@ -40,7 +40,7 @@ function describe(n: AppNotification): { actor: string | null; text: React.React
     case "meeting.reminder":
       return { actor: null, text: <>Cuộc họp {meeting} sắp bắt đầu</>, snippet: when };
     case "meeting.cancelled":
-      return { actor: by, text: <>Cuộc họp {meeting} đã bị hủy</>, snippet: when };
+      return { actor: by, text: <>Cuộc họp {meeting} đã bị huỷ</>, snippet: when };
     default:
       return { actor: by, text: name };
   }

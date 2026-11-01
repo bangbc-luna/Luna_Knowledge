@@ -4,7 +4,7 @@ import { CalendarPlus, Users, Video } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMemo, useState } from "react";
-import { describeError } from "@/lib/api";
+import { meetingErrorText } from "./meeting-errors";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import { formatNumber } from "@/lib/format";
@@ -114,7 +114,7 @@ export function MeetingsPage() {
       const page = await listMeetings(wsId, "past", pastExtra.cursor, PAGE);
       setExtra({ base: past.data, items: [...pastExtra.items, ...page.items], cursor: page.nextCursor });
     } catch (err) {
-      toast("error", describeError(err));
+      toast("error", meetingErrorText(err));
     } finally {
       setMoreLoading(false);
     }

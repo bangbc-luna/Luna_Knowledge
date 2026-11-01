@@ -1,9 +1,7 @@
 "use client";
 
-import { X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { describeError } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { createMeeting, meetingHref } from "@/lib/meetings";
 import type { UserSummary } from "@/lib/types";
@@ -11,10 +9,11 @@ import { Button } from "../ui/button";
 import { Dialog } from "../ui/dialog";
 import { focusRing } from "../ui/focus";
 import { Field, Input } from "../ui/input";
-import { Avatar } from "../ui/misc";
 import { useToast } from "../ui/toast";
 import { UserSuggestInput } from "../ui/user-suggest";
-import { defaultScheduleValue, toLocalInput } from "./meeting-time";
+import { meetingErrorText } from "./meeting-errors";
+import { AiNotesSwitch, PersonChips, ScheduleField } from "./meeting-form-parts";
+import { defaultScheduleValue, inputToDate, inputToIso } from "./meeting-time";
 
 export type MeetingMode = "instant" | "scheduled";
 
@@ -58,10 +57,10 @@ function CreateForm({ wsId, initialMode, onClose, onCreated }: { wsId: string; i
     if (!name) return setError("Nhập tiêu đề cuộc họp");
     let scheduledAt: string | undefined;
     if (scheduled) {
-      const at = new Date(when);
+      const at = inputToDate(when);
       if (!when || Number.isNaN(at.getTime())) return setError("Chọn ngày và giờ họp");
       if (at.getTime() < Date.now() - 5 * 60_000) return setError("Giờ họp không được ở quá khứ");
-      scheduledAt = at.toISOString();
+      scheduledAt = inputToIso(when);
     }
     setBusy(true);
     setError(null);
@@ -78,7 +77,7 @@ function CreateForm({ wsId, initialMode, onClose, onCreated }: { wsId: string; i
       if (mode === "instant") router.push(meetingHref(wsId, meeting.id));
       else toast("success", `Đã đặt lịch «${meeting.title}»`);
     } catch (err) {
-      setError(describeError(err));
+      setError(meetingErrorText(err));
       setBusy(false);
     }
   };
@@ -123,9 +122,7 @@ function CreateForm({ wsId, initialMode, onClose, onCreated }: { wsId: string; i
           {(id) => <Input id={id} autoFocus maxLength={200} placeholder="Họp tuần nhóm sản phẩm" value={title} onChange={(e) => setTitle(e.target.value)} />}
         </Field>
         {scheduled ? (
-          <Field label="Ngày và giờ">
-            {(id) => <Input id={id} type="datetime-local" min={toLocalInput(new Date())} value={when} onChange={(e) => setWhen(e.target.value)} />}
-          </Field>
+          <ScheduleField value={when} onChange={setWhen} />
         ) : null}
         <Field label="Mời người tham gia" hint="Gõ tên hoặc email để chọn. Người được mời nhận thông báo.">
           {(id) => (
@@ -143,43 +140,11 @@ function CreateForm({ wsId, initialMode, onClose, onCreated }: { wsId: string; i
           )}
         </Field>
         {invitees.length ? (
-          <ul className="-mt-2 flex flex-wrap gap-1.5" aria-label="Người được mời">
-            {invitees.map((u) => (
-              <li key={u.id} className="inline-flex h-8 max-w-full items-center gap-1.5 rounded-full bg-secondary pr-1 pl-1">
-                <Avatar name={u.name} src={u.avatarUrl} size="size-6" />
-                <span className="min-w-0 truncate text-sm" title={u.email}>
-                  {u.name}
-                </span>
-                <button
-                  type="button"
-                  aria-label={`Bỏ ${u.name}`}
-                  onClick={() => setInvitees((list) => list.filter((x) => x.id !== u.id))}
-                  className={cn("inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted hover:bg-foreground/8 hover:text-foreground", focusRing)}
-                >
-                  <X className="size-3.5" aria-hidden />
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        <div className="flex items-center gap-3">
-          <div className="min-w-0 flex-1">
-            <p id="ai-notes-label" className="text-sm font-medium">
-              Ghi biên bản AI
-            </p>
-            <p className="text-xs text-muted text-pretty">Ghi âm lời thoại và tự tóm tắt sau cuộc họp.</p>
+          <div className="-mt-2">
+            <PersonChips people={invitees} label="Người được mời" removeLabel={(name) => `Bỏ ${name}`} onRemove={(u) => setInvitees((list) => list.filter((x) => x.id !== u.id))} />
           </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={aiNotes}
-            aria-labelledby="ai-notes-label"
-            onClick={() => setAiNotes((v) => !v)}
-            className={cn("relative h-6 w-10 shrink-0 cursor-pointer rounded-full transition-colors", focusRing, aiNotes ? "bg-primary" : "bg-border-strong")}
-          >
-            <span className={cn("absolute top-0.5 left-0.5 size-5 rounded-full bg-surface transition-transform motion-reduce:transition-none", aiNotes && "translate-x-4")} />
-          </button>
-        </div>
+        ) : null}
+        <AiNotesSwitch checked={aiNotes} onChange={setAiNotes} />
         {error ? (
           <p role="alert" className="text-sm text-err-text">
             {error}

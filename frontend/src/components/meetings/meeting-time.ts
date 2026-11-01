@@ -31,13 +31,22 @@ export function groupByDay<T extends { scheduledAt: string | null }>(items: T[])
   return groups;
 }
 
+const VN_OFFSET_MS = 7 * 3_600_000;
+
+export function toLocalInput(d: Date): string {
+  return new Date(d.getTime() + VN_OFFSET_MS).toISOString().slice(0, 16);
+}
+
 export function defaultScheduleValue(now = new Date()): string {
   const d = new Date(now.getTime() + 3_600_000);
-  d.setMinutes(0, 0, 0);
+  d.setUTCMinutes(0, 0, 0);
   return toLocalInput(d);
 }
 
-export function toLocalInput(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+export function inputToIso(value: string): string {
+  return `${value}:00+07:00`;
+}
+
+export function inputToDate(value: string): Date {
+  return new Date(inputToIso(value));
 }

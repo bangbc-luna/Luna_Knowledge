@@ -5,7 +5,8 @@ import type { Participant } from "livekit-client";
 import { Track } from "livekit-client";
 import { ArrowDown, LoaderCircle, Mic, MicOff, RotateCcw, Send, X } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ApiError, describeError } from "@/lib/api";
+import { ApiError } from "@/lib/api";
+import { meetingErrorText } from "./meeting-errors";
 import { cn } from "@/lib/cn";
 import { listChat, linkify, muteParticipant, sendChat } from "@/lib/meetings";
 import type { MeetingChatMessage } from "@/lib/meetings";
@@ -46,7 +47,7 @@ function mergeMessages(prev: MeetingChatMessage[], incoming: MeetingChatMessage[
 function describeSendError(err: unknown): string {
   if (err instanceof ApiError && err.status === 409) return "Cuộc họp đã kết thúc, không gửi được tin nhắn.";
   if (err instanceof ApiError && err.status === 429) return "Bạn gửi quá nhanh. Thử lại sau ít giây.";
-  return describeError(err);
+  return meetingErrorText(err);
 }
 
 const timeOf = (iso: string) => new Date(iso).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
@@ -87,7 +88,7 @@ export function useMeetingChat(meetingId: string, meId: string, panelVisible: bo
         cursor = res.nextCursor;
       }
     } catch (err) {
-      if (alive.current) setLoadError(describeError(err));
+      if (alive.current) setLoadError(meetingErrorText(err));
     } finally {
       if (alive.current) setLoading(false);
     }
@@ -372,7 +373,7 @@ function PeopleView({ meetingId, isHost }: { meetingId: string; isHost: boolean 
       if (!res.muted) toast("error", `${p.name || p.identity} chưa bật mic nên không có gì để tắt.`);
     } catch (err) {
       if (err instanceof ApiError && err.status === 503) toast("error", "Chưa tắt được mic. Dịch vụ phòng họp đang bận, thử lại sau ít giây.");
-      else toast("error", describeError(err));
+      else toast("error", meetingErrorText(err));
     } finally {
       setBusyId(null);
     }
