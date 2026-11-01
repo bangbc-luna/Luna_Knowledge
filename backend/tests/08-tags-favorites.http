@@ -228,3 +228,37 @@ Authorization: Bearer {{member.accessToken}}
 
 ?? status == 200
 ?? js response.parsedBody.tags.length == 0
+
+
+### Mới cập nhật trong workspace (thành viên, không có folder)
+# @ref member
+# @ref ws
+GET {{apiUrl}}/workspaces/{{contentWs.id}}/recently-updated
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 200
+?? js response.parsedBody.items.every(n => n.type !== 'FOLDER') == true
+
+### Mới cập nhật: người được share vẫn xem được
+# @ref sharedViewer
+# @ref ws
+GET {{apiUrl}}/workspaces/{{contentWs.id}}/recently-updated?limit=5
+Authorization: Bearer {{sharedViewer.accessToken}}
+
+?? status == 200
+
+### Mới cập nhật: người ngoài → 404
+# @ref outsider
+# @ref ws
+GET {{apiUrl}}/workspaces/{{contentWs.id}}/recently-updated
+Authorization: Bearer {{outsider.accessToken}}
+
+?? status == 404
+
+### Mới cập nhật: cursor sai → 400
+# @ref member
+# @ref ws
+GET {{apiUrl}}/workspaces/{{contentWs.id}}/recently-updated?cursor=xxx
+Authorization: Bearer {{member.accessToken}}
+
+?? status == 400

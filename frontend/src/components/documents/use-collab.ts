@@ -8,6 +8,10 @@ import { type CollabToken, userColor } from "@/lib/documents";
 
 export type CollabStatus = "connecting" | "online" | "offline" | "denied";
 
+const LOST_ACCESS = new Set(["Forbidden", "Session ended"]);
+const FINAL = new Set([401, 403, 404]);
+const BACKOFF = [1000, 2000, 5000, 10000];
+
 export interface Peer {
   clientId: number;
   id: string;
@@ -47,6 +51,24 @@ export function useCollab(nodeId: string) {
       }
     };
 
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let generation = 0;
+    let lostStreak = 0;
+    const backoff = (attempt: number) => (BACKOFF[attempt] ?? BACKOFF[BACKOFF.length - 1]!) * (0.75 + Math.random() * 0.5);
+    const recheck = (attempt = 0) => {
+      const gen = ++generation;
+      clearTimeout(retry);
+      provider?.disconnect();
+      fetchToken()
+        .then(() => {
+          if (!cancelled && gen === generation) void provider?.connect();
+        })
+        .catch((err) => {
+          if (cancelled || gen !== generation || (err instanceof ApiError && FINAL.has(err.status))) return;
+          retry = setTimeout(() => recheck(attempt + 1), backoff(attempt));
+        });
+    };
+
     void (async () => {
       let first: CollabToken | null;
       try {
@@ -71,11 +93,22 @@ export function useCollab(nodeId: string) {
           if (s === WebSocketStatus.Connected) setStatus("online");
           else setStatus((prev) => (prev === "denied" ? prev : s === WebSocketStatus.Connecting ? "connecting" : "offline"));
         },
-        onSynced: ({ state }) => setSynced(state),
+        onSynced: ({ state }) => {
+          if (state) lostStreak = 0;
+          setSynced(state);
+        },
         onUnsyncedChanges: ({ number }) => setUnsynced(number),
         onAuthenticationFailed: () => void fetchToken().catch(() => undefined),
         onClose: ({ event }) => {
-          if (event.code === 4403) void fetchToken().catch(() => undefined);
+          if (!(event.code === 4403 || event.code === 4401 || LOST_ACCESS.has(event.reason))) return;
+          const streak = lostStreak++;
+          if (!streak) return recheck();
+          generation++;
+          clearTimeout(retry);
+          provider?.disconnect();
+          retry = setTimeout(() => {
+            if (!cancelled) recheck(streak - 1);
+          }, backoff(streak - 1));
         },
         onAwarenessUpdate: ({ states }) => {
           const seen = new Set<string>();
@@ -94,6 +127,7 @@ export function useCollab(nodeId: string) {
 
     return () => {
       cancelled = true;
+      clearTimeout(retry);
       provider?.destroy();
       ydoc.destroy();
     };

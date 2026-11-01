@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { nodeSchema } from './nodes.schemas.js';
+import { nodeSchema, sectionSchema } from './nodes.schemas.js';
 
 export const createTagBody = z.object({
   name: z.string().trim().min(1).max(50),
@@ -28,5 +28,12 @@ export const tagDetailSchema = z.object({
 
 export const recentSchema = z.object({ node: nodeSchema, viewedAt: z.date() });
 
+export const recentlyUpdatedQuery = z.object({
+  section: sectionSchema.default('DOCS').describe('Khu cần liệt kê: DOCS hoặc VIDEOS'),
+  cursor: z.string().optional().describe('Giá trị nextCursor của trang trước'),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+});
+
+export type RecentlyUpdatedQuery = z.output<typeof recentlyUpdatedQuery>;
 export type CreateTagBody = z.output<typeof createTagBody>;
 export type UpdateTagBody = z.output<typeof updateTagBody>;

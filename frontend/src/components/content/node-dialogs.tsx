@@ -10,6 +10,7 @@ import { SECTION_LABEL, WS_ROLE_LABEL } from "@/lib/format";
 import type { NodeItem, NodeSection, Page, Tag } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 import { cn } from "@/lib/cn";
+import { invalidateTree } from "@/lib/tree-sync";
 import { Button } from "../ui/button";
 import { Dialog } from "../ui/dialog";
 import { Field, Input } from "../ui/input";
@@ -73,10 +74,10 @@ export function NameDialog({
       onSubmit={submit}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose} className="min-h-11 md:min-h-10">
+          <Button variant="secondary" onClick={onClose} size="touch">
             Huỷ
           </Button>
-          <Button type="submit" variant="primary" loading={busy} className="min-h-11 md:min-h-10">
+          <Button type="submit" variant="primary" loading={busy} size="touch">
             {submitLabel}
           </Button>
         </>
@@ -154,10 +155,10 @@ export function NewDocumentDialog({
       onSubmit={() => void submit()}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose} className="min-h-11 md:min-h-10">
+          <Button variant="secondary" onClick={onClose} size="touch">
             Huỷ
           </Button>
-          <Button type="submit" variant="primary" loading={busy} className="min-h-11 md:min-h-10">
+          <Button type="submit" variant="primary" loading={busy} size="touch">
             Tạo
           </Button>
         </>
@@ -282,7 +283,7 @@ export function MoveDialog({
   workspaceId: string;
   canUseRoot: boolean;
   section: NodeSection;
-  onMoved: () => void;
+  onMoved: (targetParentId: string | null) => void;
 }) {
   const [trail, setTrail] = useState<Crumb[]>([{ id: null, name: SECTION_LABEL[section] }]);
   const [busy, setBusy] = useState(false);
@@ -304,7 +305,7 @@ export function MoveDialog({
     setError(null);
     try {
       await api(`/nodes/${node.id}/move`, { method: "POST", body: { targetParentId: current.id } });
-      onMoved();
+      onMoved(current.id);
       onClose();
     } catch (err) {
       setError(err instanceof ApiError && err.code === "CONFLICT" ? "Thư mục đích đã có mục cùng tên. Đổi tên trước khi chuyển." : describeError(err));
@@ -319,10 +320,10 @@ export function MoveDialog({
       title={`Di chuyển «${node.name}»`}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose} className="min-h-11 md:min-h-10">
+          <Button variant="secondary" onClick={onClose} size="touch">
             Huỷ
           </Button>
-          <Button variant="primary" loading={busy} disabled={sameParent || blockedRoot} onClick={move} className="min-h-11 md:min-h-10">
+          <Button variant="primary" loading={busy} disabled={sameParent || blockedRoot} onClick={move} size="touch">
             Chuyển vào đây
           </Button>
         </>
@@ -393,6 +394,7 @@ export function CopyDialog({ open, onClose, source }: { open: boolean; onClose: 
         body: { workspaceId: wsId, parentId: current.id, name: name.trim() },
       });
       toast("success", "Đã tạo bản sao");
+      invalidateTree(copy.node.workspaceId, [copy.node.parentId]);
       onClose();
       router.push(`/w/${copy.node.workspaceId}/doc/${copy.node.id}`);
     } catch (err) {
@@ -430,10 +432,10 @@ export function CopyDialog({ open, onClose, source }: { open: boolean; onClose: 
       onSubmit={() => void submit()}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose} className="min-h-11 md:min-h-10">
+          <Button variant="secondary" onClick={onClose} size="touch">
             Huỷ
           </Button>
-          <Button type="submit" variant="primary" loading={busy} disabled={noTarget} className="min-h-11 md:min-h-10">
+          <Button type="submit" variant="primary" loading={busy} disabled={noTarget} size="touch">
             Tạo bản sao
           </Button>
         </>
@@ -549,13 +551,13 @@ export function TagsDialog({
       title={`Gắn tag cho «${node.name}»`}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose} className="min-h-11 md:min-h-10">
+          <Button variant="secondary" onClick={onClose} size="touch">
             Huỷ
           </Button>
           <Button
             variant="primary"
             loading={busy}
-            className="min-h-11 md:min-h-10"
+            size="touch"
             onClick={async () => {
               setBusy(true);
               setError(null);

@@ -76,10 +76,10 @@ export function CreateWorkspaceDialog({ open, onClose, onCreated }: { open: bool
       onSubmit={() => void submit()}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose} className="min-h-11 md:min-h-10">
+          <Button variant="secondary" onClick={onClose} size="touch">
             Huỷ
           </Button>
-          <Button type="submit" variant="primary" loading={busy} className="min-h-11 md:min-h-10">
+          <Button type="submit" variant="primary" loading={busy} size="touch">
             Tạo workspace
           </Button>
         </>
@@ -188,14 +188,14 @@ export function WorkspaceSettingsDialog({ ws, open, onClose }: { ws: { id: strin
         footer={
           <>
             {ws.kind === "TEAM" ? (
-              <Button variant="danger" icon={Trash2} className="sm:mr-auto min-h-11 md:min-h-10" onClick={() => setConfirm(true)}>
+              <Button variant="danger" icon={Trash2} size="touch" className="sm:mr-auto" onClick={() => setConfirm(true)}>
                 Xoá workspace
               </Button>
             ) : null}
-            <Button variant="secondary" onClick={onClose} className="min-h-11 md:min-h-10">
+            <Button variant="secondary" onClick={onClose} size="touch">
               Huỷ
             </Button>
-            <Button type="submit" variant="primary" loading={busy} className="min-h-11 md:min-h-10">
+            <Button type="submit" variant="primary" loading={busy} size="touch">
               Lưu
             </Button>
           </>

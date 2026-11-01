@@ -119,13 +119,13 @@ export function ConfirmDialog({
           <div className="col-span-2 mt-2 min-w-0 text-sm/6 text-muted sm:col-span-1 sm:col-start-2 sm:mt-0.5">{children}</div>
         </div>
         <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button variant="secondary" onClick={onClose} disabled={busy} className="min-h-11 md:min-h-10">
+          <Button variant="secondary" onClick={onClose} disabled={busy} size="touch">
             Huỷ
           </Button>
           <Button
             variant={danger ? "danger" : "primary"}
             loading={busy}
-            className="min-h-11 md:min-h-10"
+            size="touch"
             onClick={async () => {
               setBusy(true);
               try {

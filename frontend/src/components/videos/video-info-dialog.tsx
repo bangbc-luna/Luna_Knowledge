@@ -110,10 +110,10 @@ export function VideoUploadPrompt() {
       }
       footer={
         <>
-          <Button variant="secondary" onClick={skip} className="min-h-11 md:min-h-10">
+          <Button variant="secondary" onClick={skip} size="touch">
             Bỏ qua video này
           </Button>
-          <Button type="submit" variant="primary" disabled={!isComplete(form)} className="min-h-11 md:min-h-10">
+          <Button type="submit" variant="primary" disabled={!isComplete(form)} size="touch">
             Tải lên
           </Button>
         </>
@@ -178,10 +178,10 @@ export function EditVideoInfoDialog({
       onSubmit={() => void submit()}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose} className="min-h-11 md:min-h-10">
+          <Button variant="secondary" onClick={onClose} size="touch">
             Huỷ
           </Button>
-          <Button type="submit" variant="primary" loading={busy} disabled={!isComplete(form)} className="min-h-11 md:min-h-10">
+          <Button type="submit" variant="primary" loading={busy} disabled={!isComplete(form)} size="touch">
             Lưu
           </Button>
         </>

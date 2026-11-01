@@ -60,6 +60,22 @@ export function initials(nameOrEmail: string): string {
     .toUpperCase();
 }
 
+export function workspaceAbbr(name: string): string {
+  const words = name
+    .normalize("NFC")
+    .split(/\s+/)
+    .map((w) => w.replace(/[^\p{L}\p{N}]/gu, ""))
+    .filter(Boolean);
+  if (!words.length) return "?";
+  const chars = (w: string) => Array.from(w);
+  const upper = (s: string) => s.toLocaleUpperCase("vi");
+  if (words.length >= 2) return upper(words.slice(0, 2).map((w) => chars(w)[0]).join(""));
+  const only = chars(words[0]!);
+  const caps = only.filter((c) => c !== c.toLocaleLowerCase("vi") && c === upper(c));
+  if (caps.length >= 2) return caps.slice(0, 2).join("");
+  return upper(only.slice(0, 2).join(""));
+}
+
 export const ACTION_LABEL: Record<string, string> = {
   "auth.login": "Đăng nhập",
   "auth.login_failed": "Đăng nhập thất bại",

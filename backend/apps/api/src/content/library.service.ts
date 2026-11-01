@@ -3,12 +3,14 @@ import { SearchQueueService } from '../infra/queue/search-queue.service.js';
 import { Injectable } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
+import { decodeKeysetCursor, encodeKeysetCursor, type Page } from '../common/pagination/cursor.js';
 import { AppError } from '../common/errors/app-error.js';
 import type { RequestContext } from '../common/http/request-context.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { ContentAccessService } from './content-access.service.js';
-import type { CreateTagBody, UpdateTagBody } from './library.schemas.js';
+import type { CreateTagBody, RecentlyUpdatedQuery, UpdateTagBody } from './library.schemas.js';
 import { NodeDtoService } from './node-dto.service.js';
+import type { NodeDto } from './nodes.schemas.js';
 
 const tagSelect = { id: true, name: true, color: true, createdAt: true } as const;
 const RECENT_LIMIT = 50;
@@ -134,6 +136,46 @@ export class LibraryService {
       const node = dtos.get(r.id);
       return node ? [{ node, viewedAt: r.viewed_at }] : [];
     });
+  }
+
+  async recentlyUpdated(
+    user: AuthenticatedUser,
+    workspaceId: string,
+    q: RecentlyUpdatedQuery,
+  ): Promise<Page<NodeDto>> {
+    const cursor = q.cursor ? decodeKeysetCursor(q.cursor) : null;
+    const [allowed] = await this.prisma.client.$queryRaw<{ ok: number }[]>`
+      SELECT 1 AS ok FROM workspaces w
+       WHERE w.id = ${workspaceId}::uuid AND w.deleted_at IS NULL
+         AND (
+           EXISTS (SELECT 1 FROM workspace_members m
+                    WHERE m.workspace_id = w.id AND m.user_id = ${user.id}::uuid)
+           OR EXISTS (SELECT 1 FROM node_shares s JOIN nodes a ON a.id = s.node_id
+                       WHERE s.user_id = ${user.id}::uuid AND a.workspace_id = w.id
+                         AND a.deleted_at IS NULL)
+         )`;
+    if (!allowed) throw AppError.notFound('Workspace not found');
+    const cursorClause = cursor
+      ? Prisma.sql`AND (n.updated_at, n.id) < (${cursor.at}, ${cursor.id}::uuid)`
+      : Prisma.empty;
+    const rows = await this.prisma.client.$queryRaw<{ id: string; updated_at: Date }[]>`
+      SELECT n.id, n.updated_at FROM nodes n
+       WHERE n.workspace_id = ${workspaceId}::uuid AND n.section = ${q.section}::"NodeSection"
+         AND n.type <> 'FOLDER' AND n.deleted_at IS NULL AND n.status <> 'UPLOADING'
+         AND ${this.access.visibleTo(user.id)}
+         ${cursorClause}
+       ORDER BY n.updated_at DESC, n.id DESC
+       LIMIT ${q.limit + 1}`;
+    const hasMore = rows.length > q.limit;
+    const page = hasMore ? rows.slice(0, q.limit) : rows;
+    const last = page[page.length - 1];
+    return {
+      items: await this.dto.build(
+        user.id,
+        page.map((r) => r.id),
+      ),
+      nextCursor: hasMore && last ? encodeKeysetCursor(last.updated_at, last.id) : null,
+    };
   }
 
   private async reindexTagged(tagId: string) {

@@ -9,6 +9,7 @@ import {
   Patch,
   Post,
   Put,
+  Query,
   Req,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiNoContentResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -18,10 +19,13 @@ import type { AuthenticatedUser } from '../auth/auth.service.js';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { requestContext } from '../common/http/request-context.js';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
-import { ApiZodBody, ApiZodCreated, ApiZodOk } from '../common/swagger/zod-openapi.js';
+import { pageSchema } from '../common/pagination/cursor.js';
+import { ApiZodBody, ApiZodCreated, ApiZodOk, ApiZodQuery } from '../common/swagger/zod-openapi.js';
 import {
   createTagBody,
   type CreateTagBody,
+  recentlyUpdatedQuery,
+  type RecentlyUpdatedQuery,
   recentSchema,
   setNodeTagsBody,
   tagDetailSchema,
@@ -132,5 +136,18 @@ export class LibraryController {
   @ApiZodOk(z.array(recentSchema))
   recent(@CurrentUser() user: AuthenticatedUser) {
     return this.library.recent(user);
+  }
+
+  @Get('workspaces/:wsId/recently-updated')
+  @ApiTags('nodes')
+  @ApiOperation({ summary: 'Tài liệu/tệp/video mới sửa trong workspace (lọc theo quyền xem)' })
+  @ApiZodQuery(recentlyUpdatedQuery)
+  @ApiZodOk(pageSchema(nodeSchema))
+  recentlyUpdated(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('wsId', uuid()) wsId: string,
+    @Query(new ZodValidationPipe(recentlyUpdatedQuery)) query: RecentlyUpdatedQuery,
+  ) {
+    return this.library.recentlyUpdated(user, wsId, query);
   }
 }

@@ -15,6 +15,7 @@ import { subscribeSse } from "@/lib/sse";
 import type { FileDetail, Member, NodeEvent, VideoDetail } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 import { useUploads } from "@/lib/uploads";
+import { invalidateTree } from "@/lib/tree-sync";
 import { ActivitySheet } from "../content/activity-sheet";
 import { TagsDialog } from "../content/node-dialogs";
 import { NodeIcon, TagChip } from "../content/node-name";
@@ -125,6 +126,7 @@ export function FilePage() {
     try {
       const doc = await api<DocumentDetail>(`/files/${nodeId}/convert-to-document`, { method: "POST" });
       toast("success", `Đã tạo tài liệu «${doc.node.name}»`);
+      invalidateTree(wsId, [doc.node.parentId]);
       router.push(docHref(wsId, doc.node.id));
     } catch (err) {
       toast("error", describeError(err));
@@ -193,8 +195,12 @@ export function FilePage() {
       <TopBar>
         {parents.length ? (
           <>
-            <Breadcrumb items={parents} className="hidden md:flex" />
-            <Breadcrumb items={parents.slice(-1)} className="md:hidden" />
+            <div className="hidden md:block">
+              <Breadcrumb items={parents} />
+            </div>
+            <div className="md:hidden">
+              <Breadcrumb items={parents.slice(-1)} />
+            </div>
           </>
         ) : (
           <p className="text-sm text-muted">{notFound ? "Không tìm thấy tệp" : ""}</p>
@@ -284,7 +290,7 @@ export function FilePage() {
             ) : null}
 
             {isVideo ? (
-              <div className="mx-auto flex w-full max-w-[max(40rem,calc((100dvh-22rem)*16/9))] flex-col gap-5">
+              <div className="mx-auto flex w-full max-w-[max(40rem,calc((100dvh-20.75rem)*16/9))] flex-col gap-3">
                 <Card className="overflow-hidden">
                   <VideoPane detail={d} video={videoDetail.data} progress={progress} retranscoding={retranscoding} onRetranscode={canEdit ? () => void retranscode() : undefined} />
                 </Card>
@@ -334,6 +340,7 @@ export function FilePage() {
 
             {isVideo ? <EditVideoInfoDialog node={node} open={panel === "info"} onClose={() => setPanel(null)} onSaved={() => {
               toast("success", "Đã lưu thông tin video");
+              invalidateTree(wsId, [node.parentId]);
               void detail.reload();
             }} /> : null}
             <ActivitySheet node={node} open={panel === "activity"} onClose={() => setPanel(null)} />
@@ -357,6 +364,7 @@ export function FilePage() {
                 try {
                   await api(`/nodes/${node.id}`, { method: "DELETE" });
                   toast("success", `Đã chuyển «${node.name}» vào thùng rác`);
+                  invalidateTree(wsId, [node.parentId]);
                   router.push(`/w/${wsId}/${sectionPath(node.section)}${node.parentId ? `/${node.parentId}` : ""}`);
                 } catch (err) {
                   toast("error", describeError(err));

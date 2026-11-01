@@ -6,7 +6,6 @@ import { useMemo, useState, useSyncExternalStore } from "react";
 import { ApiError, api, describeError } from "@/lib/api";
 import { WS_ROLE_HINT, WS_ROLE_LABEL } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
-import { cn } from "@/lib/cn";
 import type { Member, WorkspaceKind, WorkspaceRole } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 import { useCurrentWorkspace } from "@/lib/workspace";
@@ -86,7 +85,7 @@ export function MembersToggle() {
       className="inline-flex h-10 shrink-0 cursor-pointer items-center gap-2 rounded-xl px-3 text-sm font-medium text-foreground/70 outline-hidden transition-colors hover:bg-foreground/5 hover:text-foreground aria-pressed:bg-foreground/5 aria-pressed:text-foreground"
     >
       <Users className="size-4" aria-hidden />
-      <span className="hidden sm:inline">Thành viên</span>
+      <span className="hidden xl:inline">Thành viên</span>
     </button>
   );
 }
@@ -274,8 +273,8 @@ export function MembersPanel() {
     );
   }
   return (
-    <aside aria-label="Thành viên workspace" className={cn("sticky top-0 flex h-dvh w-72 shrink-0 flex-col border-l border-border bg-surface")}>
-      <div className="flex h-16 shrink-0 items-center gap-2 border-b border-border pr-2 pl-4">
+    <aside aria-label="Thành viên workspace" className="sticky top-0 flex h-dvh w-72 shrink-0 flex-col border-l border-border bg-surface">
+      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border pr-2 pl-3">
         <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">
           Thành viên{count !== undefined ? <span className="ml-1.5 font-normal text-muted tabular-nums">{count}</span> : null}
         </h2>

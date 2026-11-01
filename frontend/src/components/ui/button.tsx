@@ -3,6 +3,7 @@
 import { LoaderCircle, type LucideIcon } from "lucide-react";
 import { forwardRef } from "react";
 import { cn } from "@/lib/cn";
+import { focusRing } from "./focus";
 
 export type ButtonVariant = "outline" | "primary" | "secondary" | "ghost" | "danger";
 
@@ -16,14 +17,23 @@ function variantClasses(variant: ButtonVariant): string {
   );
 }
 
+export type ButtonSize = "sm" | "md" | "touch";
+
+const SIZES: Record<ButtonSize, string> = {
+  sm: "min-h-8 rounded-lg px-3 py-1.5",
+  md: "min-h-10 rounded-xl px-4 py-2",
+  touch: "min-h-11 rounded-xl px-4 py-2 md:min-h-10",
+};
+
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
+  size?: ButtonSize;
   icon?: LucideIcon;
   loading?: boolean;
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  { variant = "outline", icon: Icon, loading = false, className, children, onClick, type = "button", ...rest },
+  { variant = "outline", size = "md", icon: Icon, loading = false, className, children, onClick, type = "button", ...rest },
   ref,
 ) {
   return (
@@ -37,8 +47,10 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
         else onClick?.(event);
       }}
       className={cn(
-        "inline-flex min-h-10 max-w-full cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-2 text-center text-sm leading-tight font-medium [overflow-wrap:anywhere] outline-hidden transition-colors",
+        "inline-flex max-w-full cursor-pointer items-center justify-center gap-2 text-center text-sm leading-tight font-medium [overflow-wrap:anywhere] transition-colors",
+        focusRing,
         "disabled:cursor-not-allowed disabled:not-aria-busy:opacity-50 aria-busy:cursor-progress",
+        SIZES[size],
         variantClasses(variant),
         className,
       )}
@@ -54,10 +66,18 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   );
 });
 
+export type IconButtonSize = "compact" | "md" | "touch";
+
+export const ICON_BUTTON_SIZES: Record<IconButtonSize, string> = {
+  compact: "size-6 min-h-6 rounded-md",
+  md: "size-8 min-h-8 rounded-lg",
+  touch: "size-8 min-h-8 rounded-lg max-sm:size-10 max-sm:min-h-10",
+};
+
 export const IconButton = forwardRef<
   HTMLButtonElement,
-  React.ButtonHTMLAttributes<HTMLButtonElement> & { icon: LucideIcon; label: string }
->(function IconButton({ icon: Icon, label, className, type = "button", ...rest }, ref) {
+  React.ButtonHTMLAttributes<HTMLButtonElement> & { icon: LucideIcon; label: string; size?: IconButtonSize }
+>(function IconButton({ icon: Icon, label, size = "md", className, type = "button", ...rest }, ref) {
   return (
     <button
       ref={ref}
@@ -65,7 +85,9 @@ export const IconButton = forwardRef<
       aria-label={label}
       title={label}
       className={cn(
-        "inline-flex size-8 min-h-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted outline-hidden transition-colors hover:bg-foreground/8 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 aria-expanded:bg-foreground/8",
+        "inline-flex shrink-0 cursor-pointer items-center justify-center text-muted transition-colors hover:bg-foreground/8 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 aria-expanded:bg-foreground/8",
+        ICON_BUTTON_SIZES[size],
+        focusRing,
         className,
       )}
       {...rest}

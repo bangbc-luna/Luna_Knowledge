@@ -105,7 +105,7 @@ function LoginInner() {
                 }}
               >
                 <Input type="email" placeholder="email khác @lunatech.vn" aria-label="Email khác" value={email} onChange={(e) => setEmail(e.target.value)} className="sm:flex-1" />
-                <Button type="submit" variant="secondary" loading={!!busy && busy === email.trim()} className="min-h-11 shrink-0 md:min-h-10">
+                <Button type="submit" variant="secondary" loading={!!busy && busy === email.trim()} size="touch" className="shrink-0">
                   Vào
                 </Button>
               </form>

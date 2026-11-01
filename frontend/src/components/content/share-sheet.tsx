@@ -82,7 +82,7 @@ export function ShareSheet({ node, onClose, memberEmails }: { node: NodeItem | n
           <Input id="share-email" type="email" placeholder="ten@lunatech.vn" value={email} onChange={(e) => setEmail(e.target.value)} invalid={!!error} className="sm:flex-1" />
           <div className="flex gap-2">
             <Select value={role} options={SHARE_ROLES} onChange={setRole} ariaLabel="Quyền" className="w-32" align="right" />
-            <Button type="submit" variant="primary" loading={busy} className="min-h-11 md:min-h-10">
+            <Button type="submit" variant="primary" loading={busy} size="touch">
               Chia sẻ
             </Button>
           </div>

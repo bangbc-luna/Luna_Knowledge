@@ -89,7 +89,7 @@ function VersionDetail({ nodeId, version, canRestore, onBack, onRestored }: { no
   return (
     <div className="flex min-h-full flex-col">
       <div className="sticky top-0 z-10 border-b border-border bg-surface px-6 pt-3 pb-3">
-        <Button variant="ghost" icon={ArrowLeft} className="-ml-3 min-h-8 rounded-lg px-3" onClick={onBack}>
+        <Button variant="ghost" icon={ArrowLeft} size="sm" className="-ml-3" onClick={onBack}>
           Tất cả phiên bản
         </Button>
         <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center">

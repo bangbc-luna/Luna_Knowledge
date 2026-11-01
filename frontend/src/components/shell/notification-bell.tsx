@@ -103,7 +103,7 @@ export function NotificationBell() {
       >
         <Icon className={cn("size-5", unread && "[&_circle]:fill-current")} aria-hidden />
       </button>
-      <PopoverPanel open={open} align="right" className="mt-3 w-96 max-w-[calc(100vw-2rem)] py-0">
+      <PopoverPanel open={open} align="right" offset="lg" padded={false} className="w-96 max-w-[calc(100vw-2rem)]">
         <div role="dialog" aria-label="Thông báo">
           <div className="flex items-center gap-2 pt-3 pr-1 pl-4">
             <h2 className="flex-1 text-sm font-semibold">Thông báo</h2>

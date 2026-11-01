@@ -45,7 +45,7 @@ export function SearchTrigger() {
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Tìm kiếm"
-        className="hidden h-10 w-64 shrink-0 cursor-pointer items-center gap-2.5 rounded-xl border border-border-strong bg-surface px-3 text-left text-sm text-muted outline-hidden transition-colors hover:border-foreground/20 focus-visible:border-focus lg:flex xl:w-80"
+        className="hidden h-10 w-72 shrink-0 cursor-pointer items-center gap-2.5 rounded-xl border border-border-strong bg-surface px-3 text-left text-sm text-muted outline-hidden transition-colors hover:border-foreground/20 focus-visible:border-focus xl:flex 2xl:w-80"
       >
         <Search className="size-4 shrink-0" aria-hidden />
         <span className="min-w-0 flex-1 truncate">Tìm tài liệu, tệp, video…</span>
@@ -55,7 +55,7 @@ export function SearchTrigger() {
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Tìm kiếm"
-        className="inline-flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-xl text-foreground/70 outline-hidden hover:bg-foreground/5 hover:text-foreground lg:hidden"
+        className="inline-flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-xl text-foreground/70 outline-hidden hover:bg-foreground/5 hover:text-foreground xl:hidden"
       >
         <Search className="size-5" aria-hidden />
       </button>
