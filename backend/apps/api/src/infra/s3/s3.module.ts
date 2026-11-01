@@ -2,8 +2,6 @@ import { ObjectStore } from '@luna/shared';
 import { Global, Module, type OnModuleDestroy } from '@nestjs/common';
 import { APP_CONFIG, type AppConfig } from '../../config/app-config.js';
 
-export const PREVIEW_URL = { expiresInSec: 600, cacheControl: 'private, max-age=600' } as const;
-
 @Global()
 @Module({
   providers: [

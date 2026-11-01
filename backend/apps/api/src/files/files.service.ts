@@ -14,7 +14,7 @@ import { ContentAccessService, AS_FILE } from '../content/content-access.service
 import { NodeDtoService } from '../content/node-dto.service.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { REDIS } from '../infra/redis/redis.module.js';
-import { PREVIEW_URL } from '../infra/s3/s3.module.js';
+import { PREVIEW_URL } from '../infra/s3/storage-urls.js';
 import type { FileVersionDto } from './files.schemas.js';
 import { NodeEventsService } from './node-events.service.js';
 import { TranscodeQueueService } from './transcode-queue.service.js';
@@ -99,6 +99,7 @@ export class FilesService {
         workspace_name: string;
         member_role: string | null;
         share_role: string | null;
+        user_active: boolean | null;
       }[]
     >(Prisma.sql`
       SELECT * FROM (

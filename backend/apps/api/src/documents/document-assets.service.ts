@@ -5,7 +5,7 @@ import { Injectable } from '@nestjs/common';
 import { fileTypeFromBuffer } from 'file-type';
 import { AppError } from '../common/errors/app-error.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
-import { PREVIEW_URL } from '../infra/s3/s3.module.js';
+import { PREVIEW_URL } from '../infra/s3/storage-urls.js';
 
 const MAX_ASSET_BYTES = 20 * 1024 * 1024;
 export const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';

@@ -12,7 +12,7 @@ import { NodeEventsService } from '../files/node-events.service.js';
 import { TranscodeQueueService } from '../files/transcode-queue.service.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { REDIS } from '../infra/redis/redis.module.js';
-import { PREVIEW_URL } from '../infra/s3/s3.module.js';
+import { PREVIEW_URL } from '../infra/s3/storage-urls.js';
 import { HlsSessions } from './hls-sessions.service.js';
 
 const VIEW_DEDUPE_SEC = 30 * 60;
