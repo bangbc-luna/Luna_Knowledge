@@ -13,6 +13,7 @@ const nextConfig: NextConfig = {
         headers: securityHeaders({
           mediaOrigin: process.env.MEDIA_ORIGIN,
           collabOrigin: process.env.COLLAB_ORIGIN,
+          liveKitOrigin: process.env.LIVEKIT_ORIGIN,
           isDev: process.env.NODE_ENV === "development",
         }),
       },

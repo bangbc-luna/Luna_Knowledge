@@ -29,6 +29,9 @@ export type AppNotification = Omit<NotificationGen, "payload"> & {
     snippet?: string;
     role?: string;
     error?: string;
+    meetingId?: string;
+    title?: string;
+    scheduledAt?: string | null;
   };
 };
 

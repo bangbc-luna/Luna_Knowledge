@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import { type AppNotification, docHref } from "@/lib/documents";
 import { formatWhen } from "@/lib/format";
+import { meetingHref } from "@/lib/meetings";
 import { subscribeSse } from "@/lib/sse";
 import type { Page } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
@@ -21,6 +22,8 @@ function describe(n: AppNotification): { actor: string | null; text: React.React
   const p = n.payload;
   const name = <span className="font-medium text-foreground">{p.nodeName ?? "một mục"}</span>;
   const by = p.byName ?? null;
+  const meeting = <span className="font-medium text-foreground">{p.title ?? "không tên"}</span>;
+  const when = p.scheduledAt ? formatWhen(p.scheduledAt, { withTime: true }) : undefined;
   switch (n.type) {
     case "comment.mention":
       return { actor: by, text: <><span className="font-medium text-foreground">{by}</span> đã nhắc đến bạn trong {name}</>, snippet: p.snippet };
@@ -32,6 +35,12 @@ function describe(n: AppNotification): { actor: string | null; text: React.React
       return { actor: null, text: <>Video {name} đã xử lý xong, xem được rồi</> };
     case "video.failed":
       return { actor: null, text: <>Video {name} xử lý không thành công</>, snippet: p.error };
+    case "meeting.invited":
+      return { actor: by, text: <><span className="font-medium text-foreground">{by}</span> đã mời bạn tham gia cuộc họp {meeting}</>, snippet: when };
+    case "meeting.reminder":
+      return { actor: null, text: <>Cuộc họp {meeting} sắp bắt đầu</>, snippet: when };
+    case "meeting.cancelled":
+      return { actor: by, text: <>Cuộc họp {meeting} đã bị hủy</>, snippet: when };
     default:
       return { actor: by, text: name };
   }
@@ -39,6 +48,7 @@ function describe(n: AppNotification): { actor: string | null; text: React.React
 
 function hrefOf(n: AppNotification): string | null {
   const p = n.payload;
+  if (n.type.startsWith("meeting.")) return p.meetingId && p.workspaceId ? meetingHref(p.workspaceId, p.meetingId) : null;
   if (!p.nodeId || !p.workspaceId) return null;
   if (n.type.startsWith("comment.")) return `${docHref(p.workspaceId, p.nodeId)}${p.threadId ? `?thread=${p.threadId}` : ""}`;
   if (n.type.startsWith("video.")) return `/w/${p.workspaceId}/file/${p.nodeId}`;

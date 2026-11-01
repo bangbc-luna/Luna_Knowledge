@@ -8,7 +8,8 @@
     "start": "next start -p 5173 -H 127.0.0.1",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "check:headers": "node scripts/check-security-headers.mjs"
+    "check:headers": "node scripts/check-security-headers.mjs",
+    "test": "node --test scripts/linkify.test.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "6.11.1",
@@ -19,6 +20,8 @@
     "@floating-ui/dom": "^1.8.0",
     "@hocuspocus/provider": "4.7.1",
     "@lezer/highlight": "1.2.5",
+    "@livekit/components-react": "2.9.24",
+    "@livekit/components-styles": "1.2.0",
     "@tiptap/core": "3.31.4",
     "@tiptap/extension-collaboration": "3.31.4",
     "@tiptap/extension-collaboration-caret": "3.31.4",
@@ -37,6 +40,7 @@
     "dompurify": "3.4.17",
     "hls.js": "1.7.2",
     "katex": "0.19.0",
+    "livekit-client": "2.23.0",
     "lucide-react": "^1.59.0",
     "next": "16.4.2",
     "pdfjs-dist": "6.4.299",

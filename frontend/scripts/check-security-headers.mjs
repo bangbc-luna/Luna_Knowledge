@@ -1,6 +1,7 @@
 const url = process.env.CHECK_URL ?? "http://127.0.0.1:5173/login";
 const media = process.env.MEDIA_ORIGIN;
 const collab = process.env.COLLAB_ORIGIN;
+const liveKit = process.env.LIVEKIT_ORIGIN;
 const errors = [];
 
 const res = await fetch(url);
@@ -18,6 +19,18 @@ if (media) {
   }
 }
 if (collab && !directive("connect-src").split(" ").includes(collab)) errors.push(`CSP connect-src missing ${collab}`);
+if (liveKit) {
+  const host = new URL(liveKit).host;
+  const connect = directive("connect-src").split(" ");
+  for (const needle of [`wss://${host}`, `https://${host}`]) {
+    if (!connect.includes(needle)) errors.push(`CSP connect-src missing ${needle}`);
+  }
+  if (host.endsWith(".livekit.cloud")) {
+    for (const needle of ["wss://*.livekit.cloud", "https://*.livekit.cloud"]) {
+      if (!connect.includes(needle)) errors.push(`CSP connect-src missing ${needle}`);
+    }
+  }
+}
 if (csp.includes("'unsafe-eval'")) errors.push("CSP contains 'unsafe-eval'");
 
 if (res.headers.get("x-content-type-options") !== "nosniff") errors.push("x-content-type-options is not nosniff");
