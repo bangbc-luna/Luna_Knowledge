@@ -11,7 +11,7 @@
     "test": "vitest run",
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
     "test:coverage": "vitest run --config ./vitest.config.coverage.ts",
-    "openapi:types": "node dist/openapi/export.js --write",
+    "openapi:types": "nest build && node dist/openapi/export.js --write",
     "openapi:check": "node dist/openapi/export.js --check"
   },
   "dependencies": {

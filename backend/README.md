@@ -67,6 +67,8 @@ pnpm test:http   # chạy các file tests/*.http (httpYac) với API dev đang c
 pnpm test:flows  # chạy tests/flows.http: các luồng nghiệp vụ chính từ đầu tới cuối, dùng để trình bày API
 ```
 
+Sau khi đổi zod schema của request/response, chạy `pnpm --filter @luna/api openapi:types` (tự build trước) rồi commit `frontend/src/lib/api-schema.ts`; nếu không, bước `openapi:check` trong CI sẽ fail.
+
 ## Docker image
 
 ```bash
