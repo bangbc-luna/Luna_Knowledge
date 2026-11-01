@@ -47,7 +47,8 @@ import {
   versionDetailSchema,
   versionSummarySchema,
 } from './documents.schemas.js';
-import { DocumentsService, type UploadedAsset } from './documents.service.js';
+import { type UploadedAsset } from './document-assets.service.js';
+import { DocumentsService } from './documents.service.js';
 import { VersionsService } from './versions.service.js';
 
 const uuid = () => new ParseUUIDPipe();

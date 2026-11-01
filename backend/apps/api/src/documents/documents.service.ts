@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { SearchQueueService } from '../infra/queue/search-queue.service.js';
 import {
   type DocJSON,
@@ -16,7 +15,6 @@ import {
 } from '@luna/editor';
 import { COLLAB_TOKEN_AUDIENCE, collabDocumentName, ObjectStore } from '@luna/shared';
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { fileTypeFromBuffer } from 'file-type';
 import { SignJWT } from 'jose';
 import mammoth from 'mammoth';
 import { AuditService } from '../audit/audit.service.js';
@@ -33,7 +31,12 @@ import { NodeDtoService } from '../content/node-dto.service.js';
 import { nameKey, suggestName } from '../content/node-names.js';
 import { NodesService } from '../content/nodes.service.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
-import { PREVIEW_URL } from '../infra/s3/s3.module.js';
+import {
+  DOCX_MIME,
+  DocumentAssets,
+  remapAssets,
+  type UploadedAsset,
+} from './document-assets.service.js';
 import { CollabClient } from './collab-client.service.js';
 import {
   DOCX_IMPORT_MAX_BYTES,
@@ -44,25 +47,6 @@ import type { CopyDocumentBody, CreateDocumentBody } from './documents.schemas.j
 
 const userSummary = { id: true, email: true, name: true, avatarUrl: true } as const;
 const COLLAB_TOKEN_TTL_SEC = 300;
-const MAX_ASSET_BYTES = 20 * 1024 * 1024;
-const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-const ASSET_MIMES = new Set([
-  'image/png',
-  'image/jpeg',
-  'image/webp',
-  'image/gif',
-  'application/pdf',
-  DOCX_MIME,
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-]);
-
-export interface UploadedAsset {
-  originalname: string;
-  buffer: Buffer;
-  size: number;
-}
-
 @Injectable()
 export class DocumentsService {
   private readonly logger = new Logger(DocumentsService.name);
@@ -73,6 +57,7 @@ export class DocumentsService {
     private readonly nodes: NodesService,
     private readonly dto: NodeDtoService,
     private readonly store: ObjectStore,
+    private readonly assets: DocumentAssets,
     private readonly audit: AuditService,
     private readonly search: SearchQueueService,
     private readonly collab: CollabClient,
@@ -132,7 +117,7 @@ export class DocumentsService {
       isLatexJSON(json) ? latexJSON('') : emptyDoc(),
     );
     try {
-      const assetIds = await this.copyAssets(user.id, source.id, copyId);
+      const assetIds = await this.assets.copyAll(user.id, source.id, copyId);
       await this.writeContent(copyId, remapAssets(json, assetIds));
     } catch (err) {
       await this.prisma.client.node.delete({ where: { id: copyId } }).catch(() => undefined);
@@ -197,7 +182,7 @@ export class DocumentsService {
   ) {
     const node = await this.access.requireNode(user, nodeId, 'VIEWER', AS_DOCUMENT);
     const doc = await this.prisma.client.document.findUnique({ where: { nodeId } });
-    const json = await this.withFreshAssetUrls(
+    const json = await this.assets.withFreshUrls(
       nodeId,
       (doc?.contentJson as DocJSON | null) ?? emptyDoc(),
     );
@@ -233,33 +218,12 @@ export class DocumentsService {
 
   async uploadAsset(user: AuthenticatedUser, nodeId: string, file: UploadedAsset | undefined) {
     await this.access.requireNode(user, nodeId, 'EDITOR', AS_DOCUMENT);
-    if (!file?.buffer?.length) throw AppError.validation('Attach a file in the "file" field');
-    if (file.size > MAX_ASSET_BYTES)
-      throw AppError.tooLarge('Embedded files are limited to 20 MB', { maxBytes: MAX_ASSET_BYTES });
-    const detected = await fileTypeFromBuffer(file.buffer);
-    if (!detected || !ASSET_MIMES.has(detected.mime)) {
-      throw AppError.unsupportedType(
-        'Only images (PNG, JPEG, WebP, GIF), PDF and Office files can be embedded',
-      );
-    }
-    const asset = await this.storeAsset(
-      user.id,
-      nodeId,
-      file.originalname.normalize('NFC'),
-      file.buffer,
-      detected.mime,
-    );
-    return this.assetDto(asset);
+    return this.assets.upload(user.id, nodeId, file);
   }
 
   async listAssets(user: AuthenticatedUser, nodeId: string) {
     await this.access.requireNode(user, nodeId, 'VIEWER', AS_DOCUMENT);
-    const assets = await this.prisma.client.documentAsset.findMany({
-      where: { nodeId },
-      include: { blob: true },
-      orderBy: { createdAt: 'asc' },
-    });
-    return Promise.all(assets.map((a) => this.assetDto(a)));
+    return this.assets.list(nodeId);
   }
 
   async importDocx(user: AuthenticatedUser, fileNodeId: string, ctx: RequestContext) {
@@ -312,25 +276,7 @@ export class DocumentsService {
       const result = await mammoth.convertToHtml(
         { buffer },
         {
-          convertImage: mammoth.images.imgElement(async (image) => {
-            const data = Buffer.from(await image.readAsBase64String(), 'base64');
-            const mime = (await fileTypeFromBuffer(data))?.mime ?? image.contentType;
-            if (
-              !ASSET_MIMES.has(mime) ||
-              !mime.startsWith('image/') ||
-              data.length > MAX_ASSET_BYTES
-            )
-              return { src: '' };
-            const asset = await this.storeAsset(
-              user.id,
-              nodeId,
-              `image-${randomUUID().slice(0, 8)}`,
-              data,
-              mime,
-            );
-            const url = (await this.assetDto(asset)).url;
-            return { src: url, 'data-asset-id': asset.id } as { src: string };
-          }),
+          convertImage: mammoth.images.imgElement(this.assets.docxImage(user.id, nodeId)),
         },
       );
       const json = htmlToJSON(result.value);
@@ -370,7 +316,7 @@ export class DocumentsService {
     return {
       node,
       format: doc?.format ?? 'RICH',
-      contentJson: await this.withFreshAssetUrls(
+      contentJson: await this.assets.withFreshUrls(
         nodeId,
         (doc?.contentJson as DocJSON | null) ?? emptyDoc(),
       ),
@@ -422,42 +368,6 @@ export class DocumentsService {
     return (doc?.contentJson as DocJSON | null) ?? emptyDoc();
   }
 
-  private async copyAssets(userId: string, fromNodeId: string, toNodeId: string) {
-    const assets = await this.prisma.client.documentAsset.findMany({
-      where: { nodeId: fromNodeId },
-      include: { blob: true },
-    });
-    const copied = await Promise.all(
-      assets.map(async (a) => {
-        const id = randomUUID();
-        const key = `docs/${toNodeId}/${id}`;
-        const blob = await this.prisma.client.blob.create({
-          data: {
-            nodeId: toNodeId,
-            kind: 'ASSET',
-            provider: 'S3',
-            container: this.store.buckets.assets,
-            key,
-            sizeBytes: a.blob.sizeBytes,
-            mime: a.blob.mime,
-          },
-        });
-        await this.store.copy(a.blob, 'assets', key);
-        return { from: a.id, id, blobId: blob.id, fileName: a.fileName };
-      }),
-    );
-    await this.prisma.client.documentAsset.createMany({
-      data: copied.map((c) => ({
-        id: c.id,
-        nodeId: toNodeId,
-        blobId: c.blobId,
-        fileName: c.fileName,
-        createdById: userId,
-      })),
-    });
-    return new Map(copied.map((c) => [c.from, c.id]));
-  }
-
   private async writeContent(nodeId: string, json: DocJSON) {
     await this.prisma.client.document.update({ where: { nodeId }, data: this.contentFields(json) });
   }
@@ -471,96 +381,6 @@ export class DocumentsService {
       wordCount: wordCount(text),
     };
   }
-
-  private async storeAsset(
-    userId: string,
-    nodeId: string,
-    fileName: string,
-    data: Buffer,
-    mime: string,
-  ) {
-    const id = randomUUID();
-    const key = `docs/${nodeId}/${id}`;
-    const stored = await this.store.putBuffer('assets', key, data, mime);
-    const blob = await this.prisma.client.blob.create({
-      data: {
-        nodeId,
-        kind: 'ASSET',
-        ...stored,
-        sizeBytes: BigInt(data.length),
-        mime,
-      },
-    });
-    return this.prisma.client.documentAsset.create({
-      data: { id, nodeId, blobId: blob.id, fileName, createdById: userId },
-      include: { blob: true },
-    });
-  }
-
-  private async assetDto(a: {
-    id: string;
-    fileName: string;
-    blob: {
-      provider: 'S3' | 'GDRIVE';
-      container: string;
-      key: string;
-      mime: string;
-      sizeBytes: bigint;
-    };
-  }) {
-    const isImage = a.blob.mime.startsWith('image/');
-    const { url } = await this.store.presignGet(a.blob, {
-      ...PREVIEW_URL,
-      contentType: a.blob.mime,
-      disposition: { type: isImage ? 'inline' : 'attachment', fileName: a.fileName },
-    });
-    return {
-      id: a.id,
-      fileName: a.fileName,
-      mime: a.blob.mime,
-      size: Number(a.blob.sizeBytes),
-      url,
-      isImage,
-    };
-  }
-
-  private async withFreshAssetUrls(nodeId: string, json: DocJSON): Promise<DocJSON> {
-    const ids = new Set<string>();
-    const walk = (n: DocJSON) => {
-      if (n.type === 'image' && typeof n.attrs?.assetId === 'string') ids.add(n.attrs.assetId);
-      n.content?.forEach(walk);
-    };
-    walk(json);
-    if (!ids.size) return json;
-    const assets = await this.prisma.client.documentAsset.findMany({
-      where: { nodeId, id: { in: [...ids] } },
-      include: { blob: true },
-    });
-    const urls = new Map(
-      await Promise.all(assets.map(async (a) => [a.id, (await this.assetDto(a)).url] as const)),
-    );
-    const map = (n: DocJSON): DocJSON => ({
-      ...n,
-      ...(n.type === 'image' && urls.has(n.attrs?.assetId as string)
-        ? { attrs: { ...n.attrs, src: urls.get(n.attrs!.assetId as string) } }
-        : {}),
-      ...(n.content ? { content: n.content.map(map) } : {}),
-    });
-    return map(json);
-  }
-}
-
-function remapAssets(json: DocJSON, ids: Map<string, string>): DocJSON {
-  const assetId = json.attrs?.assetId;
-  const marks = json.marks?.filter((m) => m.type !== 'comment');
-  return {
-    ...json,
-    ...(json.marks ? { marks: marks?.length ? marks : undefined } : {}),
-    ...(json.type === 'image' && typeof assetId === 'string'
-      ? { attrs: { ...json.attrs, assetId: ids.get(assetId) ?? null } }
-      : {}),
-    ...(json.content ? { content: json.content.map((c) => remapAssets(c, ids)) } : {}),
-  };
 }
 
 function escapeHtml(s: string) {
