@@ -35,6 +35,10 @@ export function setupApp(app: INestApplication, config: AppConfig) {
       crossOriginEmbedderPolicy: false,
     }),
   );
+  (app as NestExpressApplication).useBodyParser('raw', {
+    type: 'application/webhook+json',
+    limit: '64kb',
+  });
   (app as NestExpressApplication).useBodyParser('json', { limit: config.BODY_LIMIT });
   (app as NestExpressApplication).useBodyParser('urlencoded', {
     limit: config.BODY_LIMIT,

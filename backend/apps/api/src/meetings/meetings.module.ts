@@ -5,12 +5,13 @@ import { ContentModule } from '../content/content.module.js';
 import { UsersModule } from '../users/users.module.js';
 import { MeetingAccess } from './meeting-access.service.js';
 import { MeetingRoomService } from './meeting-room.service.js';
+import { MeetingWebhookController } from './meeting-webhook.controller.js';
 import { MeetingsController } from './meetings.controller.js';
 import { MeetingsService } from './meetings.service.js';
 
 @Module({
   imports: [ContentModule, UsersModule],
-  controllers: [MeetingsController],
+  controllers: [MeetingsController, MeetingWebhookController],
   providers: [
     MeetingAccess,
     MeetingsService,

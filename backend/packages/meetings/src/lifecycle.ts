@@ -87,9 +87,10 @@ export async function closeAttendance(
   meetingId: string,
   userId: string,
   at: Date,
-): Promise<void> {
-  await db.meetingAttendance.updateMany({
-    where: { meetingId, userId, leftAt: null },
+): Promise<boolean> {
+  const { count } = await db.meetingAttendance.updateMany({
+    where: { meetingId, userId, leftAt: null, joinedAt: { lte: at } },
     data: { leftAt: at },
   });
+  return count > 0;
 }
