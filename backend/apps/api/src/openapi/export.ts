@@ -3,11 +3,25 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from '../app.module.js';
-import { buildOpenApiDocument } from '../common/swagger/openapi-document.js';
-import { loadAppConfig } from '../config/app-config.js';
-import { applyGlobalPrefix } from '../setup-app.js';
 import { renderTypes } from './render-types.js';
+
+const placeholderSecrets: Record<string, string> = {
+  VIDEO_MASTER_KEY: Buffer.alloc(32, 1).toString('base64'),
+  COLLAB_TOKEN_SECRET: 'openapi-export-placeholder-collab-token-secret',
+  COLLAB_INTERNAL_SECRET: 'openapi-export-placeholder-collab-internal-secret',
+  JWT_ACCESS_SECRET: 'openapi-export-placeholder-jwt-access-secret',
+  GOOGLE_CLIENT_ID: 'openapi-export-placeholder-client-id',
+  GOOGLE_CLIENT_SECRET: 'openapi-export-placeholder-client-secret',
+};
+
+for (const [key, value] of Object.entries(placeholderSecrets)) {
+  if (!process.env[key]) process.env[key] = value;
+}
+
+const { AppModule } = await import('../app.module.js');
+const { buildOpenApiDocument } = await import('../common/swagger/openapi-document.js');
+const { loadAppConfig } = await import('../config/app-config.js');
+const { applyGlobalPrefix } = await import('../setup-app.js');
 
 const target = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
