@@ -10,7 +10,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
-    "test:coverage": "vitest run --config ./vitest.config.coverage.ts"
+    "test:coverage": "vitest run --config ./vitest.config.coverage.ts",
+    "openapi:types": "node dist/openapi/export.js --write",
+    "openapi:check": "node dist/openapi/export.js --check"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1150.0",
@@ -60,6 +62,7 @@
     "@types/supertest": "^7",
     "@vitest/coverage-v8": "4.1.11",
     "jszip": "3.10.2",
+    "openapi-typescript": "7.13.0",
     "pg": "^8.16.3",
     "pino-pretty": "^13",
     "supertest": "^7",

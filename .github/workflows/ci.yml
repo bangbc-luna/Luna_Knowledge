@@ -34,6 +34,7 @@ jobs:
       - run: pnpm lint
       - run: pnpm format:check
       - run: pnpm build
+      - run: pnpm --filter @luna/api openapi:check
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm test:e2e

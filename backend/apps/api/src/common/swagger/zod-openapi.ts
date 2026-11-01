@@ -9,6 +9,12 @@ export function toOpenApi(schema: z.ZodType, io: 'input' | 'output' = 'output'):
     target: 'openapi-3.0',
     io,
     unrepresentable: 'any',
+    override: (ctx) => {
+      if (ctx.zodSchema._zod.def.type === 'date') {
+        ctx.jsonSchema.type = 'string';
+        ctx.jsonSchema.format = 'date-time';
+      }
+    },
   }) as JsonSchema;
   return json;
 }
