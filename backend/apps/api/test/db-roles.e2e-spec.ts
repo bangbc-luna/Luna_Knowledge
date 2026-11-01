@@ -151,4 +151,14 @@ describe('Non-owner app database role (e2e)', () => {
       await owner.$executeRawUnsafe('DROP TABLE e2e_default_priv');
     }
   });
+
+  it('luna_app có SELECT/INSERT/UPDATE/DELETE trên 4 bảng buổi họp', async () => {
+    const { rows } = await app.query<{ tbl: string; priv: string; ok: boolean }>(
+      `SELECT t AS tbl, p AS priv, has_table_privilege(current_user, t, p) AS ok
+         FROM unnest(ARRAY['meetings','meeting_invites','meeting_attendances','meeting_chat_messages']) t,
+              unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE']) p`,
+    );
+    expect(rows).toHaveLength(16);
+    expect(rows.filter((r) => !r.ok)).toEqual([]);
+  });
 });

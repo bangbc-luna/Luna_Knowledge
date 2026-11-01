@@ -82,27 +82,32 @@ model User {
   createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt     DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  sessions          Session[]
-  memberships       WorkspaceMember[] @relation("member")
-  addedMemberships  WorkspaceMember[] @relation("addedBy")
-  createdWorkspaces Workspace[]
-  createdNodes      Node[]            @relation("nodeCreatedBy")
-  updatedNodes      Node[]            @relation("nodeUpdatedBy")
-  deletedNodes      Node[]            @relation("nodeDeletedBy")
-  shares            NodeShare[]       @relation("shareUser")
-  grantedShares     NodeShare[]       @relation("shareGrantedBy")
-  favorites         Favorite[]
-  recentViews       RecentView[]
-  fileVersions      FileVersion[]
-  uploadSessions    UploadSession[]
-  videoWatches      VideoWatch[]
-  docVersions       DocumentVersion[]
-  threadsCreated    CommentThread[]   @relation("threadCreatedBy")
-  threadsResolved   CommentThread[]   @relation("threadResolvedBy")
-  comments          Comment[]
-  notifications     Notification[]
-  documentAssets    DocumentAsset[]
-  editedDocuments   Document[]        @relation("documentLastEditor")
+  sessions           Session[]
+  memberships        WorkspaceMember[]    @relation("member")
+  addedMemberships   WorkspaceMember[]    @relation("addedBy")
+  createdWorkspaces  Workspace[]
+  createdNodes       Node[]               @relation("nodeCreatedBy")
+  updatedNodes       Node[]               @relation("nodeUpdatedBy")
+  deletedNodes       Node[]               @relation("nodeDeletedBy")
+  shares             NodeShare[]          @relation("shareUser")
+  grantedShares      NodeShare[]          @relation("shareGrantedBy")
+  favorites          Favorite[]
+  recentViews        RecentView[]
+  fileVersions       FileVersion[]
+  uploadSessions     UploadSession[]
+  videoWatches       VideoWatch[]
+  docVersions        DocumentVersion[]
+  threadsCreated     CommentThread[]      @relation("threadCreatedBy")
+  threadsResolved    CommentThread[]      @relation("threadResolvedBy")
+  comments           Comment[]
+  notifications      Notification[]
+  documentAssets     DocumentAsset[]
+  editedDocuments    Document[]           @relation("documentLastEditor")
+  meetingsCreated    Meeting[]            @relation("meetingCreatedBy")
+  meetingInvites     MeetingInvite[]      @relation("meetingInvitee")
+  meetingInvitesMade MeetingInvite[]      @relation("meetingInviter")
+  meetingAttendances MeetingAttendance[]
+  meetingChats       MeetingChatMessage[]
 
   @@map("users")
 }
@@ -154,6 +159,7 @@ model Workspace {
   members   WorkspaceMember[]
   nodes     Node[]
   tags      Tag[]
+  meetings  Meeting[]
 
   @@unique([kind], map: "workspaces_single_company", where: raw("kind = 'COMPANY' AND deleted_at IS NULL"))
   @@map("workspaces")
@@ -582,4 +588,81 @@ model DocumentAsset {
 
   @@index([nodeId])
   @@map("document_assets")
+}
+
+enum MeetingStatus {
+  SCHEDULED
+  LIVE
+  ENDED
+  CANCELLED
+}
+
+model Meeting {
+  id             String        @id @default(uuid(7)) @db.Uuid
+  workspaceId    String        @map("workspace_id") @db.Uuid
+  title          String
+  status         MeetingStatus @default(SCHEDULED)
+  scheduledAt    DateTime?     @map("scheduled_at") @db.Timestamptz(3)
+  startedAt      DateTime?     @map("started_at") @db.Timestamptz(3)
+  endedAt        DateTime?     @map("ended_at") @db.Timestamptz(3)
+  endReason      String?       @map("end_reason")
+  aiNotesEnabled Boolean       @default(true) @map("ai_notes_enabled")
+  createdById    String        @map("created_by") @db.Uuid
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  workspace   Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy   User                 @relation("meetingCreatedBy", fields: [createdById], references: [id])
+  invites     MeetingInvite[]
+  attendances MeetingAttendance[]
+  chats       MeetingChatMessage[]
+
+  @@index([workspaceId, status, scheduledAt])
+  @@index([workspaceId, createdAt(sort: Desc)])
+  @@index([status], map: "meetings_live_idx", where: raw("status = 'LIVE'"))
+  @@map("meetings")
+}
+
+model MeetingInvite {
+  meetingId   String   @map("meeting_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  invitedById String?  @map("invited_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user      User    @relation("meetingInvitee", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy User?   @relation("meetingInviter", fields: [invitedById], references: [id], onDelete: SetNull)
+
+  @@id([meetingId, userId])
+  @@index([userId])
+  @@map("meeting_invites")
+}
+
+model MeetingAttendance {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  meetingId String    @map("meeting_id") @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  joinedAt  DateTime  @map("joined_at") @db.Timestamptz(3)
+  leftAt    DateTime? @map("left_at") @db.Timestamptz(3)
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([meetingId, userId], map: "meeting_attendances_one_open", where: raw("left_at IS NULL"))
+  @@index([meetingId, userId])
+  @@map("meeting_attendances")
+}
+
+model MeetingChatMessage {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  meetingId String   @map("meeting_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  body      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId, createdAt])
+  @@map("meeting_chat_messages")
 }

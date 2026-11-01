@@ -220,4 +220,64 @@ describe('Database integrity (e2e)', () => {
       ctx.prisma.$executeRaw`UPDATE nodes SET deleted_root_id = id WHERE id = ${node.id}::uuid`,
     ).rejects.toThrow(/nodes_trash_consistent/);
   });
+
+  it('meetings: CHECK chặn tiêu đề rỗng, kết thúc trước khi bắt đầu, lịch thiếu giờ, chat quá 2000 ký tự', async () => {
+    const make = (data: Record<string, unknown>) =>
+      ctx.prisma.meeting.create({
+        data: {
+          workspaceId: wsId,
+          createdById: userId,
+          title: 'Họp',
+          status: 'LIVE',
+          ...data,
+        } as never,
+      });
+    await expect(make({ title: '' })).rejects.toThrow(/meetings_title_len/);
+    await expect(make({ title: 'x'.repeat(201) })).rejects.toThrow(/meetings_title_len/);
+    await expect(
+      make({
+        startedAt: new Date('2026-11-01T10:00:00Z'),
+        endedAt: new Date('2026-11-01T09:00:00Z'),
+      }),
+    ).rejects.toThrow(/meetings_ended_after_started/);
+    await expect(make({ status: 'SCHEDULED', scheduledAt: null })).rejects.toThrow(
+      /meetings_scheduled_has_time/,
+    );
+    const ok = await make({});
+    await expect(
+      ctx.prisma.meetingChatMessage.create({
+        data: { meetingId: ok.id, userId, body: 'x'.repeat(2001) },
+      }),
+    ).rejects.toThrow(/meeting_chat_body_len/);
+    await expect(
+      ctx.prisma.meetingChatMessage.create({ data: { meetingId: ok.id, userId, body: '' } }),
+    ).rejects.toThrow(/meeting_chat_body_len/);
+    await expect(
+      ctx.prisma.meetingAttendance.create({
+        data: {
+          meetingId: ok.id,
+          userId,
+          joinedAt: new Date('2026-11-01T10:00:00Z'),
+          leftAt: new Date('2026-11-01T09:00:00Z'),
+        },
+      }),
+    ).rejects.toThrow(/meeting_attendances_left_after_join/);
+  });
+
+  it('meeting_attendances: mỗi người chỉ một phiên mở trong một buổi họp', async () => {
+    const meeting = await ctx.prisma.meeting.create({
+      data: { workspaceId: wsId, createdById: userId, title: 'Một phiên', status: 'LIVE' },
+    });
+    const open = () =>
+      ctx.prisma.meetingAttendance.create({
+        data: { meetingId: meeting.id, userId, joinedAt: new Date() },
+      });
+    await open();
+    await expect(open()).rejects.toThrow(/meeting_attendances_one_open|Unique/);
+    await ctx.prisma.meetingAttendance.updateMany({
+      where: { meetingId: meeting.id },
+      data: { leftAt: new Date(Date.now() + 1000) },
+    });
+    await open();
+  });
 });
