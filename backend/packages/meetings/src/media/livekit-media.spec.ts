@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { AccessToken } from 'livekit-server-sdk';
-import { describe, expect, it } from 'vitest';
+import { AccessToken, ServerError } from 'livekit-server-sdk';
+import { describe, expect, it, vi } from 'vitest';
 import { LiveKitMeetingMedia } from './livekit-media.js';
 
 const env = {
@@ -125,5 +125,58 @@ describe('LiveKitMeetingMedia', () => {
       room: { name: 'luna-m1' },
     });
     await expect(media.parseWebhook(other.body, other.authorization)).resolves.toBeNull();
+  });
+
+  describe('not-found handling', () => {
+    const notFound = () => new ServerError('not_found', 'gone', 404, 'not_found');
+    const boom = () => new ServerError('internal', 'boom', 500, 'internal');
+
+    function withClient(client: Record<string, unknown>) {
+      const m = new LiveKitMeetingMedia(env);
+      (m as unknown as { rooms: unknown }).rooms = client;
+      return m;
+    }
+
+    it('muteMicrophone returns false when the participant or room is not found, rethrows others', async () => {
+      const missing = withClient({ getParticipant: vi.fn().mockRejectedValue(notFound()) });
+      await expect(missing.muteMicrophone('r', 'u')).resolves.toBe(false);
+      const broken = withClient({ getParticipant: vi.fn().mockRejectedValue(boom()) });
+      await expect(broken.muteMicrophone('r', 'u')).rejects.toThrow('boom');
+    });
+
+    it('endRoom returns normally when the room is not found, rethrows others', async () => {
+      await expect(
+        withClient({ deleteRoom: vi.fn().mockRejectedValue(notFound()) }).endRoom('r'),
+      ).resolves.toBeUndefined();
+      await expect(
+        withClient({ deleteRoom: vi.fn().mockRejectedValue(boom()) }).endRoom('r'),
+      ).rejects.toThrow('boom');
+    });
+
+    it('setRoomMetadata swallows not-found, rethrows others', async () => {
+      await expect(
+        withClient({ updateRoomMetadata: vi.fn().mockRejectedValue(notFound()) }).setRoomMetadata(
+          'r',
+          '{}',
+        ),
+      ).resolves.toBeUndefined();
+      await expect(
+        withClient({ updateRoomMetadata: vi.fn().mockRejectedValue(boom()) }).setRoomMetadata(
+          'r',
+          '{}',
+        ),
+      ).rejects.toThrow('boom');
+    });
+
+    it('webhook without createdAt falls back to now', async () => {
+      const before = Date.now();
+      const w = await signedWebhook({
+        event: 'room_started',
+        id: 'EV_9',
+        room: { name: 'luna-m1' },
+      });
+      const ev = await media.parseWebhook(w.body, w.authorization);
+      expect(ev!.at.getTime()).toBeGreaterThanOrEqual(before);
+    });
   });
 });

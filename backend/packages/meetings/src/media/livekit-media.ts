@@ -3,7 +3,7 @@ import {
   DataPacket_Kind,
   RoomServiceClient,
   TrackSource,
-  TwirpError,
+  ServerError,
   WebhookReceiver,
   type VideoGrant,
 } from 'livekit-server-sdk';
@@ -38,6 +38,10 @@ const MAPPED_EVENTS = new Set([
   'participant_joined',
   'participant_left',
 ]);
+
+function isNotFound(err: unknown): boolean {
+  return err instanceof ServerError && (err.code === 'not_found' || err.status === 404);
+}
 
 export class LiveKitMeetingMedia implements MeetingMedia {
   readonly serverUrl: string;
@@ -92,19 +96,32 @@ export class LiveKitMeetingMedia implements MeetingMedia {
   }
 
   async endRoom(roomName: string): Promise<void> {
-    await this.rooms.deleteRoom(roomName);
+    try {
+      await this.rooms.deleteRoom(roomName);
+    } catch (err) {
+      if (!isNotFound(err)) throw err;
+    }
   }
 
   async muteMicrophone(roomName: string, identity: string): Promise<boolean> {
-    const participant = await this.rooms.getParticipant(roomName, identity);
-    const mic = participant.tracks.find((t) => t.source === TrackSource.MICROPHONE);
-    if (!mic) return false;
-    await this.rooms.mutePublishedTrack(roomName, identity, mic.sid, true);
-    return true;
+    try {
+      const participant = await this.rooms.getParticipant(roomName, identity);
+      const mic = participant.tracks.find((t) => t.source === TrackSource.MICROPHONE);
+      if (!mic) return false;
+      await this.rooms.mutePublishedTrack(roomName, identity, mic.sid, true);
+      return true;
+    } catch (err) {
+      if (isNotFound(err)) return false;
+      throw err;
+    }
   }
 
   async setRoomMetadata(roomName: string, metadata: string): Promise<void> {
-    await this.rooms.updateRoomMetadata(roomName, metadata);
+    try {
+      await this.rooms.updateRoomMetadata(roomName, metadata);
+    } catch (err) {
+      if (!isNotFound(err)) throw err;
+    }
   }
 
   async broadcast(roomName: string, topic: string, payload: unknown): Promise<void> {
@@ -121,8 +138,7 @@ export class LiveKitMeetingMedia implements MeetingMedia {
         hidden: p.permission?.hidden ?? false,
       }));
     } catch (err) {
-      if (err instanceof TwirpError && (err.code === 'not_found' || err.status === 404))
-        return null;
+      if (isNotFound(err)) return null;
       throw err;
     }
   }
@@ -139,7 +155,8 @@ export class LiveKitMeetingMedia implements MeetingMedia {
       return null;
     }
     if (!MAPPED_EVENTS.has(event.event) || !event.room) return null;
-    const at = new Date(Number(event.createdAt) * 1000);
+    const created = Number(event.createdAt);
+    const at = created > 0 ? new Date(created * 1000) : new Date();
     const base = { roomName: event.room.name, eventId: event.id, at };
     if (event.event === 'room_started' || event.event === 'room_finished') {
       return { kind: event.event, ...base };

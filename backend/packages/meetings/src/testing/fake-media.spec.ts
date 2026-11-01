@@ -63,5 +63,7 @@ describe('FakeMeetingMedia', () => {
     });
     await expect(media.parseWebhook(signed.body + ' ', signed.authorization)).resolves.toBeNull();
     await expect(media.parseWebhook(signed.body, undefined)).resolves.toBeNull();
+    const junk = 'not json';
+    await expect(media.parseWebhook(junk, signed.authorization)).resolves.toBeNull();
   });
 });

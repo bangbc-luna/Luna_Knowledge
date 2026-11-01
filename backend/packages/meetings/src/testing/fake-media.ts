@@ -92,7 +92,12 @@ export class FakeMeetingMedia implements MeetingMedia {
     const expected = Buffer.from(sign(rawBody));
     const given = Buffer.from(authorization);
     if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
-    const wire = JSON.parse(rawBody) as WireEvent;
+    let wire: WireEvent;
+    try {
+      wire = JSON.parse(rawBody) as WireEvent;
+    } catch {
+      return null;
+    }
     const at = new Date(wire.at);
     if (wire.kind === 'participant_joined' || wire.kind === 'participant_left') {
       return {
