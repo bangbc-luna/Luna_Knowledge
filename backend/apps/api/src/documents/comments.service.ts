@@ -211,7 +211,9 @@ export class CommentsService {
     const unique = [...new Set(ids)].filter((id) => id !== authorId);
     if (!unique.length) return { allowed: [] as string[], ignored: [] as string[] };
     const access = await Promise.all(
-      unique.map((id) => this.access.resolveMany(id, [nodeId]).then((m) => m.get(nodeId))),
+      unique.map((id) =>
+        this.access.resolveMany(id, [nodeId], { ignoreStatus: true }).then((m) => m.get(nodeId)),
+      ),
     );
     const allowed = unique.filter((_, i) => access[i]?.role && !access[i]?.deletedAt);
     return { allowed, ignored: unique.filter((id) => !allowed.includes(id)) };

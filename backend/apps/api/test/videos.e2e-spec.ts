@@ -314,6 +314,21 @@ describe('Videos: phát có bảo vệ (e2e)', () => {
     expect(errorMessage(k)).toBe('Playback session is invalid or has expired');
   });
 
+  it('tài khoản bị khoá và video đã bị xoá hẳn: vẫn 404 phiên hết hạn', async () => {
+    const { nodeId } = await seedVideo('Khoá rồi xoá.mp4');
+    const temp = await loginAs(ctx, 'purged.viewer@lunatech.vn');
+    await http()
+      .post(`/api/v1/workspaces/${wsId}/members`)
+      .set(sysadmin.auth)
+      .send({ email: 'purged.viewer@lunatech.vn' })
+      .expect(201);
+    const pb = await play(temp, nodeId).expect(200);
+    await ctx.prisma.user.update({ where: { id: temp.userId }, data: { status: 'DISABLED' } });
+    await ctx.prisma.node.delete({ where: { id: nodeId } });
+    const master = await http().get(pb.body.masterUrl).expect(404);
+    expect(errorMessage(master)).toBe('Playback session is invalid or has expired');
+  });
+
   it('thu hồi share chỉ xem giữa chừng: khoá bị chặn ngay', async () => {
     const { nodeId } = await seedVideo('Thu hồi share.mp4');
     const pb = await play(viewer, nodeId).expect(200);

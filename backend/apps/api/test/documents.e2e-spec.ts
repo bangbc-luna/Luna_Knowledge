@@ -507,6 +507,35 @@ $A = P(1 + r)^n$`;
       .expect(404);
   });
 
+  it('comment: thành viên bị khoá vẫn được @mention và nhận thông báo như trước', async () => {
+    const creator = await loginAs(ctx, 'locked.creator@lunatech.vn');
+    const mentioned = await loginAs(ctx, 'locked.mentioned@lunatech.vn');
+    for (const email of ['locked.creator@lunatech.vn', 'locked.mentioned@lunatech.vn'])
+      await http()
+        .post(`/api/v1/workspaces/${wsId}/members`)
+        .set(owner.auth)
+        .send({ email, role: 'MEMBER' })
+        .expect(201);
+    const id = (await create(creator, 'Thảo luận người bị khoá').expect(201)).body.node.id;
+    await ctx.prisma.user.updateMany({
+      where: { id: { in: [creator.userId, mentioned.userId] } },
+      data: { status: 'DISABLED' },
+    });
+    const t = await http()
+      .post(`/api/v1/documents/${id}/threads`)
+      .set(editor.auth)
+      .send({ body: 'Nhờ xem', mentions: [mentioned.userId] })
+      .expect(201);
+    expect(t.body.ignoredMentions).toEqual([]);
+    expect(t.body.comments[0].mentions.map((m: { id: string }) => m.id)).toEqual([
+      mentioned.userId,
+    ]);
+    const types = async (userId: string) =>
+      (await ctx.prisma.notification.findMany({ where: { userId } })).map((n) => n.type);
+    expect(await types(mentioned.userId)).toEqual(['comment.mention']);
+    expect(await types(creator.userId)).toContain('comment.new');
+  });
+
   it('chia sẻ cho người khác tạo thông báo share.added', async () => {
     const id = (await create(owner, 'Chia sẻ')).body.node.id;
     await http()
