@@ -1,6 +1,5 @@
-import type { Meeting, Prisma } from '@luna/db';
+import { type AuditRecord, type Meeting, type Prisma, writeAudit } from '@luna/db';
 import { Injectable } from '@nestjs/common';
-import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
 import { AppError } from '../common/errors/app-error.js';
 import type { RequestContext } from '../common/http/request-context.js';
@@ -31,7 +30,6 @@ export class MeetingsService {
     private readonly content: ContentAccessService,
     private readonly access: MeetingAccess,
     private readonly users: UsersService,
-    private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
   ) {}
 
@@ -44,33 +42,35 @@ export class MeetingsService {
     await this.content.requireMember(user, workspaceId, 'MEMBER');
     const invitees = await this.resolveInvitees(user, body.inviteeEmails);
     const scheduledAt = body.mode === 'instant' ? new Date() : body.scheduledAt!;
-    const meeting = await this.prisma.client.meeting.create({
-      data: {
-        workspaceId,
-        title: body.title,
-        scheduledAt,
-        aiNotesEnabled: body.aiNotesEnabled,
-        createdById: user.id,
-        invites: {
-          create: invitees.map((u) => ({ userId: u.id, invitedById: user.id })),
+    const meeting = await this.prisma.client.$transaction(async (tx) => {
+      const created = await tx.meeting.create({
+        data: {
+          workspaceId,
+          title: body.title,
+          scheduledAt,
+          aiNotesEnabled: body.aiNotesEnabled,
+          createdById: user.id,
+          invites: {
+            create: invitees.map((u) => ({ userId: u.id, invitedById: user.id })),
+          },
         },
-      },
-      include: { createdBy: { select: userSummary } },
-    });
-    await this.audit.log({
-      actorId: user.id,
-      action: 'meeting.create',
-      targetType: 'meeting',
-      targetId: meeting.id,
-      workspaceId,
-      metadata: {
-        title: meeting.title,
-        mode: body.mode,
-        scheduledAt: scheduledAt.toISOString(),
-        aiNotesEnabled: meeting.aiNotesEnabled,
-        inviteeCount: invitees.length,
-      },
-      ctx,
+        include: { createdBy: { select: userSummary } },
+      });
+      await this.auditTx(tx, ctx, {
+        actorId: user.id,
+        action: 'meeting.create',
+        targetType: 'meeting',
+        targetId: created.id,
+        workspaceId,
+        metadata: {
+          title: created.title,
+          mode: body.mode,
+          scheduledAt: scheduledAt.toISOString(),
+          aiNotesEnabled: created.aiNotesEnabled,
+          inviteeCount: invitees.length,
+        },
+      });
+      return created;
     });
     await this.notifyInvited(user, meeting, invitees);
     return this.toDto(meeting, 0);
@@ -112,15 +112,16 @@ export class MeetingsService {
     const items = hasMore ? rows.slice(0, q.limit) : rows;
     const counts = await this.attendeeCounts(items.map((m) => m.id));
     const last = items[items.length - 1];
+    const lastAt = last?.[field];
     return {
       items: items.map((m) => this.toDto(m, counts.get(m.id) ?? 0)),
-      nextCursor: hasMore && last ? encodeKeysetCursor(last[field]!, last.id) : null,
+      nextCursor: hasMore && last && lastAt ? encodeKeysetCursor(lastAt, last.id) : null,
     };
   }
 
   async get(user: AuthenticatedUser, meetingId: string) {
-    const { isHost } = await this.access.require(user, meetingId);
-    return this.detail(meetingId, isHost);
+    const { isHost, canManage } = await this.access.require(user, meetingId);
+    return this.detail(meetingId, isHost, canManage);
   }
 
   async update(
@@ -129,53 +130,53 @@ export class MeetingsService {
     body: UpdateMeetingBody,
     ctx: RequestContext,
   ) {
-    const { meeting } = await this.access.requireHost(user, meetingId);
+    const access = await this.access.requireManager(user, meetingId);
+    const { meeting } = access;
     this.requireScheduled(meeting);
-    const { count } = await this.prisma.client.meeting.updateMany({
-      where: { id: meetingId, status: 'SCHEDULED' },
-      data: {
-        title: body.title,
-        scheduledAt: body.scheduledAt,
-        aiNotesEnabled: body.aiNotesEnabled,
-      },
+    await this.prisma.client.$transaction(async (tx) => {
+      const { count } = await tx.meeting.updateMany({
+        where: { id: meetingId, status: 'SCHEDULED' },
+        data: {
+          title: body.title,
+          scheduledAt: body.scheduledAt,
+          aiNotesEnabled: body.aiNotesEnabled,
+        },
+      });
+      if (count === 0) throw AppError.conflict(ENDED_MESSAGE);
+      await this.auditTx(tx, ctx, {
+        actorId: user.id,
+        action: 'meeting.update',
+        targetType: 'meeting',
+        targetId: meetingId,
+        workspaceId: meeting.workspaceId,
+        metadata: {
+          title: body.title,
+          scheduledAt: body.scheduledAt?.toISOString(),
+          aiNotesEnabled: body.aiNotesEnabled,
+        },
+      });
     });
-    if (count === 0) throw AppError.conflict(ENDED_MESSAGE);
-    await this.audit.log({
-      actorId: user.id,
-      action: 'meeting.update',
-      targetType: 'meeting',
-      targetId: meetingId,
-      workspaceId: meeting.workspaceId,
-      metadata: {
-        title: body.title,
-        scheduledAt: body.scheduledAt?.toISOString(),
-        aiNotesEnabled: body.aiNotesEnabled,
-      },
-      ctx,
-    });
-    return this.detail(meetingId, true);
+    return this.detail(meetingId, access.isHost, true);
   }
 
   async cancel(user: AuthenticatedUser, meetingId: string, ctx: RequestContext) {
-    const { meeting } = await this.access.requireHost(user, meetingId);
+    const { meeting } = await this.access.requireManager(user, meetingId);
     this.requireScheduled(meeting);
-    const { count } = await this.prisma.client.meeting.updateMany({
-      where: { id: meetingId, status: 'SCHEDULED' },
-      data: { status: 'CANCELLED', endedAt: new Date(), endReason: 'cancelled' },
-    });
-    if (count === 0) throw AppError.conflict(ENDED_MESSAGE);
-    await this.audit.log({
-      actorId: user.id,
-      action: 'meeting.cancel',
-      targetType: 'meeting',
-      targetId: meetingId,
-      workspaceId: meeting.workspaceId,
-      metadata: { title: meeting.title },
-      ctx,
-    });
-    const invites = await this.prisma.client.meetingInvite.findMany({
-      where: { meetingId },
-      select: { userId: true },
+    const invites = await this.prisma.client.$transaction(async (tx) => {
+      const { count } = await tx.meeting.updateMany({
+        where: { id: meetingId, status: 'SCHEDULED' },
+        data: { status: 'CANCELLED', endedAt: new Date(), endReason: 'cancelled' },
+      });
+      if (count === 0) throw AppError.conflict(ENDED_MESSAGE);
+      await this.auditTx(tx, ctx, {
+        actorId: user.id,
+        action: 'meeting.cancel',
+        targetType: 'meeting',
+        targetId: meetingId,
+        workspaceId: meeting.workspaceId,
+        metadata: { title: meeting.title },
+      });
+      return tx.meetingInvite.findMany({ where: { meetingId }, select: { userId: true } });
     });
     await this.notifications.notify(
       invites.map((i) => i.userId).filter((id) => id !== user.id),
@@ -191,49 +192,54 @@ export class MeetingsService {
   }
 
   async invite(user: AuthenticatedUser, meetingId: string, body: InviteBody, ctx: RequestContext) {
-    const { meeting } = await this.access.requireHost(user, meetingId);
+    const { meeting } = await this.access.requireManager(user, meetingId);
     this.requireScheduledOrLive(meeting);
     const targets = await this.resolveInvitees(user, body.emails);
-    const existing = await this.prisma.client.meetingInvite.findMany({
-      where: { meetingId, userId: { in: targets.map((t) => t.id) } },
-      select: { userId: true },
-    });
-    const have = new Set(existing.map((e) => e.userId));
-    const added = targets.filter((t) => !have.has(t.id));
-    if (added.length > 0) {
-      await this.prisma.client.meetingInvite.createMany({
-        data: added.map((u) => ({ meetingId, userId: u.id, invitedById: user.id })),
+    const added = await this.prisma.client.$transaction(async (tx) => {
+      const created = await tx.meetingInvite.createManyAndReturn({
+        data: targets.map((u) => ({ meetingId, userId: u.id, invitedById: user.id })),
         skipDuplicates: true,
       });
-      await this.audit.log({
-        actorId: user.id,
-        action: 'meeting.invite',
-        targetType: 'meeting',
-        targetId: meetingId,
-        workspaceId: meeting.workspaceId,
-        metadata: { userIds: added.map((u) => u.id), emails: added.map((u) => u.email) },
-        ctx,
-      });
-      await this.notifyInvited(user, meeting, added);
-    }
+      const createdIds = new Set(created.map((c) => c.userId));
+      const fresh = targets.filter((t) => createdIds.has(t.id));
+      if (fresh.length > 0) {
+        await this.auditTx(tx, ctx, {
+          actorId: user.id,
+          action: 'meeting.invite',
+          targetType: 'meeting',
+          targetId: meetingId,
+          workspaceId: meeting.workspaceId,
+          metadata: { userIds: fresh.map((u) => u.id), emails: fresh.map((u) => u.email) },
+        });
+      }
+      return fresh;
+    });
+    if (added.length > 0) await this.notifyInvited(user, meeting, added);
     return { added };
   }
 
   async uninvite(user: AuthenticatedUser, meetingId: string, userId: string, ctx: RequestContext) {
-    const { meeting } = await this.access.requireHost(user, meetingId);
-    const { count } = await this.prisma.client.meetingInvite.deleteMany({
-      where: { meetingId, userId },
+    const { meeting } = await this.access.requireManager(user, meetingId);
+    await this.prisma.client.$transaction(async (tx) => {
+      const { count } = await tx.meetingInvite.deleteMany({ where: { meetingId, userId } });
+      if (count === 0) throw AppError.notFound('Invite not found');
+      await this.auditTx(tx, ctx, {
+        actorId: user.id,
+        action: 'meeting.uninvite',
+        targetType: 'meeting',
+        targetId: meetingId,
+        workspaceId: meeting.workspaceId,
+        metadata: { userId },
+      });
     });
-    if (count === 0) throw AppError.notFound('Invite not found');
-    await this.audit.log({
-      actorId: user.id,
-      action: 'meeting.uninvite',
-      targetType: 'meeting',
-      targetId: meetingId,
-      workspaceId: meeting.workspaceId,
-      metadata: { userId },
-      ctx,
-    });
+  }
+
+  private auditTx(
+    tx: Pick<Prisma.TransactionClient, 'auditLog'>,
+    ctx: RequestContext,
+    record: AuditRecord,
+  ) {
+    return writeAudit(tx, { ...record, ip: ctx.ip, userAgent: ctx.userAgent });
   }
 
   private requireScheduled(meeting: Meeting) {
@@ -295,7 +301,7 @@ export class MeetingsService {
     return counts;
   }
 
-  private async detail(meetingId: string, canHost: boolean) {
+  private async detail(meetingId: string, canHost: boolean, canManage: boolean) {
     const meeting = await this.prisma.client.meeting.findUniqueOrThrow({
       where: { id: meetingId },
       include: {
@@ -317,6 +323,7 @@ export class MeetingsService {
         leftAt: a.leftAt,
       })),
       canHost,
+      canManage,
     };
   }
 

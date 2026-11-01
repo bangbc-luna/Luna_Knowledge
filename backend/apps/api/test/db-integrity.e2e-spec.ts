@@ -229,6 +229,7 @@ describe('Database integrity (e2e)', () => {
           createdById: userId,
           title: 'Họp',
           status: 'LIVE',
+          startedAt: new Date('2026-11-01T08:00:00Z'),
           ...data,
         } as never,
       });
@@ -243,7 +244,16 @@ describe('Database integrity (e2e)', () => {
     await expect(make({ status: 'SCHEDULED', scheduledAt: null })).rejects.toThrow(
       /meetings_scheduled_has_time/,
     );
-    const ok = await make({});
+    await expect(make({ status: 'LIVE', startedAt: null })).rejects.toThrow(
+      /meetings_started_has_time/,
+    );
+    await expect(
+      make({ status: 'ENDED', startedAt: new Date('2026-11-01T10:00:00Z'), endedAt: null }),
+    ).rejects.toThrow(/meetings_ended_has_time/);
+    await expect(make({ status: 'ENDED', startedAt: null, endedAt: new Date() })).rejects.toThrow(
+      /meetings_started_has_time/,
+    );
+    const ok = await make({ startedAt: new Date('2026-11-01T10:00:00Z') });
     await expect(
       ctx.prisma.meetingChatMessage.create({
         data: { meetingId: ok.id, userId, body: 'x'.repeat(2001) },
@@ -266,7 +276,13 @@ describe('Database integrity (e2e)', () => {
 
   it('meeting_attendances: mỗi người chỉ một phiên mở trong một buổi họp', async () => {
     const meeting = await ctx.prisma.meeting.create({
-      data: { workspaceId: wsId, createdById: userId, title: 'Một phiên', status: 'LIVE' },
+      data: {
+        workspaceId: wsId,
+        createdById: userId,
+        title: 'Một phiên',
+        status: 'LIVE',
+        startedAt: new Date(),
+      },
     });
     const open = () =>
       ctx.prisma.meetingAttendance.create({

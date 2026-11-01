@@ -56,7 +56,8 @@ export const meetingSchema = z.object({
 export const meetingDetailSchema = meetingSchema.extend({
   invitees: z.array(userSummarySchema),
   attendees: z.array(userSummarySchema.extend({ joinedAt: z.date(), leftAt: z.date().nullable() })),
-  canHost: z.boolean(),
+  canHost: z.boolean().describe('Người tạo buổi họp'),
+  canManage: z.boolean().describe('Người tạo hoặc quản trị workspace: sửa, huỷ, mời'),
 });
 
 export const meetingPageSchema = pageSchema(meetingSchema);

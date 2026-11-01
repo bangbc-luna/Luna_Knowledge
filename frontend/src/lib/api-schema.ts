@@ -9082,6 +9082,7 @@ export interface operations {
                             leftAt: string | null;
                         }[];
                         canHost: boolean;
+                        canManage: boolean;
                     };
                 };
             };
@@ -9174,6 +9175,7 @@ export interface operations {
                             leftAt: string | null;
                         }[];
                         canHost: boolean;
+                        canManage: boolean;
                     };
                 };
             };

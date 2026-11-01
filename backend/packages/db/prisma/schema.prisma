@@ -618,6 +618,8 @@ model Meeting {
   chats       MeetingChatMessage[]
 
   @@index([workspaceId, status, scheduledAt])
+  @@index([workspaceId, status, endedAt(sort: Desc), id(sort: Desc)])
+  @@index([workspaceId, status, startedAt(sort: Desc), id(sort: Desc)])
   @@index([workspaceId, createdAt(sort: Desc)])
   @@index([status], map: "meetings_live_idx", where: raw("status = 'LIVE'"))
   @@map("meetings")

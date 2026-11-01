@@ -7,6 +7,7 @@ import { PrismaService } from '../infra/prisma/prisma.service.js';
 export interface MeetingAccessResult {
   meeting: Meeting;
   isHost: boolean;
+  canManage: boolean;
   memberRole: WorkspaceRole | null;
   invited: boolean;
 }
@@ -34,9 +35,11 @@ export class MeetingAccess {
     if (account?.status !== 'ACTIVE' || (!member && !invite)) {
       throw AppError.notFound('Meeting not found');
     }
+    const isHost = meeting.createdById === user.id;
     return {
       meeting,
-      isHost: meeting.createdById === user.id,
+      isHost,
+      canManage: isHost || member?.role === 'ADMIN',
       memberRole: member?.role ?? null,
       invited: !!invite,
     };
@@ -45,6 +48,14 @@ export class MeetingAccess {
   async requireHost(user: AuthenticatedUser, meetingId: string): Promise<MeetingAccessResult> {
     const result = await this.require(user, meetingId);
     if (!result.isHost) throw AppError.forbidden('Only the meeting host can do this');
+    return result;
+  }
+
+  async requireManager(user: AuthenticatedUser, meetingId: string): Promise<MeetingAccessResult> {
+    const result = await this.require(user, meetingId);
+    if (!result.canManage) {
+      throw AppError.forbidden('Only the meeting host or a workspace admin can do this');
+    }
     return result;
   }
 }

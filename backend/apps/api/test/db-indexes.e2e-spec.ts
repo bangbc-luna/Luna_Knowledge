@@ -48,7 +48,14 @@ describe('Database indexes (e2e)', () => {
       SELECT s.id, ${ws.id}::uuid, 'DOCUMENT', 'n' || s.g, 'n' || s.g, ${user.id}::uuid, now(),
              CASE WHEN s.g % 100 = 0 THEN now() END, CASE WHEN s.g % 100 = 0 THEN s.id END
         FROM (SELECT g, gen_random_uuid() AS id FROM generate_series(1, 3000) g) s`;
-    for (const table of ['audit_logs', 'notifications', 'nodes'])
+    await ctx.prisma.$executeRaw`
+      INSERT INTO meetings (id, workspace_id, title, status, scheduled_at, started_at, ended_at, created_by, updated_at)
+      SELECT gen_random_uuid(), ${ws.id}::uuid, 'm' || g,
+             CASE WHEN g % 20 = 0 THEN 'LIVE'::"MeetingStatus" WHEN g % 3 = 0 THEN 'SCHEDULED'::"MeetingStatus" ELSE 'ENDED'::"MeetingStatus" END,
+             now() + (g || ' minutes')::interval, now() - (g || ' hours')::interval, now() - (g || ' minutes')::interval,
+             ${user.id}::uuid, now()
+        FROM generate_series(1, 3000) g`;
+    for (const table of ['audit_logs', 'notifications', 'nodes', 'meetings'])
       await ctx.prisma.$executeRawUnsafe(`ANALYZE ${table}`);
   });
 
@@ -95,6 +102,16 @@ describe('Database indexes (e2e)', () => {
     ],
     ['SELECT id FROM nodes WHERE deleted_root_id = $1::uuid', [uuid], 'nodes_deleted_root_id_idx'],
     ['SELECT id FROM nodes WHERE workspace_id = $1::uuid', [uuid], 'nodes_workspace_id_idx'],
+    [
+      "SELECT id FROM meetings WHERE workspace_id = $1::uuid AND status = 'ENDED' ORDER BY ended_at DESC, id DESC LIMIT 21",
+      [uuid],
+      'meetings_workspace_id_status_ended_at_id_idx',
+    ],
+    [
+      "SELECT id FROM meetings WHERE workspace_id = $1::uuid AND status = 'LIVE' ORDER BY started_at DESC, id DESC LIMIT 21",
+      [uuid],
+      'meetings_workspace_id_status_started_at_id_idx',
+    ],
   ])('truy vấn %s dùng index %s', async (sql, params, index) => {
     expect(await indexesUsed(ctx.prisma, sql, ...(params as unknown[]))).toContain(index);
   });

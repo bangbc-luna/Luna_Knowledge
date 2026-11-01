@@ -48,6 +48,10 @@ CREATE TABLE "meeting_chat_messages" (
 
 CREATE INDEX "meetings_workspace_id_status_scheduled_at_idx" ON "meetings"("workspace_id", "status", "scheduled_at");
 
+CREATE INDEX "meetings_workspace_id_status_ended_at_id_idx" ON "meetings"("workspace_id", "status", "ended_at" DESC, "id" DESC);
+
+CREATE INDEX "meetings_workspace_id_status_started_at_id_idx" ON "meetings"("workspace_id", "status", "started_at" DESC, "id" DESC);
+
 CREATE INDEX "meetings_workspace_id_created_at_idx" ON "meetings"("workspace_id", "created_at" DESC);
 
 CREATE INDEX "meetings_live_idx" ON "meetings"("status") WHERE (status = 'LIVE');
@@ -83,6 +87,10 @@ ALTER TABLE "meetings" ADD CONSTRAINT "meetings_title_len" CHECK (char_length(ti
 ALTER TABLE "meetings" ADD CONSTRAINT "meetings_ended_after_started" CHECK (ended_at IS NULL OR started_at IS NULL OR ended_at >= started_at);
 
 ALTER TABLE "meetings" ADD CONSTRAINT "meetings_scheduled_has_time" CHECK (status <> 'SCHEDULED' OR scheduled_at IS NOT NULL);
+
+ALTER TABLE "meetings" ADD CONSTRAINT "meetings_started_has_time" CHECK (status NOT IN ('LIVE', 'ENDED') OR started_at IS NOT NULL);
+
+ALTER TABLE "meetings" ADD CONSTRAINT "meetings_ended_has_time" CHECK (status <> 'ENDED' OR ended_at IS NOT NULL);
 
 ALTER TABLE "meeting_attendances" ADD CONSTRAINT "meeting_attendances_left_after_join" CHECK (left_at IS NULL OR left_at >= joined_at);
 

@@ -173,6 +173,7 @@ describe('Meetings (e2e)', () => {
     const blocked = await http().get(`/api/v1/meetings/${id}`).set(vera.auth);
     expect([401, 404]).toContain(blocked.status);
     await ctx.prisma.user.update({ where: { id: vera.userId }, data: { status: 'ACTIVE' } });
+    vera = await loginAs(ctx, 'vera@lunatech.vn', { name: 'Vera' });
   });
 
   it('chỉ người tạo sửa, huỷ, mời; huỷ gửi meeting.cancelled; sửa buổi họp đã kết thúc → 409', async () => {
@@ -184,22 +185,19 @@ describe('Meetings (e2e)', () => {
     }).expect(201);
     const id = res.body.id;
 
-    await http()
-      .patch(`/api/v1/meetings/${id}`)
-      .set(alice.auth)
-      .send({ title: 'Hack' })
-      .expect(403);
-    await http().post(`/api/v1/meetings/${id}/cancel`).set(alice.auth).expect(403);
-    await http()
-      .post(`/api/v1/meetings/${id}/invites`)
-      .set(alice.auth)
-      .send({ emails: ['x@lunatech.vn'] })
-      .expect(403);
-    await http()
-      .patch(`/api/v1/meetings/${id}`)
-      .set(outsider.auth)
-      .send({ title: 'Hack' })
-      .expect(403);
+    for (const who of [vera, outsider]) {
+      await http()
+        .patch(`/api/v1/meetings/${id}`)
+        .set(who.auth)
+        .send({ title: 'Hack' })
+        .expect(403);
+      await http().post(`/api/v1/meetings/${id}/cancel`).set(who.auth).expect(403);
+      await http()
+        .post(`/api/v1/meetings/${id}/invites`)
+        .set(who.auth)
+        .send({ emails: ['x@lunatech.vn'] })
+        .expect(403);
+    }
 
     const next = inHours(6);
     const patched = await http()
@@ -234,7 +232,7 @@ describe('Meetings (e2e)', () => {
     const ended = await create(bob, { title: 'Đã xong', mode: 'instant' }).expect(201);
     await ctx.prisma.meeting.update({
       where: { id: ended.body.id },
-      data: { status: 'ENDED', endedAt: new Date() },
+      data: { status: 'ENDED', startedAt: new Date(), endedAt: new Date() },
     });
     await http()
       .patch(`/api/v1/meetings/${ended.body.id}`)
@@ -311,5 +309,65 @@ describe('Meetings (e2e)', () => {
       .query({ scope: 'past' })
       .set(outsider.auth)
       .expect(404);
+  });
+
+  it('quản trị workspace quản lý được buổi họp của người khác; không phải người tạo thì không thành host', async () => {
+    const res = await create(bob, {
+      title: 'Admin huỷ',
+      mode: 'scheduled',
+      scheduledAt: inHours(4),
+      inviteeEmails: ['outsider@lunatech.vn'],
+    }).expect(201);
+    const id = res.body.id;
+    const asAdmin = await http().get(`/api/v1/meetings/${id}`).set(alice.auth).expect(200);
+    expect(asAdmin.body).toMatchObject({ canHost: false, canManage: true });
+    await http().patch(`/api/v1/meetings/${id}`).set(alice.auth).send({ title: 'Đổi' }).expect(200);
+    await http()
+      .post(`/api/v1/meetings/${id}/invites`)
+      .set(alice.auth)
+      .send({ emails: ['late2@lunatech.vn'] })
+      .expect(201);
+    await http().post(`/api/v1/meetings/${id}/cancel`).set(alice.auth).expect(204);
+    const audit = await ctx.prisma.auditLog.findFirst({
+      where: { action: 'meeting.cancel', targetId: id },
+    });
+    expect(audit?.actorId).toBe(alice.userId);
+  });
+
+  it('gỡ lời mời người chưa được mời → 404; mời vào buổi họp đã kết thúc hoặc đã huỷ → 409', async () => {
+    const res = await create(alice, { title: 'Mời', mode: 'instant' }).expect(201);
+    const id = res.body.id;
+    await http().delete(`/api/v1/meetings/${id}/invites/${bob.userId}`).set(alice.auth).expect(404);
+    await ctx.prisma.meeting.update({
+      where: { id },
+      data: { status: 'ENDED', startedAt: new Date(), endedAt: new Date() },
+    });
+    await http()
+      .post(`/api/v1/meetings/${id}/invites`)
+      .set(alice.auth)
+      .send({ emails: ['x@lunatech.vn'] })
+      .expect(409);
+  });
+
+  it('mời đồng thời cùng một người chỉ thông báo và ghi audit một lần', async () => {
+    const res = await create(alice, { title: 'Song song', mode: 'instant' }).expect(201);
+    const id = res.body.id;
+    await ctx.prisma.user.create({ data: { email: 'racer@lunatech.vn', name: 'Racer' } });
+    await Promise.all(
+      [1, 2, 3].map(() =>
+        http()
+          .post(`/api/v1/meetings/${id}/invites`)
+          .set(alice.auth)
+          .send({ emails: ['racer@lunatech.vn'] })
+          .expect(201),
+      ),
+    );
+    const racer = await ctx.prisma.user.findUniqueOrThrow({
+      where: { email: 'racer@lunatech.vn' },
+    });
+    expect(await notificationsOf(racer.id, 'meeting.invited')).toHaveLength(1);
+    expect(
+      await ctx.prisma.auditLog.count({ where: { action: 'meeting.invite', targetId: id } }),
+    ).toBe(1);
   });
 });
