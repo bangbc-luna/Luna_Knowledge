@@ -351,6 +351,62 @@ describe('Meetings (e2e)', () => {
       .expect(409);
   });
 
+  it('bỏ lời mời của buổi họp đã kết thúc hoặc đã huỷ → 409, còn buổi họp chưa bắt đầu thì gỡ được', async () => {
+    const res = await create(alice, {
+      title: 'Gỡ',
+      mode: 'scheduled',
+      scheduledAt: inHours(3),
+      inviteeEmails: ['outsider@lunatech.vn'],
+    }).expect(201);
+    const id = res.body.id;
+    const uninvite = () =>
+      http().delete(`/api/v1/meetings/${id}/invites/${outsider.userId}`).set(alice.auth);
+    await http().post(`/api/v1/meetings/${id}/cancel`).set(alice.auth).expect(204);
+    const cancelled = await uninvite().expect(409);
+    expect(cancelled.body.error.message).toBe('This meeting has already ended');
+    await ctx.prisma.meeting.update({
+      where: { id },
+      data: { status: 'ENDED', startedAt: new Date(), endedAt: new Date() },
+    });
+    await uninvite().expect(409);
+    expect(await ctx.prisma.meetingInvite.count({ where: { meetingId: id } })).toBe(1);
+
+    const open = await create(alice, {
+      title: 'Gỡ được',
+      mode: 'scheduled',
+      scheduledAt: inHours(3),
+      inviteeEmails: ['outsider@lunatech.vn'],
+    }).expect(201);
+    await http()
+      .delete(`/api/v1/meetings/${open.body.id}/invites/${outsider.userId}`)
+      .set(alice.auth)
+      .expect(204);
+  });
+
+  it('huỷ gửi thông báo cho cùng nhóm người nhận như nhắc: người tạo, người được mời, thành viên TEAM đang hoạt động, trừ người huỷ', async () => {
+    const disabled = await ctx.prisma.user.create({
+      data: { email: 'disabled@lunatech.vn', name: 'Disabled', status: 'DISABLED' },
+    });
+    await ctx.prisma.workspaceMember.create({
+      data: { workspaceId: wsId, userId: disabled.id, role: 'MEMBER' },
+    });
+    const res = await create(bob, {
+      title: 'Huỷ cả nhóm',
+      mode: 'scheduled',
+      scheduledAt: inHours(4),
+      inviteeEmails: ['outsider@lunatech.vn'],
+    }).expect(201);
+    const id = res.body.id;
+    await http().post(`/api/v1/meetings/${id}/cancel`).set(alice.auth).expect(204);
+    const notes = await ctx.prisma.notification.findMany({
+      where: { type: 'meeting.cancelled', payload: { path: ['meetingId'], equals: id } },
+    });
+    expect(notes.map((n) => n.userId).sort()).toEqual(
+      [bob.userId, vera.userId, outsider.userId].sort(),
+    );
+    expect(notes[0]?.payload).toMatchObject({ byName: 'Alice', title: 'Huỷ cả nhóm' });
+  });
+
   it('mời đồng thời cùng một người chỉ thông báo và ghi audit một lần', async () => {
     const res = await create(alice, { title: 'Song song', mode: 'instant' }).expect(201);
     const id = res.body.id;

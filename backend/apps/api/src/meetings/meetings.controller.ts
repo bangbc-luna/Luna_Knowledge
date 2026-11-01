@@ -24,6 +24,9 @@ import {
   type AiNotesBody,
   aiNotesBody,
   aiNotesResultSchema,
+  handBody,
+  type HandBody,
+  handResultSchema,
   chatMessagePageSchema,
   chatMessageSchema,
   createMeetingBody,
@@ -102,7 +105,7 @@ export class MeetingsController {
   }
 
   @Patch('meetings/:id')
-  @ApiOperation({ summary: 'Sửa buổi họp chưa bắt đầu (chỉ người tạo)' })
+  @ApiOperation({ summary: 'Sửa buổi họp chưa bắt đầu (người tạo hoặc quản trị workspace)' })
   @ApiZodBody(updateMeetingBody)
   @ApiZodOk(meetingDetailSchema)
   update(
@@ -116,7 +119,7 @@ export class MeetingsController {
 
   @Post('meetings/:id/cancel')
   @HttpCode(204)
-  @ApiOperation({ summary: 'Huỷ buổi họp chưa bắt đầu (chỉ người tạo)' })
+  @ApiOperation({ summary: 'Huỷ buổi họp chưa bắt đầu (người tạo hoặc quản trị workspace)' })
   @ApiNoContentResponse()
   cancel(
     @CurrentUser() user: AuthenticatedUser,
@@ -128,7 +131,7 @@ export class MeetingsController {
 
   @Post('meetings/:id/invites')
   @ApiOperation({
-    summary: 'Mời người theo email (chỉ người tạo)',
+    summary: 'Mời người theo email (người tạo hoặc quản trị workspace)',
     description: 'Người ngoài workspace được tạo tài khoản trước như khi share.',
   })
   @ApiZodBody(inviteBody, { emails: ['dung.pham@lunatech.vn'] })
@@ -144,7 +147,7 @@ export class MeetingsController {
 
   @Delete('meetings/:id/invites/:userId')
   @HttpCode(204)
-  @ApiOperation({ summary: 'Bỏ lời mời (chỉ người tạo)' })
+  @ApiOperation({ summary: 'Bỏ lời mời (người tạo hoặc quản trị workspace)' })
   @ApiNoContentResponse()
   uninvite(
     @CurrentUser() user: AuthenticatedUser,
@@ -203,6 +206,23 @@ export class MeetingsController {
     @Req() req: Request,
   ) {
     return this.room.setAiNotes(user, id, body.enabled, requestContext(req));
+  }
+
+  @Put('meetings/:id/hand')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @ApiOperation({
+    summary: 'Giơ hoặc hạ tay của chính mình trong buổi họp đang diễn ra',
+    description:
+      'Đặt thuộc tính handRaised của người gọi trong phòng; người gọi phải đang ở trong phòng.',
+  })
+  @ApiZodBody(handBody, { raised: true })
+  @ApiZodOk(handResultSchema)
+  setHand(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', uuid()) id: string,
+    @Body(new ZodValidationPipe(handBody)) body: HandBody,
+  ) {
+    return this.room.setHand(user, id, body.raised);
   }
 
   @Post('meetings/:id/messages')

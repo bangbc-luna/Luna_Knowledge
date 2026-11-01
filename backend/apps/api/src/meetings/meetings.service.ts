@@ -185,7 +185,7 @@ export class MeetingsService {
   async cancel(user: AuthenticatedUser, meetingId: string, ctx: RequestContext) {
     const { meeting } = await this.access.requireManager(user, meetingId);
     this.requireScheduled(meeting);
-    const invites = await this.prisma.client.$transaction(async (tx) => {
+    await this.prisma.client.$transaction(async (tx) => {
       const { count } = await tx.meeting.updateMany({
         where: { id: meetingId, status: 'SCHEDULED' },
         data: { status: 'CANCELLED', endedAt: new Date(), endReason: 'cancelled' },
@@ -199,10 +199,10 @@ export class MeetingsService {
         workspaceId: meeting.workspaceId,
         metadata: { title: meeting.title },
       });
-      return tx.meetingInvite.findMany({ where: { meetingId }, select: { userId: true } });
     });
+    const recipients = await this.notificationRecipients(meeting);
     await this.notifications.notify(
-      invites.map((i) => i.userId).filter((id) => id !== user.id),
+      recipients.filter((id) => id !== user.id),
       'meeting.cancelled',
       {
         meetingId,
@@ -243,6 +243,7 @@ export class MeetingsService {
 
   async uninvite(user: AuthenticatedUser, meetingId: string, userId: string, ctx: RequestContext) {
     const { meeting } = await this.access.requireManager(user, meetingId);
+    this.requireScheduledOrLive(meeting);
     await this.prisma.client.$transaction(async (tx) => {
       const { count } = await tx.meetingInvite.deleteMany({ where: { meetingId, userId } });
       if (count === 0) throw AppError.notFound('Invite not found');
@@ -255,6 +256,30 @@ export class MeetingsService {
         metadata: { userId },
       });
     });
+  }
+
+  private async notificationRecipients(
+    meeting: Pick<Meeting, 'id' | 'workspaceId' | 'createdById'>,
+  ): Promise<string[]> {
+    const db = this.prisma.client;
+    const [invites, workspace] = await Promise.all([
+      db.meetingInvite.findMany({ where: { meetingId: meeting.id }, select: { userId: true } }),
+      db.workspace.findUnique({ where: { id: meeting.workspaceId }, select: { kind: true } }),
+    ]);
+    const recipients = new Set<string>([meeting.createdById]);
+    for (const i of invites) recipients.add(i.userId);
+    if (workspace?.kind === 'TEAM') {
+      const members = await db.workspaceMember.findMany({
+        where: { workspaceId: meeting.workspaceId },
+        select: { userId: true },
+      });
+      for (const m of members) recipients.add(m.userId);
+    }
+    const active = await db.user.findMany({
+      where: { id: { in: [...recipients] }, status: 'ACTIVE' },
+      select: { id: true },
+    });
+    return active.map((u) => u.id);
   }
 
   private auditTx(
@@ -345,6 +370,10 @@ export class MeetingsService {
         joinedAt: a.joinedAt,
         leftAt: a.leftAt,
       })),
+      opensAt:
+        meeting.status === 'SCHEDULED' && meeting.scheduledAt
+          ? new Date(meeting.scheduledAt.getTime() - this.config.MEETING_EARLY_JOIN_MIN * 60_000)
+          : null,
       canHost,
       canManage,
     };

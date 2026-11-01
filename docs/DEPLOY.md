@@ -169,6 +169,8 @@ luna up -d            # migrate chạy trước, rồi các dịch vụ khởi �
 luna ps
 ```
 
+Lưu ý nâng cấp lên bản có phòng họp: bản đã cài phải đặt `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` trong `.env.prod` (mục 10) trước khi `luna build && luna up -d`, vì api, worker và build frontend đều báo lỗi khi thiếu các biến này.
+
 Lần đầu nâng cấp lên bản có mạng `edge` subnet cố định phải tắt hết rồi bật lại một lần, vì Compose báo mạng `luna_edge` cần tạo lại (subnet đổi). Phải kèm đủ profile: `luna down` không có `--profile` chỉ tắt dịch vụ lõi, cloudflared (`remote`) và nhóm `monitoring` vẫn chạy, giữ mạng `luna_edge` nên không xoá được.
 
 ```bash
@@ -366,7 +368,7 @@ Phòng họp (âm thanh, video, chia sẻ màn hình) chạy trên LiveKit. Prod
    | `LIVEKIT_URL` | URL của project, dạng `wss://<project>.livekit.cloud` |
    | `LIVEKIT_API_KEY` | API key vừa tạo |
    | `LIVEKIT_API_SECRET` | Secret vừa tạo (ít nhất 32 ký tự) |
-   | `MEETING_TOKEN_TTL_SEC`, `MEETING_EMPTY_GRACE_SEC`, `MEETING_MAX_PARTICIPANTS`, `MEETING_REMINDER_MINUTES` | Có giá trị mặc định trong `.env.prod.example` |
+   | `MEETING_TOKEN_TTL_SEC`, `MEETING_EMPTY_GRACE_SEC`, `MEETING_EARLY_JOIN_MIN`, `MEETING_MAX_PARTICIPANTS`, `MEETING_REMINDER_MINUTES` | Có giá trị mặc định trong `.env.prod.example` |
 
    Cả **api và worker** đều đọc `LIVEKIT_*` và `MEETING_*` từ `.env.prod` (qua `env_file`): api cấp token và nhận webhook, worker gửi nhắc họp và đối soát phòng đã kết thúc mà không có webhook. Compose không xoá các biến này (khác với các secret chủ DB ở mục 4).
 3. Webhook: Project Settings → Webhooks → thêm `https://${APP_HOST}/api/v1/meetings/livekit/webhook` (ví dụ `https://knowledge.lunatech.vn/api/v1/meetings/livekit/webhook`), ký bằng cùng API key. Webhook được xác thực bằng chữ ký, không cần đăng nhập.
@@ -385,7 +387,7 @@ Không cần tài khoản cloud. Từ `backend/`:
 docker compose -f docker/docker-compose.dev.yml --profile meetings up -d livekit
 ```
 
-Service `livekit` (image `livekit/livekit-server:v1.13.10`, chế độ `--dev`) nghe ở `localhost:7880` (WebSocket/HTTP), `7881` (TCP) và UDP `50000-50020`. Khoá `devkey` / `devsecret-0123456789-abcdefghijklmnop` khớp sẵn với `LIVEKIT_*` trong `.env.example`. Webhook của server dev trỏ tới `http://host.docker.internal:${API_PORT:-4000}/api/v1/meetings/livekit/webhook` (API chạy trên máy host), nên không cần cấu hình thêm. Dừng bằng `docker compose -f docker/docker-compose.dev.yml --profile meetings stop livekit`.
+Service `livekit` (image `livekit/livekit-server:v1.13.10`, chế độ `--dev`) nghe ở `localhost:7880` (WebSocket/HTTP), `7881` (TCP) và UDP `50000-50020` (trên Linux). Khoá `devkey` / `devsecret-0123456789-abcdefghijklmnop` khớp sẵn với `LIVEKIT_*` trong `.env.example`. Container dùng `network_mode: host` và chỉ nghe `127.0.0.1`, nên các cổng trên là cổng của máy host. Webhook của server dev trỏ tới `http://127.0.0.1:${API_PORT:-4000}/api/v1/meetings/livekit/webhook` (API chạy trên máy host), không cần cấu hình thêm. Dừng bằng `docker compose -f docker/docker-compose.dev.yml --profile meetings stop livekit`.
 
 ### Đo thử với nhóm thật
 
