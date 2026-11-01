@@ -8,16 +8,17 @@ import { pipeline } from 'node:stream/promises';
 import { DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import type { BlobKind } from '@luna/db';
 import {
-  type BlobRef,
   FILE_TYPES,
   type FileTypeRule,
   enqueueIndexNode,
   enqueueTranscode,
   type JobQueue,
+  ObjectStore,
   QUEUES,
   type QueueJob,
   type RegenerateJob,
   reportError,
+  type StoredObject,
   unknownJob,
 } from '@luna/shared';
 import { InjectQueue, OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
@@ -26,11 +27,10 @@ import { type Job, UnrecoverableError } from 'bullmq';
 import { WORKER_CONFIG, type WorkerConfig } from '../config/worker-config.js';
 import { PrismaService } from '../infra/prisma.provider.js';
 import { NodeEventsPublisher } from '../infra/redis.provider.js';
-import { StorageService } from '../infra/storage.provider.js';
 import { buildPreviews, type DerivedFile, extractText } from '../processing/derive.js';
 import { RejectedFileError, sniffFile } from '../processing/sniff.js';
 
-interface WrittenBlob extends BlobRef {
+interface WrittenBlob extends StoredObject {
   kind: BlobKind;
   sizeBytes: bigint;
   mime: string;
@@ -43,7 +43,7 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly storage: StorageService,
+    private readonly store: ObjectStore,
     private readonly events: NodeEventsPublisher,
     @Inject(WORKER_CONFIG) private readonly config: WorkerConfig,
     @InjectQueue(QUEUES.VIDEO_TRANSCODE) private readonly videoQueue: JobQueue<'video-transcode'>,
@@ -114,10 +114,10 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
       include: { node: { select: { id: true, workspaceId: true, type: true } } },
     });
     if (!session || session.status !== 'COMPLETED') return { skipped: 'no completed upload' };
-    const tmp = { Bucket: this.storage.buckets.tmp, Key: session.tmpKey };
+    const tmp = { Bucket: this.store.buckets.tmp, Key: session.tmpKey };
     const already = await this.prisma.client.fileVersion.findUnique({ where: { id: uploadId } });
     if (already) {
-      await this.storage.s3.send(new DeleteObjectCommand(tmp)).catch(() => undefined);
+      await this.store.s3.send(new DeleteObjectCommand(tmp)).catch(() => undefined);
       return { skipped: 'already processed' };
     }
 
@@ -127,7 +127,7 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
     const written: WrittenBlob[] = [];
     try {
       const local = join(workDir, 'original');
-      const obj = await this.storage.s3.send(new GetObjectCommand(tmp));
+      const obj = await this.store.s3.send(new GetObjectCommand(tmp));
       const { sha256, size } = await saveWithHash(obj.Body as Readable, local);
 
       let rule: FileTypeRule;
@@ -135,16 +135,17 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
         rule = await sniffFile(local, session.fileName, kind);
       } catch (err) {
         if (err instanceof RejectedFileError) {
-          await this.storage.s3.send(new DeleteObjectCommand(tmp)).catch(() => undefined);
+          await this.store.s3.send(new DeleteObjectCommand(tmp)).catch(() => undefined);
           throw new UnrecoverableError(err.message);
         }
         throw err;
       }
 
-      const original = await this.storage.originals.putFile(
+      const original = await this.store.putFile(
+        'originals',
         `ws/${node.workspaceId}/${node.id}/${uploadId}`,
         local,
-        { contentType: rule.mime, fileName: session.fileName },
+        rule.mime,
       );
       written.push({ ...original, kind: 'ORIGINAL', sizeBytes: size, mime: rule.mime, sha256 });
 
@@ -215,7 +216,7 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
         await this.deleteWritten(written);
         return { skipped: 'node deleted' };
       }
-      await this.storage.s3.send(new DeleteObjectCommand(tmp)).catch(() => undefined);
+      await this.store.s3.send(new DeleteObjectCommand(tmp)).catch(() => undefined);
       if (kind === 'VIDEO') {
         await enqueueTranscode(
           this.videoQueue,
@@ -260,7 +261,7 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
     const written: WrittenBlob[] = [];
     try {
       const local = join(workDir, 'original');
-      const { body } = await this.storage.forRef(version.original).getStream(version.original);
+      const { body } = await this.store.getStream(version.original);
       await saveWithHash(body, local);
       const derived = await this.derive(local, version.fileName, rule, workDir, nodeId, versionId);
       written.push(...derived.blobs);
@@ -330,11 +331,12 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
     const suffix = randomBytes(4).toString('hex');
     const blobs: WrittenBlob[] = [];
     const put = async (file: DerivedFile, bucket: 'previews' | 'thumbnails', kind: BlobKind) => {
-      const ref = await this.storage
-        .bucket(bucket)
-        .putFile(`${nodeId}/${versionId}-${suffix}.${file.ext}`, file.path, {
-          contentType: file.mime,
-        });
+      const ref = await this.store.putFile(
+        bucket,
+        `${nodeId}/${versionId}-${suffix}.${file.ext}`,
+        file.path,
+        file.mime,
+      );
       const { size } = await stat(file.path);
       blobs.push({ ...ref, kind, sizeBytes: BigInt(size), mime: file.mime });
     };
@@ -353,8 +355,7 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
   private async deleteWritten(written: WrittenBlob[]) {
     await Promise.all(
       written.map((b) =>
-        this.storage
-          .forRef(b)
+        this.store
           .delete(b)
           .catch((err) => this.logger.warn({ err, key: b.key }, 'Failed to clean up object')),
       ),

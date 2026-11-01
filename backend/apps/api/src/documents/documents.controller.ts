@@ -1,3 +1,4 @@
+import { contentDisposition } from '@luna/shared';
 import {
   Body,
   Controller,
@@ -30,7 +31,6 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { requestContext } from '../common/http/request-context.js';
 import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
 import { ApiZodBody, ApiZodCreated, ApiZodOk, ApiZodQuery } from '../common/swagger/zod-openapi.js';
-import { contentDisposition } from '../files/storage.service.js';
 import {
   assetSchema,
   collabTokenSchema,

@@ -1,13 +1,13 @@
 import { randomBytes } from 'node:crypto';
 import type { Readable } from 'node:stream';
 import { Prisma } from '@luna/db';
+import { ObjectStore } from '@luna/shared';
 import { Inject, Injectable } from '@nestjs/common';
 import type { Redis } from 'ioredis';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
 import { AppError } from '../common/errors/app-error.js';
 import type { RequestContext } from '../common/http/request-context.js';
-import { StorageService } from '../files/storage.service.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { REDIS } from '../infra/redis/redis.module.js';
 import type { AdminVideosQuery } from './videos.schemas.js';
@@ -18,7 +18,7 @@ const LINK_TTL_SEC = 60;
 export class AdminVideosService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly storage: StorageService,
+    private readonly store: ObjectStore,
     private readonly audit: AuditService,
     @Inject(REDIS) private readonly redis: Redis,
   ) {}
@@ -97,7 +97,7 @@ export class AdminVideosService {
     });
     const version = node.file?.currentVersion;
     if (!version) throw AppError.notFound('Video has no uploaded original');
-    const { body } = await this.storage.forRef(version.original).getStream(version.original);
+    const { body } = await this.store.getStream(version.original);
     await this.audit.log({
       actorId: adminId,
       action: 'video.original_access',

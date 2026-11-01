@@ -1,7 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { GetObjectCommand, type S3Client } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { openVideoKey } from '@luna/shared';
+import { ObjectStore, openVideoKey } from '@luna/shared';
 import { Inject, Injectable } from '@nestjs/common';
 import type { Redis } from 'ioredis';
 import { AuditService } from '../audit/audit.service.js';
@@ -13,11 +11,10 @@ import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { ContentAccessService } from '../content/content-access.service.js';
 import { NodeDtoService } from '../content/node-dto.service.js';
 import { NodeEventsService } from '../files/node-events.service.js';
-import { StorageService } from '../files/storage.service.js';
 import { TranscodeQueueService } from '../files/transcode-queue.service.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { REDIS } from '../infra/redis/redis.module.js';
-import { S3_PRESIGN } from '../infra/s3/s3.module.js';
+import { PREVIEW_URL } from '../infra/s3/s3.module.js';
 import { playbackIndexKey, playbackKey } from './playback-keys.js';
 
 const SESSION_IDLE_SEC = 15 * 60;
@@ -44,11 +41,10 @@ export class VideosService {
     private readonly prisma: PrismaService,
     private readonly access: ContentAccessService,
     private readonly dto: NodeDtoService,
-    private readonly storage: StorageService,
+    private readonly store: ObjectStore,
     private readonly audit: AuditService,
     private readonly events: NodeEventsService,
     @Inject(REDIS) private readonly redis: Redis,
-    @Inject(S3_PRESIGN) private readonly presigner: S3Client,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly transcodes: TranscodeQueueService,
   ) {}
@@ -164,9 +160,10 @@ export class VideosService {
       expiresAt: new Date(Date.now() + SESSION_IDLE_SEC * 1000),
       posterUrl: poster
         ? (
-            await this.storage.presignGet(poster, {
-              fileName: 'poster.jpg',
+            await this.store.presignGet(poster, {
+              ...PREVIEW_URL,
               contentType: poster.mime,
+              disposition: { type: 'inline', fileName: 'poster.jpg' },
             })
           ).url
         : null,
@@ -216,17 +213,16 @@ export class VideosService {
     if (!RENDITION_RE.test(rendition) || !SEGMENT_RE.test(segment))
       throw AppError.notFound('Segment not found');
     const s = await this.requireSession(nodeId, token);
-    return getSignedUrl(
-      this.presigner,
-      new GetObjectCommand({
-        Bucket: s.bucket,
-        Key: `${s.prefix}${rendition}/${segment}`,
-        ResponseContentType: 'video/mp2t',
-        ResponseContentDisposition: 'inline',
-        ResponseCacheControl: 'private, max-age=60',
-      }),
-      { expiresIn: SEGMENT_URL_TTL_SEC },
+    const { url } = await this.store.presignGet(
+      { container: s.bucket, key: `${s.prefix}${rendition}/${segment}` },
+      {
+        expiresInSec: SEGMENT_URL_TTL_SEC,
+        contentType: 'video/mp2t',
+        disposition: 'inline',
+        cacheControl: 'private, max-age=60',
+      },
     );
+    return url;
   }
 
   async key(nodeId: string, token: string): Promise<Buffer> {
@@ -266,7 +262,11 @@ export class VideosService {
       : null;
     if (!poster) throw AppError.notFound('This video has no poster yet');
     return (
-      await this.storage.presignGet(poster, { fileName: 'poster.jpg', contentType: poster.mime })
+      await this.store.presignGet(poster, {
+        ...PREVIEW_URL,
+        contentType: poster.mime,
+        disposition: { type: 'inline', fileName: 'poster.jpg' },
+      })
     ).url;
   }
 
@@ -281,9 +281,10 @@ export class VideosService {
       : null;
     if (!sprite || !video?.spriteVtt)
       throw AppError.notFound('This video has no preview thumbnails yet');
-    const { url } = await this.storage.presignGet(sprite, {
-      fileName: 'sprite.jpg',
+    const { url } = await this.store.presignGet(sprite, {
+      ...PREVIEW_URL,
       contentType: sprite.mime,
+      disposition: { type: 'inline', fileName: 'sprite.jpg' },
     });
     return video.spriteVtt.replaceAll('sprite.jpg#', `${url}#`);
   }
@@ -350,9 +351,8 @@ export class VideosService {
     const cacheKey = `hlspl:${s.prefix}${path}`;
     const cached = await this.redis.get(cacheKey);
     if (cached) return cached;
-    const { body } = await this.storage
-      .forRef({ provider: 'S3' })
-      .getStream({ provider: 'S3', container: s.bucket, key: `${s.prefix}${path}` })
+    const { body } = await this.store
+      .getStream({ container: s.bucket, key: `${s.prefix}${path}` })
       .catch(() => {
         throw AppError.notFound('Playlist not found');
       });

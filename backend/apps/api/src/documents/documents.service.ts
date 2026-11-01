@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import { SearchQueueService } from '../infra/queue/search-queue.service.js';
-import { CopyObjectCommand, PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
 import {
   type DocJSON,
   emptyDoc,
@@ -15,7 +14,7 @@ import {
   stateToJSON,
   wordCount,
 } from '@luna/editor';
-import { COLLAB_TOKEN_AUDIENCE, collabDocumentName } from '@luna/shared';
+import { COLLAB_TOKEN_AUDIENCE, collabDocumentName, ObjectStore } from '@luna/shared';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { fileTypeFromBuffer } from 'file-type';
 import { SignJWT } from 'jose';
@@ -29,9 +28,8 @@ import { ContentAccessService } from '../content/content-access.service.js';
 import { NodeDtoService } from '../content/node-dto.service.js';
 import { nameKey, suggestName } from '../content/node-names.js';
 import { NodesService } from '../content/nodes.service.js';
-import { StorageService } from '../files/storage.service.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
-import { BUCKETS, type Buckets, S3 } from '../infra/s3/s3.module.js';
+import { PREVIEW_URL } from '../infra/s3/s3.module.js';
 import { CollabClient } from './collab-client.service.js';
 import {
   DOCX_IMPORT_MAX_BYTES,
@@ -70,13 +68,11 @@ export class DocumentsService {
     private readonly access: ContentAccessService,
     private readonly nodes: NodesService,
     private readonly dto: NodeDtoService,
-    private readonly storage: StorageService,
+    private readonly store: ObjectStore,
     private readonly audit: AuditService,
     private readonly search: SearchQueueService,
     private readonly collab: CollabClient,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
-    @Inject(S3) private readonly s3: S3Client,
-    @Inject(BUCKETS) private readonly buckets: Buckets,
   ) {}
 
   async create(
@@ -279,7 +275,7 @@ export class DocumentsService {
         maxBytes: DOCX_IMPORT_MAX_BYTES,
       });
     if (original.sizeBytes > BigInt(DOCX_IMPORT_MAX_BYTES)) throw tooLarge();
-    const { body } = await this.storage.forRef(original).getStream(original);
+    const { body } = await this.store.getStream(original);
     const chunks: Buffer[] = [];
     let received = 0;
     for await (const c of body) {
@@ -443,19 +439,13 @@ export class DocumentsService {
             nodeId: toNodeId,
             kind: 'ASSET',
             provider: 'S3',
-            container: this.buckets.assets,
+            container: this.store.buckets.assets,
             key,
             sizeBytes: a.blob.sizeBytes,
             mime: a.blob.mime,
           },
         });
-        await this.s3.send(
-          new CopyObjectCommand({
-            Bucket: this.buckets.assets,
-            Key: key,
-            CopySource: `${a.blob.container}/${a.blob.key}`,
-          }),
-        );
+        await this.store.copy(a.blob, 'assets', key);
         return { from: a.id, id, blobId: blob.id, fileName: a.fileName };
       }),
     );
@@ -494,21 +484,12 @@ export class DocumentsService {
   ) {
     const id = randomUUID();
     const key = `docs/${nodeId}/${id}`;
-    await this.s3.send(
-      new PutObjectCommand({
-        Bucket: this.buckets.assets,
-        Key: key,
-        Body: data,
-        ContentType: mime,
-      }),
-    );
+    const stored = await this.store.putBuffer('assets', key, data, mime);
     const blob = await this.prisma.client.blob.create({
       data: {
         nodeId,
         kind: 'ASSET',
-        provider: 'S3',
-        container: this.buckets.assets,
-        key,
+        ...stored,
         sizeBytes: BigInt(data.length),
         mime,
       },
@@ -531,10 +512,10 @@ export class DocumentsService {
     };
   }) {
     const isImage = a.blob.mime.startsWith('image/');
-    const { url } = await this.storage.presignGet(a.blob, {
-      fileName: a.fileName,
+    const { url } = await this.store.presignGet(a.blob, {
+      ...PREVIEW_URL,
       contentType: a.blob.mime,
-      disposition: isImage ? 'inline' : 'attachment',
+      disposition: { type: isImage ? 'inline' : 'attachment', fileName: a.fileName },
     });
     return {
       id: a.id,

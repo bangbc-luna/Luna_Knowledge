@@ -1,6 +1,6 @@
-import { QUEUES } from '@luna/shared';
+import { ObjectStore, QUEUES } from '@luna/shared';
 import { BullModule } from '@nestjs/bullmq';
-import { Global, Module } from '@nestjs/common';
+import { Global, Module, type OnModuleDestroy } from '@nestjs/common';
 import { LoggerModule } from 'nestjs-pino';
 import {
   loadWorkerConfig,
@@ -11,7 +11,6 @@ import {
 import { MetricsServer } from './infra/metrics.server.js';
 import { PrismaService } from './infra/prisma.provider.js';
 import { NodeEventsPublisher } from './infra/redis.provider.js';
-import { StorageService } from './infra/storage.provider.js';
 import { FileProcessProcessor } from './processors/file-process.processor.js';
 import { VideoTranscodeProcessor } from './processors/video-transcode.processor.js';
 import { MaintenanceProcessor } from './processors/maintenance.processor.js';
@@ -60,7 +59,11 @@ class WorkerConfigModule {}
   ],
   providers: [
     PrismaService,
-    StorageService,
+    {
+      provide: ObjectStore,
+      inject: [WORKER_CONFIG],
+      useFactory: (c: WorkerConfig) => new ObjectStore(c),
+    },
     NodeEventsPublisher,
     SystemProcessor,
     MaintenanceProcessor,
@@ -70,4 +73,10 @@ class WorkerConfigModule {}
     MetricsServer,
   ],
 })
-export class WorkerModule {}
+export class WorkerModule implements OnModuleDestroy {
+  constructor(private readonly store: ObjectStore) {}
+
+  onModuleDestroy() {
+    this.store.destroy();
+  }
+}

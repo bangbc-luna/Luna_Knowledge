@@ -1,9 +1,9 @@
+import type { ObjectStore } from '@luna/shared';
 import { Logger } from '@nestjs/common';
 import type { Job, Queue } from 'bullmq';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkerConfig } from '../config/worker-config.js';
 import type { PrismaService } from '../infra/prisma.provider.js';
-import type { StorageService } from '../infra/storage.provider.js';
 import { MaintenanceProcessor } from './maintenance.processor.js';
 
 const dbDown = new Error('db down');
@@ -22,7 +22,7 @@ const failingPrisma = {
 const makeProcessor = () =>
   new MaintenanceProcessor(
     failingPrisma,
-    {} as StorageService,
+    {} as ObjectStore,
     {} as Queue,
     { WORKSPACE_PURGE_DAYS: 30, AUTO_VERSION_THIN_DAYS: 30 } as WorkerConfig,
   );

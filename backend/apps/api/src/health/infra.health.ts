@@ -1,11 +1,11 @@
-import { HeadBucketCommand, type S3Client } from '@aws-sdk/client-s3';
+import { HeadBucketCommand } from '@aws-sdk/client-s3';
+import { ObjectStore } from '@luna/shared';
 import { Inject, Injectable } from '@nestjs/common';
 import { HealthIndicatorService } from '@nestjs/terminus';
 import type { Redis } from 'ioredis';
 import { describeError } from '../common/errors/infra-errors.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { REDIS } from '../infra/redis/redis.module.js';
-import { BUCKETS, type Buckets, S3 } from '../infra/s3/s3.module.js';
 
 const TIMEOUT_MS = 3000;
 
@@ -24,8 +24,7 @@ export class InfraHealthIndicators {
     private readonly health: HealthIndicatorService,
     private readonly prisma: PrismaService,
     @Inject(REDIS) private readonly redis: Redis,
-    @Inject(S3) private readonly s3: S3Client,
-    @Inject(BUCKETS) private readonly buckets: Buckets,
+    private readonly store: ObjectStore,
   ) {}
 
   async database() {
@@ -53,8 +52,8 @@ export class InfraHealthIndicators {
     try {
       await withTimeout(
         Promise.all(
-          Object.values(this.buckets).map((Bucket) =>
-            this.s3.send(new HeadBucketCommand({ Bucket })),
+          Object.values(this.store.buckets).map((Bucket) =>
+            this.store.s3.send(new HeadBucketCommand({ Bucket })),
           ),
         ),
       );

@@ -6,6 +6,7 @@ import { join, relative } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import type { BlobKind } from '@luna/db';
 import {
+  ObjectStore,
   QUEUES,
   type QueueJob,
   reportError,
@@ -20,7 +21,6 @@ import sharp from 'sharp';
 import { WORKER_CONFIG, type WorkerConfig } from '../config/worker-config.js';
 import { PrismaService } from '../infra/prisma.provider.js';
 import { NodeEventsPublisher } from '../infra/redis.provider.js';
-import { StorageService } from '../infra/storage.provider.js';
 import {
   buildLadder,
   buildSprite,
@@ -62,7 +62,7 @@ export class VideoTranscodeProcessor extends WorkerHost implements OnApplication
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly storage: StorageService,
+    private readonly store: ObjectStore,
     private readonly events: NodeEventsPublisher,
     @Inject(WORKER_CONFIG) private readonly config: WorkerConfig,
   ) {
@@ -139,9 +139,9 @@ export class VideoTranscodeProcessor extends WorkerHost implements OnApplication
     if (!(await this.isCurrent(nodeId, versionId))) return { skipped: 'not the current version' };
 
     const workDir = await mkdtemp(join(this.config.WORKER_TMP_DIR ?? tmpdir(), 'luna-video-'));
-    const bucket = this.storage.buckets.hls;
+    const bucket = this.store.buckets.hls;
     const prefix = `${nodeId}/${versionId}-${randomBytes(4).toString('hex')}/`;
-    const thumbBucket = this.storage.buckets.thumbnails;
+    const thumbBucket = this.store.buckets.thumbnails;
     const written: Array<{ container: string; key: string }> = [];
     let lastPublish = 0;
     const progress = (p: number) => {
@@ -158,7 +158,7 @@ export class VideoTranscodeProcessor extends WorkerHost implements OnApplication
       });
       progress(0);
       const src = join(workDir, 'source');
-      const { body } = await this.storage.forRef(version.original).getStream(version.original);
+      const { body } = await this.store.getStream(version.original);
       await pipeline(body, createWriteStream(src));
 
       const info = await probe(this.tools, src);
@@ -195,9 +195,12 @@ export class VideoTranscodeProcessor extends WorkerHost implements OnApplication
         await Promise.all(
           files.slice(i, i + UPLOAD_PARALLEL).map(async (f) => {
             const ext = f.slice(f.lastIndexOf('.') + 1);
-            await this.storage.bucket('hls').putFile(prefix + relative(outDir, f), f, {
-              contentType: CONTENT_TYPES[ext] ?? 'application/octet-stream',
-            });
+            await this.store.putFile(
+              'hls',
+              prefix + relative(outDir, f),
+              f,
+              CONTENT_TYPES[ext] ?? 'application/octet-stream',
+            );
             const { size } = await stat(f);
             hlsBytes += BigInt(size);
           }),
@@ -210,7 +213,7 @@ export class VideoTranscodeProcessor extends WorkerHost implements OnApplication
         kind: BlobKind,
       ): Promise<NewBlob> => {
         const k = `${prefix.slice(0, -1)}-${name}`;
-        await this.storage.bucket('thumbnails').putFile(k, path, { contentType: mime });
+        await this.store.putFile('thumbnails', k, path, mime);
         written.push({ container: thumbBucket, key: k });
         return {
           kind,
@@ -345,13 +348,6 @@ export class VideoTranscodeProcessor extends WorkerHost implements OnApplication
   }
 
   private async cleanup(written: Array<{ container: string; key: string }>) {
-    await Promise.all(
-      written.map((w) =>
-        this.storage
-          .forRef({ provider: 'S3' })
-          .delete({ provider: 'S3', ...w })
-          .catch(() => undefined),
-      ),
-    );
+    await Promise.all(written.map((w) => this.store.delete(w).catch(() => undefined)));
   }
 }

@@ -5,14 +5,12 @@ import {
   CreateMultipartUploadCommand,
   ListPartsCommand,
   type Part,
-  type S3Client,
-  UploadPartCommand,
 } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { UploadSession } from '@luna/db';
 import {
   enqueueFileJob,
   type JobQueue,
+  ObjectStore,
   QUEUES,
   ALLOWED_EXTENSIONS,
   ruleForFileName,
@@ -28,7 +26,6 @@ import { ContentAccessService } from '../content/content-access.service.js';
 import { nameKey } from '../content/node-names.js';
 import { NodesService } from '../content/nodes.service.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
-import { BUCKETS, type Buckets, S3, S3_PRESIGN } from '../infra/s3/s3.module.js';
 import { NodeEventsService } from './node-events.service.js';
 import type { CreateUploadBody, PartsQuery } from './uploads.schemas.js';
 
@@ -49,9 +46,7 @@ export class UploadsService {
     private readonly audit: AuditService,
     private readonly events: NodeEventsService,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
-    @Inject(S3) private readonly s3: S3Client,
-    @Inject(S3_PRESIGN) private readonly presigner: S3Client,
-    @Inject(BUCKETS) private readonly buckets: Buckets,
+    private readonly store: ObjectStore,
     @InjectQueue(QUEUES.FILE_PROCESS) private readonly fileQueue: JobQueue<'file-process'>,
   ) {}
 
@@ -121,8 +116,8 @@ export class UploadsService {
     let s3UploadId: string | undefined;
     let session: UploadSession;
     try {
-      const multipart = await this.s3.send(
-        new CreateMultipartUploadCommand({ Bucket: this.buckets.tmp, Key: tmpKey }),
+      const multipart = await this.store.s3.send(
+        new CreateMultipartUploadCommand({ Bucket: this.store.buckets.tmp, Key: tmpKey }),
       );
       s3UploadId = multipart.UploadId;
       session = await this.prisma.client.uploadSession.create({
@@ -144,10 +139,10 @@ export class UploadsService {
       });
     } catch (err) {
       if (s3UploadId) {
-        await this.s3
+        await this.store.s3
           .send(
             new AbortMultipartUploadCommand({
-              Bucket: this.buckets.tmp,
+              Bucket: this.store.buckets.tmp,
               Key: tmpKey,
               UploadId: s3UploadId,
             }),
@@ -242,9 +237,9 @@ export class UploadsService {
       });
     }
 
-    await this.s3.send(
+    await this.store.s3.send(
       new CompleteMultipartUploadCommand({
-        Bucket: this.buckets.tmp,
+        Bucket: this.store.buckets.tmp,
         Key: session.tmpKey,
         UploadId: session.s3UploadId,
         MultipartUpload: {
@@ -298,10 +293,10 @@ export class UploadsService {
   }
 
   async abortSession(session: UploadSession) {
-    await this.s3
+    await this.store.s3
       .send(
         new AbortMultipartUploadCommand({
-          Bucket: this.buckets.tmp,
+          Bucket: this.store.buckets.tmp,
           Key: session.tmpKey,
           UploadId: session.s3UploadId,
         }),
@@ -359,15 +354,11 @@ export class UploadsService {
   private async signParts(session: UploadSession, from: number, to: number) {
     const parts: { partNumber: number; url: string }[] = [];
     for (let partNumber = from; partNumber <= to; partNumber++) {
-      const url = await getSignedUrl(
-        this.presigner,
-        new UploadPartCommand({
-          Bucket: this.buckets.tmp,
-          Key: session.tmpKey,
-          UploadId: session.s3UploadId,
-          PartNumber: partNumber,
-        }),
-        { expiresIn: PART_URL_TTL_SEC },
+      const url = await this.store.presignUploadPart(
+        { container: this.store.buckets.tmp, key: session.tmpKey },
+        session.s3UploadId,
+        partNumber,
+        PART_URL_TTL_SEC,
       );
       parts.push({ partNumber, url });
     }
@@ -378,9 +369,9 @@ export class UploadsService {
     const parts: Part[] = [];
     let marker: string | undefined;
     for (;;) {
-      const res = await this.s3.send(
+      const res = await this.store.s3.send(
         new ListPartsCommand({
-          Bucket: this.buckets.tmp,
+          Bucket: this.store.buckets.tmp,
           Key: session.tmpKey,
           UploadId: session.s3UploadId,
           PartNumberMarker: marker,

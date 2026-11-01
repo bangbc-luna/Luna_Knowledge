@@ -1,4 +1,5 @@
 import { pipeline } from 'node:stream/promises';
+import { contentDisposition } from '@luna/shared';
 import {
   Body,
   Controller,
@@ -36,7 +37,6 @@ import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
 import { ApiZodBody, ApiZodCreated, ApiZodOk, ApiZodQuery } from '../common/swagger/zod-openapi.js';
 import { NodesService } from '../content/nodes.service.js';
 import { nodeSchema } from '../content/nodes.schemas.js';
-import { contentDisposition } from '../files/storage.service.js';
 import { AdminVideosService } from './admin-videos.service.js';
 import {
   adminVideoSchema,

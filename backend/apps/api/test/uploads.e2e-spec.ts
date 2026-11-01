@@ -1,8 +1,7 @@
 import { PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
-import { QUEUES, redisConnection } from '@luna/shared';
+import { ObjectStore, QUEUES, redisConnection } from '@luna/shared';
 import { Queue } from 'bullmq';
 import request from 'supertest';
-import { BUCKETS, type Buckets, S3 } from '../src/infra/s3/s3.module.js';
 import { PART_SIZE } from '../src/files/uploads.service.js';
 import {
   createTestApp,
@@ -24,7 +23,7 @@ describe('Uploads and files (e2e)', () => {
   let outsider: LoggedIn;
   let wsId: string;
   let s3: S3Client;
-  let buckets: Buckets;
+  let buckets: ObjectStore['buckets'];
   let fileQueue: Queue;
   const http = () => request(ctx.app.getHttpServer());
 
@@ -105,8 +104,8 @@ describe('Uploads and files (e2e)', () => {
   beforeAll(async () => {
     ctx = await createTestApp();
     await resetDatabase(ctx.prisma);
-    s3 = ctx.app.get(S3);
-    buckets = ctx.app.get(BUCKETS);
+    s3 = ctx.app.get(ObjectStore).s3;
+    buckets = ctx.app.get(ObjectStore).buckets;
     fileQueue = new Queue(QUEUES.FILE_PROCESS, {
       connection: redisConnection(process.env.REDIS_URL!),
       prefix: 'luna',

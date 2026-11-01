@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { SearchQueueService } from '../infra/queue/search-queue.service.js';
 import type { Readable } from 'node:stream';
 import { accessColumns, effectiveRole, Prisma } from '@luna/db';
-import { enqueueFileJob, type JobQueue, QUEUES } from '@luna/shared';
+import { enqueueFileJob, type JobQueue, ObjectStore, QUEUES } from '@luna/shared';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Inject, Injectable } from '@nestjs/common';
 import type { Redis } from 'ioredis';
@@ -14,9 +14,9 @@ import { ContentAccessService } from '../content/content-access.service.js';
 import { NodeDtoService } from '../content/node-dto.service.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { REDIS } from '../infra/redis/redis.module.js';
+import { PREVIEW_URL } from '../infra/s3/s3.module.js';
 import type { FileVersionDto } from './files.schemas.js';
 import { NodeEventsService } from './node-events.service.js';
-import { StorageService } from './storage.service.js';
 import { TranscodeQueueService } from './transcode-queue.service.js';
 
 const userSummary = { id: true, email: true, name: true, avatarUrl: true } as const;
@@ -44,7 +44,7 @@ export class FilesService {
     private readonly prisma: PrismaService,
     private readonly access: ContentAccessService,
     private readonly dto: NodeDtoService,
-    private readonly storage: StorageService,
+    private readonly store: ObjectStore,
     private readonly audit: AuditService,
     private readonly search: SearchQueueService,
     private readonly events: NodeEventsService,
@@ -146,9 +146,13 @@ export class FilesService {
     if (!version?.preview || version.previewKind === 'none') {
       return { kind: 'none' as const, mime: null, url: null, expiresAt: null };
     }
-    const signed = await this.storage.presignGet(version.preview, {
-      fileName: previewFileName(version.fileName, version.preview.mime),
+    const signed = await this.store.presignGet(version.preview, {
+      ...PREVIEW_URL,
       contentType: version.preview.mime,
+      disposition: {
+        type: 'inline',
+        fileName: previewFileName(version.fileName, version.preview.mime),
+      },
     });
     return {
       kind: version.previewKind as 'pdf' | 'image' | 'text',
@@ -161,9 +165,10 @@ export class FilesService {
     await this.requireFile(user, nodeId, 'VIEWER');
     const version = await this.findVersion(nodeId);
     if (!version?.thumbnail) throw AppError.notFound('This file has no thumbnail');
-    const { url } = await this.storage.presignGet(version.thumbnail, {
-      fileName: 'thumbnail.webp',
+    const { url } = await this.store.presignGet(version.thumbnail, {
+      ...PREVIEW_URL,
       contentType: version.thumbnail.mime,
+      disposition: { type: 'inline', fileName: 'thumbnail.webp' },
     });
     return url;
   }
@@ -178,7 +183,7 @@ export class FilesService {
     this.assertDownloadable(node);
     const version = await this.findVersion(nodeId, versionId);
     if (!version) throw AppError.notFound('This file has no uploaded content yet');
-    const { body } = await this.storage.forRef(version.original).getStream(version.original);
+    const { body } = await this.store.getStream(version.original);
     await this.audit.log({
       actorId: user.id,
       action: 'file.download',

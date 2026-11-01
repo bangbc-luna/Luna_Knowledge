@@ -1,4 +1,5 @@
 import { pipeline } from 'node:stream/promises';
+import { contentDisposition } from '@luna/shared';
 import {
   Controller,
   Get,
@@ -43,7 +44,6 @@ import {
   type VersionQuery,
 } from './files.schemas.js';
 import { FilesService } from './files.service.js';
-import { contentDisposition } from './storage.service.js';
 
 const uuid = () => new ParseUUIDPipe();
 const HEARTBEAT_MS = 25_000;
