@@ -178,8 +178,9 @@ export class FilesService {
     nodeId: string,
     versionId: string | undefined,
     ctx: RequestContext,
+    { inactiveUser }: { inactiveUser?: string } = {},
   ): Promise<{ body: Readable; size: number; mime: string; fileName: string }> {
-    const node = await this.access.requireNode(user as AuthenticatedUser, nodeId, 'VIEWER');
+    const node = await this.access.requireNode(user, nodeId, 'VIEWER', { inactiveUser });
     this.assertDownloadable(node);
     const version = await this.findVersion(nodeId, versionId);
     if (!version) throw AppError.notFound('This file has no uploaded content yet');
@@ -219,13 +220,9 @@ export class FilesService {
     const raw = await this.redis.getdel(`dl:${token}`);
     if (!raw) throw AppError.notFound('Download link is invalid or has expired');
     const grant = JSON.parse(raw) as DownloadGrant;
-    const user = await this.prisma.client.user.findUnique({
-      where: { id: grant.userId },
-      select: { id: true, status: true },
+    return this.openDownload({ id: grant.userId }, grant.nodeId, grant.versionId, ctx, {
+      inactiveUser: 'Download link is invalid or has expired',
     });
-    if (user?.status !== 'ACTIVE')
-      throw AppError.notFound('Download link is invalid or has expired');
-    return this.openDownload(user, grant.nodeId, grant.versionId, ctx);
   }
 
   async restoreVersion(

@@ -36,6 +36,7 @@ export interface NodeAccess {
   isMember: boolean;
   memberRole: WorkspaceRole | null;
   role: ContentRole | null;
+  userActive: boolean;
 }
 
 interface AccessRow {
@@ -51,6 +52,7 @@ interface AccessRow {
   deleted_by: string | null;
   member_role: string | null;
   share_role: string | null;
+  user_active: boolean | null;
 }
 
 @Injectable()
@@ -82,6 +84,7 @@ export class ContentAccessService {
           isMember: !!r.member_role,
           memberRole: (r.member_role as WorkspaceRole | null) ?? null,
           role: effectiveRole(r),
+          userActive: r.user_active === true,
         },
       ]),
     );
@@ -91,10 +94,16 @@ export class ContentAccessService {
     user: Pick<AuthenticatedUser, 'id'>,
     nodeId: string,
     min: ContentRole,
-    opts: { allowDeleted?: boolean; types?: readonly NodeType[]; notFound?: string } = {},
+    opts: {
+      allowDeleted?: boolean;
+      types?: readonly NodeType[];
+      notFound?: string;
+      inactiveUser?: string;
+    } = {},
   ): Promise<NodeAccess & { role: ContentRole }> {
-    const { allowDeleted = false, types, notFound = 'Item not found' } = opts;
+    const { allowDeleted = false, types, notFound = 'Item not found', inactiveUser } = opts;
     const access = (await this.resolveMany(user.id, [nodeId])).get(nodeId);
+    if (access && !access.userActive && inactiveUser) throw AppError.notFound(inactiveUser);
     if (!access || !access.role || (access.deletedAt && !allowDeleted)) {
       throw AppError.notFound('Item not found');
     }

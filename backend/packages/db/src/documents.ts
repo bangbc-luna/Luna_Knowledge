@@ -23,12 +23,12 @@ export async function resolveDocumentAccess(
       created_by: string;
       member_role: string | null;
       share_role: string | null;
+      user_active: boolean | null;
     }>
   >`
     SELECT n.id, n.workspace_id, n.type::text AS type, n.created_by, ${accessColumns(userId)}
       FROM nodes n
       JOIN workspaces w ON w.id = n.workspace_id AND w.deleted_at IS NULL
-      JOIN users u ON u.id = ${userId}::uuid AND u.status = 'ACTIVE'
      WHERE n.id = ${nodeId}::uuid AND n.deleted_at IS NULL`;
   const r = rows[0];
   if (!r) return null;

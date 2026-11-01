@@ -130,6 +130,9 @@ describe('Videos: phát có bảo vệ (e2e)', () => {
     return { nodeId: node.id, versionId };
   }
 
+  const errorMessage = (res: { text: string }) =>
+    (JSON.parse(res.text) as { error: { message: string } }).error.message;
+
   const play = (as: LoggedIn, id: string) =>
     http().post(`/api/v1/videos/${id}/playback`).set(as.auth);
 
@@ -271,6 +274,44 @@ describe('Videos: phát có bảo vệ (e2e)', () => {
       .expect(204);
     await http().get(`/api/v1/videos/${nodeId}/key?s=${pb.body.token}`).expect(404);
     await http().get(pb.body.masterUrl).expect(404);
+  });
+
+  it('tài khoản bị khoá giữa phiên xem: playlist và khoá trả 404 phiên hết hạn', async () => {
+    const { nodeId } = await seedVideo('Khoá tài khoản.mp4');
+    const temp = await loginAs(ctx, 'locked.viewer@lunatech.vn');
+    await http()
+      .post(`/api/v1/workspaces/${wsId}/members`)
+      .set(sysadmin.auth)
+      .send({ email: 'locked.viewer@lunatech.vn' })
+      .expect(201);
+    const pb = await play(temp, nodeId).expect(200);
+    await http().get(pb.body.masterUrl).expect(200);
+    await http()
+      .patch(`/api/v1/admin/users/${temp.userId}`)
+      .set(sysadmin.auth)
+      .send({ status: 'DISABLED' })
+      .expect(200);
+    const master = await http().get(pb.body.masterUrl).expect(404);
+    expect(errorMessage(master)).toBe('Playback session is invalid or has expired');
+    const k = await http().get(`/api/v1/videos/${nodeId}/key?s=${pb.body.token}`).expect(404);
+    expect(errorMessage(k)).toBe('Playback session is invalid or has expired');
+  });
+
+  it('tài khoản bị khoá nhưng phiên xem chưa bị thu hồi: vẫn 404 phiên hết hạn', async () => {
+    const { nodeId } = await seedVideo('Khoá còn phiên.mp4');
+    const temp = await loginAs(ctx, 'stale.viewer@lunatech.vn');
+    await http()
+      .post(`/api/v1/workspaces/${wsId}/members`)
+      .set(sysadmin.auth)
+      .send({ email: 'stale.viewer@lunatech.vn' })
+      .expect(201);
+    const pb = await play(temp, nodeId).expect(200);
+    await http().get(`/api/v1/videos/${nodeId}/key?s=${pb.body.token}`).expect(200);
+    await ctx.prisma.user.update({ where: { id: temp.userId }, data: { status: 'DISABLED' } });
+    const master = await http().get(pb.body.masterUrl).expect(404);
+    expect(errorMessage(master)).toBe('Playback session is invalid or has expired');
+    const k = await http().get(`/api/v1/videos/${nodeId}/key?s=${pb.body.token}`).expect(404);
+    expect(errorMessage(k)).toBe('Playback session is invalid or has expired');
   });
 
   it('thu hồi share chỉ xem giữa chừng: khoá bị chặn ngay', async () => {

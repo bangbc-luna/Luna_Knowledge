@@ -447,6 +447,26 @@ describe('Uploads and files (e2e)', () => {
       await http().get(link.body.url).expect(404);
     });
 
+    it('tài khoản bị khoá sau khi lấy link tải: link trả 404 hết hạn', async () => {
+      const temp = await loginAs(ctx, 'locked.editor@lunatech.vn');
+      await http()
+        .post(`/api/v1/workspaces/${wsId}/members`)
+        .set(sysadmin.auth)
+        .send({ email: 'locked.editor@lunatech.vn', role: 'MEMBER' })
+        .expect(201);
+      const link = await http()
+        .post(`/api/v1/files/${nodeId}/download-link`)
+        .set(temp.auth)
+        .expect(201);
+      await http()
+        .patch(`/api/v1/admin/users/${temp.userId}`)
+        .set(sysadmin.auth)
+        .send({ status: 'DISABLED' })
+        .expect(200);
+      const res = await http().get(link.body.url).expect(404);
+      expect(res.body.error.message).toBe('Download link is invalid or has expired');
+    });
+
     it('phiên bản mới, lịch sử, khôi phục bản cũ', async () => {
       await uploadSmall(editor, 'v2.pdf', { replaceNodeId: nodeId });
       const versions = await http()

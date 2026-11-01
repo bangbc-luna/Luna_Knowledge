@@ -329,13 +329,10 @@ export class VideosService {
       throw AppError.notFound('Playback session is invalid or has expired');
     }
     if (checkAccess) {
-      const user = await this.prisma.client.user.findUnique({
-        where: { id: s.userId },
-        select: { id: true, status: true },
+      await this.access.requireNode({ id: s.userId }, nodeId, 'VIEWER', {
+        ...AS_VIDEO,
+        inactiveUser: 'Playback session is invalid or has expired',
       });
-      if (user?.status !== 'ACTIVE')
-        throw AppError.notFound('Playback session is invalid or has expired');
-      await this.access.requireNode({ id: user.id }, nodeId, 'VIEWER', AS_VIDEO);
     }
     await this.redis.expire(playbackKey(token), SESSION_IDLE_SEC);
     return s;
