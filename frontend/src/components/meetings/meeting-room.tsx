@@ -1,6 +1,6 @@
 "use client";
 
-import { LiveKitRoom, RoomAudioRenderer, useConnectionState, useLocalParticipant, useParticipants, useRoomContext } from "@livekit/components-react";
+import { LiveKitRoom, RoomAudioRenderer, useConnectionState, useLocalParticipant, useParticipantAttributes, useParticipants, useRoomContext } from "@livekit/components-react";
 import { ConnectionError, ConnectionErrorReason, ConnectionState, DisconnectReason, RoomEvent, ScreenSharePresets, VideoPresets } from "livekit-client";
 import type { RoomOptions } from "livekit-client";
 import { LoaderCircle, Users } from "lucide-react";
@@ -10,7 +10,11 @@ import { ApiError, describeError } from "@/lib/api";
 import { endMeeting, getMeeting, joinMeeting, setAiNotes } from "@/lib/meetings";
 import type { MeetingDetail, MeetingJoin } from "@/lib/meetings";
 import { useToast } from "../ui/toast";
+import { useAuth } from "@/lib/auth";
+import { ReactionsContext, useReactions } from "./reactions";
 import { RoomControls } from "./room-controls";
+import { RoomSidePanel, useMeetingChat } from "./room-side-panel";
+import type { PanelTab } from "./room-side-panel";
 import { RoomStage } from "./room-stage";
 
 export const ROOM_OPTIONS: RoomOptions = {
@@ -124,6 +128,27 @@ function RoomView({ meeting, join, onEnded, onMedia }: { meeting: MeetingDetail;
     if (state === ConnectionState.Connected) onMedia(isMicrophoneEnabled, isCameraEnabled);
   }, [state, isMicrophoneEnabled, isCameraEnabled, onMedia]);
   const [aiOn, setAiOn] = useAiNotes(join.aiNotesEnabled);
+  const { me } = useAuth();
+  const { localParticipant } = useLocalParticipant();
+  const { attributes } = useParticipantAttributes({ participant: localParticipant });
+  const handRaised = attributes?.handRaised === "true";
+  const reactions = useReactions();
+  const [panelOpen, setPanelOpen] = useState(() => typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches);
+  const [tab, setTab] = useState<PanelTab>("chat");
+  const chat = useMeetingChat(meeting.id, me?.id ?? "", panelOpen && tab === "chat");
+  const { markRead } = chat;
+  const changeTab = (next: PanelTab) => {
+    setTab(next);
+    if (next === "chat") markRead();
+  };
+  const togglePanel = () => {
+    if (!panelOpen && tab === "chat") markRead();
+    setPanelOpen(!panelOpen);
+  };
+
+  const toggleHand = () => {
+    localParticipant.setAttributes({ handRaised: handRaised ? "" : "true" }).catch((err: unknown) => toast("error", `Không đổi được trạng thái giơ tay: ${describeError(err)}`));
+  };
 
   const toggleAi = async () => {
     try {
@@ -160,10 +185,13 @@ function RoomView({ meeting, join, onEnded, onMedia }: { meeting: MeetingDetail;
           Đang kết nối lại…
         </div>
       ) : null}
-      <div className="flex min-h-0 flex-1">
-        <RoomStage />
-      </div>
-      <RoomControls isHost={join.isHost} aiOn={aiOn} onToggleAi={toggleAi} onEnd={end} />
+      <ReactionsContext.Provider value={reactions.active}>
+        <div className="relative flex min-h-0 flex-1">
+          <RoomStage />
+          <RoomSidePanel open={panelOpen} tab={tab} onTab={changeTab} onClose={() => setPanelOpen(false)} chat={chat} meetingId={meeting.id} meId={me?.id ?? ""} isHost={join.isHost} />
+        </div>
+      </ReactionsContext.Provider>
+      <RoomControls isHost={join.isHost} aiOn={aiOn} onToggleAi={toggleAi} onEnd={end} onReact={reactions.send} handRaised={handRaised} onToggleHand={toggleHand} panel={{ open: panelOpen, unread: chat.unread, onToggle: togglePanel }} />
       <RoomAudioRenderer />
     </div>
   );

@@ -3,12 +3,13 @@
 import "@livekit/components-styles/components/participant";
 import "@livekit/components-styles/components/layout";
 import "./room.css";
-import { CarouselLayout, GridLayout, ParticipantTile, VideoTrack, isTrackReference, useIsMuted, useTrackRefContext, useTracks } from "@livekit/components-react";
+import { CarouselLayout, GridLayout, ParticipantTile, VideoTrack, isTrackReference, useIsMuted, useParticipantAttributes, useTrackRefContext, useTracks } from "@livekit/components-react";
 import type { TrackReferenceOrPlaceholder } from "@livekit/components-react";
 import { MicOff } from "lucide-react";
 import { Track } from "livekit-client";
 import { initials } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import { useActiveReaction } from "./reactions";
 
 function TileBody() {
   const trackRef = useTrackRefContext();
@@ -16,6 +17,9 @@ function TileBody() {
   const isScreen = trackRef.source === Track.Source.ScreenShare;
   const micMuted = useIsMuted({ participant, source: Track.Source.Microphone });
   const name = participant.name || participant.identity;
+  const reaction = useActiveReaction(participant.identity);
+  const { attributes } = useParticipantAttributes({ participant });
+  const raised = !isScreen && attributes?.handRaised === "true";
   const showVideo = isTrackReference(trackRef) && !!trackRef.publication.track && !trackRef.publication.isMuted;
   return (
     <>
@@ -28,6 +32,16 @@ function TileBody() {
           </span>
         </div>
       )}
+      {raised ? (
+        <span role="img" aria-label={`${name} đang giơ tay`} className="pointer-events-none absolute top-2 left-2 rounded-full bg-rail/85 px-2 py-1 text-lg leading-none">
+          ✋
+        </span>
+      ) : null}
+      {!isScreen && reaction ? (
+        <span key={reaction.key} role="img" aria-label={`${name} thả ${reaction.emoji}`} data-reaction className="animate-pop pointer-events-none absolute top-2 right-2 rounded-full bg-rail/85 px-3 py-2 text-3xl leading-none">
+          {reaction.emoji}
+        </span>
+      ) : null}
       <div className="pointer-events-none absolute inset-x-2 bottom-2 flex items-center">
         <span className="flex max-w-full min-w-0 items-center gap-1.5 rounded-md bg-rail/85 px-2 py-1 text-xs text-rail-foreground">
           {!isScreen && micMuted ? <MicOff className="size-3.5 shrink-0" aria-label="Đã tắt mic" /> : null}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useLocalParticipant, useRoomContext } from "@livekit/components-react";
-import { Mic, MicOff, MonitorUp, PhoneOff, ScreenShareOff, Settings2, Video, VideoOff, type LucideIcon } from "lucide-react";
+import { Hand, MessageSquare, Mic, MicOff, MonitorUp, PhoneOff, ScreenShareOff, Settings2, SmilePlus, Video, VideoOff, type LucideIcon } from "lucide-react";
 import { useState } from "react";
 import { describeError } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -9,6 +9,8 @@ import { ConfirmDialog } from "../ui/dialog";
 import { focusRing } from "../ui/focus";
 import { MenuItem, PopoverPanel, usePopover } from "../ui/popover";
 import { useToast } from "../ui/toast";
+import { REACTIONS } from "./reactions";
+import type { Reaction } from "./reactions";
 
 export function ControlButton({ icon: Icon, label, active = true, danger, pressed, onClick, className }: { icon: LucideIcon; label: string; active?: boolean; danger?: boolean; pressed?: boolean; onClick: () => void; className?: string }) {
   return (
@@ -86,7 +88,40 @@ function HostMenu({ aiOn, onToggleAi, onEnd }: { aiOn: boolean; onToggleAi: () =
   );
 }
 
-export function RoomControls({ isHost, aiOn, onToggleAi, onEnd, extra }: { isHost: boolean; aiOn: boolean; onToggleAi: () => Promise<void>; onEnd: () => Promise<void>; extra?: React.ReactNode }) {
+function ReactionMenu({ onReact }: { onReact: (emoji: Reaction) => void }) {
+  const { open, setOpen, toggle, rootRef } = usePopover();
+  return (
+    <div ref={rootRef} className="relative">
+      <ControlButton icon={SmilePlus} label="Thả biểu tượng cảm xúc" pressed={open} onClick={toggle} />
+      <PopoverPanel open={open} offset="lg" className="left-1/2 -translate-x-1/2 text-foreground">
+        <div role="group" aria-label="Biểu tượng cảm xúc" className="flex gap-1 px-2 py-1">
+          {REACTIONS.map((emoji) => (
+            <button
+              key={emoji}
+              type="button"
+              aria-label={`Thả ${emoji}`}
+              onClick={() => {
+                onReact(emoji);
+                setOpen(false);
+              }}
+              className={cn("inline-flex size-10 cursor-pointer items-center justify-center rounded-lg text-2xl transition-colors hover:bg-foreground/5", focusRing)}
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+      </PopoverPanel>
+    </div>
+  );
+}
+
+export interface RoomPanelControls {
+  open: boolean;
+  unread: number;
+  onToggle: () => void;
+}
+
+export function RoomControls({ isHost, aiOn, onToggleAi, onEnd, onReact, handRaised, onToggleHand, panel }: { isHost: boolean; aiOn: boolean; onToggleAi: () => Promise<void>; onEnd: () => Promise<void>; onReact: (emoji: Reaction) => void; handRaised: boolean; onToggleHand: () => void; panel: RoomPanelControls }) {
   const room = useRoomContext();
   const toast = useToast();
   const { localParticipant, isMicrophoneEnabled, isCameraEnabled, isScreenShareEnabled } = useLocalParticipant();
@@ -116,7 +151,16 @@ export function RoomControls({ isHost, aiOn, onToggleAi, onEnd, extra }: { isHos
           onClick={run(() => localParticipant.setScreenShareEnabled(!isScreenShareEnabled, isScreenShareEnabled ? undefined : { contentHint: "text", audio: false }), "Không chia sẻ được màn hình")}
         />
       ) : null}
-      {extra}
+      <ReactionMenu onReact={onReact} />
+      <ControlButton icon={Hand} label={handRaised ? "Hạ tay" : "Giơ tay"} pressed={handRaised} active={!handRaised} onClick={onToggleHand} className={handRaised ? "bg-primary text-primary-foreground hover:bg-primary-hover" : undefined} />
+      <div className="relative">
+        <ControlButton icon={MessageSquare} label={panel.open ? "Ẩn chat và danh sách người" : "Mở chat và danh sách người"} pressed={panel.open} onClick={panel.onToggle} />
+        {panel.unread > 0 ? (
+          <span aria-label={`${panel.unread} tin nhắn mới`} className="pointer-events-none absolute -top-1 -right-1 inline-flex min-w-5 items-center justify-center rounded-full bg-primary px-1 text-xs font-semibold text-primary-foreground tabular-nums">
+            {panel.unread > 9 ? "9+" : panel.unread}
+          </span>
+        ) : null}
+      </div>
       {isHost ? <HostMenu aiOn={aiOn} onToggleAi={onToggleAi} onEnd={onEnd} /> : null}
       <button
         type="button"
