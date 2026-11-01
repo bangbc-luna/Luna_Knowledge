@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock, Globe, Search, Settings, Star, Trash2, Users } from "lucide-react";
+import { Clock, Globe, Search, Settings, Star, Trash2, Users, Video } from "lucide-react";
 import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -112,9 +112,10 @@ export function TreeColumn() {
           </div>
         ) : null}
       </div>
-      {base && !foreign && ws?.role !== "VIEWER" ? (
-        <div className="shrink-0 border-t border-border px-3 py-2">
-          <NavLink href={`${base}/trash`} icon={Trash2} label="Thùng rác" active={pathname === `${base}/trash`} />
+      {base && !foreign ? (
+        <div className="flex shrink-0 flex-col gap-1 border-t border-border px-3 py-2">
+          <NavLink href={`${base}/meetings`} icon={Video} label="Cuộc họp" active={pathname.startsWith(`${base}/meetings`)} />
+          {ws?.role !== "VIEWER" ? <NavLink href={`${base}/trash`} icon={Trash2} label="Thùng rác" active={pathname === `${base}/trash`} /> : null}
         </div>
       ) : null}
       <nav aria-label="Chung mọi workspace" className="flex shrink-0 flex-col gap-1 border-t border-border px-3 pt-2 pb-3">
