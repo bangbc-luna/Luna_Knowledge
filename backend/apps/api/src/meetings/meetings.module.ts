@@ -4,6 +4,7 @@ import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { ContentModule } from '../content/content.module.js';
 import { UsersModule } from '../users/users.module.js';
 import { MeetingAccess } from './meeting-access.service.js';
+import { MeetingChatService } from './meeting-chat.service.js';
 import { MeetingRoomService } from './meeting-room.service.js';
 import { MeetingWebhookController } from './meeting-webhook.controller.js';
 import { MeetingsController } from './meetings.controller.js';
@@ -16,6 +17,7 @@ import { MeetingsService } from './meetings.service.js';
     MeetingAccess,
     MeetingsService,
     MeetingRoomService,
+    MeetingChatService,
     { provide: MEETING_ENDED_HOOK, useValue: async () => {} },
     {
       provide: MEETING_MEDIA,
@@ -23,6 +25,6 @@ import { MeetingsService } from './meetings.service.js';
       useFactory: (config: AppConfig) => new LiveKitMeetingMedia(config),
     },
   ],
-  exports: [MeetingAccess, MEETING_MEDIA, MEETING_ENDED_HOOK],
+  exports: [MeetingAccess, MeetingChatService, MEETING_MEDIA, MEETING_ENDED_HOOK],
 })
 export class MeetingsModule {}

@@ -84,3 +84,18 @@ export const aiNotesBody = z.object({ enabled: z.boolean() });
 export const aiNotesResultSchema = z.object({ aiNotesEnabled: z.boolean() });
 
 export type AiNotesBody = z.output<typeof aiNotesBody>;
+
+export const sendMessageBody = z.object({ body: z.string().trim().min(1).max(2000) });
+export const listMessagesQuery = paginationQuery;
+
+export const chatMessageSchema = z.object({
+  id: z.uuid(),
+  body: z.string().describe('Văn bản thuần, lưu nguyên văn: giao diện phải hiển thị như text'),
+  createdAt: z.date(),
+  author: userSummarySchema,
+});
+export const chatMessagePageSchema = pageSchema(chatMessageSchema);
+
+export type SendMessageBody = z.output<typeof sendMessageBody>;
+export type ListMessagesQuery = z.output<typeof listMessagesQuery>;
+export type ChatMessageDto = z.output<typeof chatMessageSchema>;

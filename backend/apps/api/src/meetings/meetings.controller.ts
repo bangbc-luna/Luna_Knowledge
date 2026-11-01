@@ -24,6 +24,8 @@ import {
   type AiNotesBody,
   aiNotesBody,
   aiNotesResultSchema,
+  chatMessagePageSchema,
+  chatMessageSchema,
   createMeetingBody,
   type CreateMeetingBody,
   inviteBody,
@@ -31,14 +33,19 @@ import {
   invitesAddedSchema,
   joinMeetingSchema,
   listMeetingsQuery,
+  listMessagesQuery,
+  type ListMessagesQuery,
   type ListMeetingsQuery,
   meetingDetailSchema,
   meetingPageSchema,
   meetingSchema,
   muteResultSchema,
+  sendMessageBody,
+  type SendMessageBody,
   updateMeetingBody,
   type UpdateMeetingBody,
 } from './meetings.schemas.js';
+import { MeetingChatService } from './meeting-chat.service.js';
 import { MeetingRoomService } from './meeting-room.service.js';
 import { MeetingsService } from './meetings.service.js';
 
@@ -51,6 +58,7 @@ export class MeetingsController {
   constructor(
     private readonly meetings: MeetingsService,
     private readonly room: MeetingRoomService,
+    private readonly chat: MeetingChatService,
   ) {}
 
   @Post('workspaces/:wsId/meetings')
@@ -195,5 +203,34 @@ export class MeetingsController {
     @Req() req: Request,
   ) {
     return this.room.setAiNotes(user, id, body.enabled, requestContext(req));
+  }
+
+  @Post('meetings/:id/messages')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @ApiOperation({
+    summary: 'Gửi tin nhắn vào buổi họp đang diễn ra',
+    description:
+      'Nội dung lưu nguyên văn, không biến đổi HTML; giao diện phải hiển thị như văn bản thuần.',
+  })
+  @ApiZodBody(sendMessageBody, { body: 'Mọi người xem link này nhé' })
+  @ApiZodCreated(chatMessageSchema)
+  sendMessage(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', uuid()) id: string,
+    @Body(new ZodValidationPipe(sendMessageBody)) body: SendMessageBody,
+  ) {
+    return this.chat.send(user, id, body);
+  }
+
+  @Get('meetings/:id/messages')
+  @ApiOperation({ summary: 'Lịch sử chat của buổi họp, cũ đến mới (kể cả sau khi kết thúc)' })
+  @ApiZodQuery(listMessagesQuery)
+  @ApiZodOk(chatMessagePageSchema)
+  listMessages(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', uuid()) id: string,
+    @Query(new ZodValidationPipe(listMessagesQuery)) q: ListMessagesQuery,
+  ) {
+    return this.chat.list(user, id, q);
   }
 }
