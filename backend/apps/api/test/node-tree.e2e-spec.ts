@@ -453,7 +453,10 @@ describe('Node tree create, move and restore behaviour (e2e)', () => {
     const explicit = await createFolder(alice, 'Con video 2', vf, 'VIDEOS').expect(201);
     expect(explicit.body.section).toBe('VIDEOS');
     const bad = await createFolder(alice, 'Con sai khu', vf, 'DOCS');
-    expect(bad.status).toBeGreaterThanOrEqual(400);
+    expect(bad.status).toBe(400);
+    expect(bad.body.error.message).toBe(
+      'This folder is in the Video area, which only holds videos',
+    );
   });
 
   it('tài liệu vào folder thuộc VIDEOS: 400 với message khu Video', async () => {
