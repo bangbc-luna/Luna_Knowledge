@@ -53,10 +53,10 @@ describe('LiveKitMeetingMedia', () => {
       canPublish: true,
       canSubscribe: true,
       canPublishData: true,
-      canUpdateOwnMetadata: true,
       canPublishSources: ['camera', 'microphone', 'screen_share', 'screen_share_audio'],
     });
     expect(claims.video.roomAdmin).toBeUndefined();
+    expect(claims.video.canUpdateOwnMetadata).toBeUndefined();
   });
 
   it('host token has the same grant as a participant', async () => {

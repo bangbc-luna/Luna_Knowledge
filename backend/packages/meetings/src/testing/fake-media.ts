@@ -27,17 +27,22 @@ export class FakeMeetingMedia implements MeetingMedia {
   readonly muted: Array<{ roomName: string; identity: string }> = [];
   readonly broadcasts: Array<{ roomName: string; topic: string; payload: unknown }> = [];
   readonly tokens: JoinTokenInput[] = [];
-  private readonly failures = new Map<keyof MeetingMedia, Error>();
+  readonly attributes: Array<{
+    roomName: string;
+    identity: string;
+    attributes: Record<string, string>;
+  }> = [];
+  private readonly failures = new Map<keyof MeetingMedia, { err: Error; times: number }>();
 
-  failNext(method: keyof MeetingMedia, err: Error): void {
-    this.failures.set(method, err);
+  failNext(method: keyof MeetingMedia, err: Error, times = 1): void {
+    this.failures.set(method, { err, times });
   }
 
   private check(method: keyof MeetingMedia): void {
-    const err = this.failures.get(method);
-    if (err) {
-      this.failures.delete(method);
-      throw err;
+    const failure = this.failures.get(method);
+    if (failure) {
+      if (--failure.times <= 0) this.failures.delete(method);
+      throw failure.err;
     }
   }
 
@@ -63,6 +68,18 @@ export class FakeMeetingMedia implements MeetingMedia {
     const present =
       this.rooms.get(roomName)?.participants.some((p) => p.identity === identity) ?? false;
     if (present) this.muted.push({ roomName, identity });
+    return present;
+  }
+
+  async setParticipantAttributes(
+    roomName: string,
+    identity: string,
+    attributes: Record<string, string>,
+  ): Promise<boolean> {
+    this.check('setParticipantAttributes');
+    const present =
+      this.rooms.get(roomName)?.participants.some((p) => p.identity === identity) ?? false;
+    if (present) this.attributes.push({ roomName, identity, attributes });
     return present;
   }
 

@@ -7,6 +7,7 @@ export const meetingsEnvSchema = z.object({
   MEETING_TOKEN_TTL_SEC: z.coerce.number().int().min(60).max(3600).default(600),
   MEETING_EMPTY_GRACE_SEC: z.coerce.number().int().min(30).default(120),
   MEETING_MAX_PARTICIPANTS: z.coerce.number().int().min(2).max(100).default(25),
+  MEETING_EARLY_JOIN_MIN: z.coerce.number().int().min(0).max(240).default(15),
   MEETING_REMINDER_MINUTES: z.coerce.number().int().min(1).max(120).default(10),
 });
 

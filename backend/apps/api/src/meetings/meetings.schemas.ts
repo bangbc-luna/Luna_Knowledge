@@ -56,6 +56,10 @@ export const meetingSchema = z.object({
 export const meetingDetailSchema = meetingSchema.extend({
   invitees: z.array(userSummarySchema),
   attendees: z.array(userSummarySchema.extend({ joinedAt: z.date(), leftAt: z.date().nullable() })),
+  opensAt: z
+    .date()
+    .nullable()
+    .describe('Giờ phòng mở cho người không quản lý, chỉ khi buổi họp còn SCHEDULED'),
   canHost: z.boolean().describe('Người tạo buổi họp'),
   canManage: z.boolean().describe('Người tạo hoặc quản trị workspace: sửa, huỷ, mời'),
 });
@@ -80,9 +84,13 @@ export const joinMeetingSchema = z.object({
 
 export const muteResultSchema = z.object({ muted: z.boolean() });
 
+export const handBody = z.object({ raised: z.boolean() });
+export const handResultSchema = z.object({ raised: z.boolean() });
+
 export const aiNotesBody = z.object({ enabled: z.boolean() });
 export const aiNotesResultSchema = z.object({ aiNotesEnabled: z.boolean() });
 
+export type HandBody = z.output<typeof handBody>;
 export type AiNotesBody = z.output<typeof aiNotesBody>;
 
 export const sendMessageBody = z.object({ body: z.string().trim().min(1).max(2000) });

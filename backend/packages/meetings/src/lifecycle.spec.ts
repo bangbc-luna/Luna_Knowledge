@@ -9,7 +9,7 @@ function stubDb(): PrismaClient {
     $queryRaw: async () => [
       { id: 'm1', workspace_id: 'w1', ai_notes_enabled: true, ended_at: new Date() },
     ],
-    meetingAttendance: { updateMany: async () => ({ count: 0 }) },
+    $executeRaw: async () => 0,
     auditLog: { create: async () => ({}) },
   };
   return { $transaction: async (fn: (t: typeof tx) => unknown) => fn(tx) } as never;

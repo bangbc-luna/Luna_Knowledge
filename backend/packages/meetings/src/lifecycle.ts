@@ -36,10 +36,9 @@ export async function endMeeting(
        RETURNING id::text, workspace_id::text, ai_notes_enabled, ended_at`;
     const row = rows[0];
     if (!row) return null;
-    await tx.meetingAttendance.updateMany({
-      where: { meetingId, leftAt: null },
-      data: { leftAt: row.ended_at },
-    });
+    await tx.$executeRaw`UPDATE meeting_attendances
+         SET left_at = GREATEST(joined_at, ${row.ended_at})
+       WHERE meeting_id = ${meetingId}::uuid AND left_at IS NULL`;
     await writeAudit(tx, {
       actorId,
       action: 'meeting.end',

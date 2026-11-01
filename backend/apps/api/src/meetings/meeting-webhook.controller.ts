@@ -64,10 +64,11 @@ export class MeetingWebhookController {
     const db = this.prisma.client;
     const meeting = await db.meeting.findUnique({
       where: { id: meetingId },
-      select: { id: true, status: true, workspaceId: true, createdById: true },
+      select: { id: true, status: true, workspaceId: true, createdById: true, startedAt: true },
     });
     if (!meeting) return;
     if (event.kind === 'room_finished') {
+      if (meeting.startedAt && event.at < meeting.startedAt) return;
       await endMeeting(
         { db, media: this.media, onEnded: this.onEnded },
         meetingId,

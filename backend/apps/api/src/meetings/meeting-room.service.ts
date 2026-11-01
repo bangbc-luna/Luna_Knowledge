@@ -17,6 +17,7 @@ import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { MeetingAccess } from './meeting-access.service.js';
 
 const ENDED_MESSAGE = 'This meeting has already ended';
+const NOT_STARTED_YET_MESSAGE = 'This meeting has not started yet';
 const MEDIA_UNAVAILABLE = 'The meeting service is unavailable, try again in a moment';
 
 const roomMetadata = (m: Pick<Meeting, 'title' | 'aiNotesEnabled' | 'createdById'>) =>
@@ -33,9 +34,17 @@ export class MeetingRoomService {
   ) {}
 
   async join(user: AuthenticatedUser, meetingId: string, ctx: RequestContext) {
-    const { meeting: seen, isHost } = await this.access.require(user, meetingId);
+    const { meeting: seen, isHost, canManage } = await this.access.require(user, meetingId);
     if (seen.status === 'ENDED' || seen.status === 'CANCELLED') {
       throw AppError.conflict(ENDED_MESSAGE);
+    }
+    if (
+      seen.status === 'SCHEDULED' &&
+      !canManage &&
+      seen.scheduledAt &&
+      seen.scheduledAt.getTime() > Date.now() + this.config.MEETING_EARLY_JOIN_MIN * 60_000
+    ) {
+      throw AppError.conflict(NOT_STARTED_YET_MESSAGE);
     }
     await this.prisma.client.$transaction(async (tx) => {
       const started = await tx.$queryRaw<{ id: string }[]>`UPDATE meetings
@@ -79,6 +88,18 @@ export class MeetingRoomService {
     } catch (err) {
       console.error('meeting join media failed', { meetingId, err });
       throw AppError.unavailable(MEDIA_UNAVAILABLE);
+    }
+    const after = await this.prisma.client.meeting.findUniqueOrThrow({
+      where: { id: meetingId },
+      select: { status: true },
+    });
+    if (after.status !== 'LIVE') {
+      try {
+        await this.media.endRoom(roomName);
+      } catch (err) {
+        console.error('meeting join cleanup endRoom failed', { meetingId, err });
+      }
+      throw AppError.conflict(ENDED_MESSAGE);
     }
     return {
       serverUrl: this.media.serverUrl,
@@ -172,10 +193,55 @@ export class MeetingRoomService {
         await sync().catch(() => sync());
       } catch (err) {
         console.error('meeting ai notes sync failed', { meetingId, err });
+        if (enabled) await this.revertAiNotes(meetingId, meeting.workspaceId, user.id, ctx);
         throw AppError.unavailable(MEDIA_UNAVAILABLE);
       }
     }
     return { aiNotesEnabled: fresh.aiNotesEnabled };
+  }
+
+  private async revertAiNotes(
+    meetingId: string,
+    workspaceId: string,
+    actorId: string,
+    ctx: RequestContext,
+  ) {
+    try {
+      await this.prisma.client.$transaction(async (tx) => {
+        await tx.meeting.updateMany({
+          where: { id: meetingId, status: { in: ['SCHEDULED', 'LIVE'] } },
+          data: { aiNotesEnabled: false },
+        });
+        await writeAudit(tx, {
+          actorId,
+          action: 'meeting.ai_notes_toggle',
+          targetType: 'meeting',
+          targetId: meetingId,
+          workspaceId,
+          metadata: { enabled: false, reverted: true },
+          ip: ctx.ip,
+          userAgent: ctx.userAgent,
+        });
+      });
+    } catch (err) {
+      console.error('meeting ai notes revert failed', { meetingId, err });
+    }
+  }
+
+  async setHand(user: AuthenticatedUser, meetingId: string, raised: boolean) {
+    const { meeting } = await this.access.require(user, meetingId);
+    this.requireLive(meeting);
+    let updated: boolean;
+    try {
+      updated = await this.media.setParticipantAttributes(roomNameFor(meetingId), user.id, {
+        handRaised: raised ? 'true' : '',
+      });
+    } catch (err) {
+      console.error('meeting hand failed', { meetingId, err });
+      throw AppError.unavailable(MEDIA_UNAVAILABLE);
+    }
+    if (!updated) throw AppError.conflict('You are not in the meeting room');
+    return { raised };
   }
 
   private requireLive(meeting: Meeting) {

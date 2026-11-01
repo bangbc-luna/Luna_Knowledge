@@ -318,6 +318,132 @@ describe('Meeting rooms (e2e)', () => {
       .expect(503);
   });
 
+  it('joining a SCHEDULED meeting more than 15 minutes early is 409 for non-managers and leaves it SCHEDULED; managers and the early window are allowed', async () => {
+    const id = await create(alice, { mode: 'scheduled', scheduledAt: inHours(3) });
+    const early = await join(bob, id).expect(409);
+    expect(early.body.error.message).toBe('This meeting has not started yet');
+    expect((await ctx.prisma.meeting.findUniqueOrThrow({ where: { id } })).status).toBe(
+      'SCHEDULED',
+    );
+    expect(ctx.media.rooms.has(`luna-${id}`)).toBe(false);
+    const detail = await http().get(`/api/v1/meetings/${id}`).set(bob.auth).expect(200);
+    const scheduledAt = new Date(detail.body.scheduledAt).getTime();
+    expect(new Date(detail.body.opensAt).getTime()).toBe(scheduledAt - 15 * 60_000);
+    await join(alice, id).expect(200);
+    expect((await ctx.prisma.meeting.findUniqueOrThrow({ where: { id } })).status).toBe('LIVE');
+    const live = await http().get(`/api/v1/meetings/${id}`).set(bob.auth).expect(200);
+    expect(live.body.opensAt).toBeNull();
+
+    const soon = await create(alice, {
+      mode: 'scheduled',
+      scheduledAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+    });
+    await join(bob, soon).expect(200);
+  });
+
+  it('an admin who did not create the meeting may join it early', async () => {
+    const id = await create(bob, { mode: 'scheduled', scheduledAt: inHours(3) });
+    await join(alice, id).expect(200);
+  });
+
+  it('if the meeting ended while the room was being prepared, join ends the room and returns 409', async () => {
+    const id = await create(alice);
+    const original = ctx.media.joinToken.bind(ctx.media);
+    ctx.media.joinToken = async (input) => {
+      await ctx.prisma.meeting.update({
+        where: { id },
+        data: { status: 'ENDED', startedAt: new Date(), endedAt: new Date(), endReason: 'host' },
+      });
+      return original(input);
+    };
+    try {
+      const res = await join(alice, id).expect(409);
+      expect(res.body.error.message).toBe('This meeting has already ended');
+    } finally {
+      ctx.media.joinToken = original;
+    }
+    expect(ctx.media.ended).toContain(`luna-${id}`);
+    expect(ctx.media.rooms.has(`luna-${id}`)).toBe(false);
+  });
+
+  it('switching AI notes on with a failed media sync reverts the DB, audits the revert and returns 503; a failed switch-off keeps the DB off', async () => {
+    const id = await create(alice, { aiNotesEnabled: false });
+    await join(alice, id).expect(200);
+    ctx.media.failNext('setRoomMetadata', new Error('down'), 2);
+    const res = await http()
+      .put(`/api/v1/meetings/${id}/ai-notes`)
+      .set(alice.auth)
+      .send({ enabled: true })
+      .expect(503);
+    expect(res.body.error.message).toBe(
+      'The meeting service is unavailable, try again in a moment',
+    );
+    expect((await ctx.prisma.meeting.findUniqueOrThrow({ where: { id } })).aiNotesEnabled).toBe(
+      false,
+    );
+    const audits = await ctx.prisma.auditLog.findMany({
+      where: { action: 'meeting.ai_notes_toggle', targetId: id },
+      orderBy: { createdAt: 'asc' },
+    });
+    expect(audits.map((a) => a.metadata)).toEqual([
+      { enabled: true },
+      { enabled: false, reverted: true },
+    ]);
+
+    await http()
+      .put(`/api/v1/meetings/${id}/ai-notes`)
+      .set(alice.auth)
+      .send({ enabled: true })
+      .expect(200);
+    ctx.media.failNext('setRoomMetadata', new Error('down'), 2);
+    await http()
+      .put(`/api/v1/meetings/${id}/ai-notes`)
+      .set(alice.auth)
+      .send({ enabled: false })
+      .expect(503);
+    expect((await ctx.prisma.meeting.findUniqueOrThrow({ where: { id } })).aiNotesEnabled).toBe(
+      false,
+    );
+  });
+
+  it('ending closes open sessions even when joined_at is in the future', async () => {
+    const id = await create(alice);
+    await join(alice, id).expect(200);
+    const future = new Date(Date.now() + 3_600_000);
+    await ctx.prisma.meetingAttendance.create({
+      data: { meetingId: id, userId: bob.userId, joinedAt: future },
+    });
+    await http().post(`/api/v1/meetings/${id}/end`).set(alice.auth).expect(204);
+    const row = await ctx.prisma.meetingAttendance.findFirstOrThrow({
+      where: { meetingId: id, userId: bob.userId },
+    });
+    expect(row.leftAt?.getTime()).toBe(future.getTime());
+  });
+
+  it('PUT hand sets the caller attribute, needs a LIVE meeting, access and the caller in the room', async () => {
+    const id = await create(alice);
+    const hand = (as: LoggedIn, raised: unknown) =>
+      http().put(`/api/v1/meetings/${id}/hand`).set(as.auth).send({ raised });
+    await hand(bob, true).expect(409);
+    await join(alice, id).expect(200);
+    await join(bob, id).expect(200);
+    const room = ctx.media.rooms.get(`luna-${id}`)!;
+    room.participants.push({ identity: bob.userId, joinedAt: new Date(), hidden: false });
+    await hand(guest, true).expect(404);
+    await hand(bob, 'yes').expect(400);
+    const up = await hand(bob, true).expect(200);
+    expect(up.body).toEqual({ raised: true });
+    const down = await hand(bob, false).expect(200);
+    expect(down.body).toEqual({ raised: false });
+    expect(ctx.media.attributes).toEqual([
+      { roomName: `luna-${id}`, identity: bob.userId, attributes: { handRaised: 'true' } },
+      { roomName: `luna-${id}`, identity: bob.userId, attributes: { handRaised: '' } },
+    ]);
+    await hand(carol, true).expect(409);
+    ctx.media.failNext('setParticipantAttributes', new Error('down'));
+    await hand(bob, true).expect(503);
+  });
+
   it('a deactivated user cannot join (rejected by the auth guard with 401)', async () => {
     const id = await create(alice);
     await ctx.prisma.user.update({ where: { id: bob.userId }, data: { status: 'DISABLED' } });

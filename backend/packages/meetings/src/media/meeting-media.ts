@@ -31,6 +31,11 @@ export interface MeetingMedia {
   joinToken(input: JoinTokenInput): Promise<string>;
   endRoom(roomName: string): Promise<void>;
   muteMicrophone(roomName: string, identity: string): Promise<boolean>;
+  setParticipantAttributes(
+    roomName: string,
+    identity: string,
+    attributes: Record<string, string>,
+  ): Promise<boolean>;
   setRoomMetadata(roomName: string, metadata: string): Promise<void>;
   broadcast(roomName: string, topic: string, payload: unknown): Promise<void>;
   listParticipants(roomName: string): Promise<MediaParticipant[] | null>;

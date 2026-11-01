@@ -210,6 +210,19 @@ describe('Meeting webhook (e2e)', () => {
     ).toBe(1);
   });
 
+  it('a room_finished event older than the meeting start is ignored', async () => {
+    const id = await create(alice);
+    await http().post(`/api/v1/meetings/${id}/join`).set(alice.auth).expect(200);
+    const startedAt = (await ctx.prisma.meeting.findUniqueOrThrow({ where: { id } })).startedAt!;
+    await send({
+      kind: 'room_finished',
+      roomName: room(id),
+      eventId: randomUUID(),
+      at: new Date(startedAt.getTime() - 60_000),
+    }).expect(200);
+    expect((await ctx.prisma.meeting.findUniqueOrThrow({ where: { id } })).status).toBe('LIVE');
+  });
+
   it('room_finished after the host ended writes no second audit', async () => {
     const id = await create(alice);
     await http().post(`/api/v1/meetings/${id}/join`).set(alice.auth).expect(200);

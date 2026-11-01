@@ -88,7 +88,6 @@ export class LiveKitMeetingMedia implements MeetingMedia {
             canPublish: true,
             canSubscribe: true,
             canPublishData: true,
-            canUpdateOwnMetadata: true,
             canPublishSources: PUBLISH_SOURCES,
           };
     token.addGrant(grant);
@@ -109,6 +108,20 @@ export class LiveKitMeetingMedia implements MeetingMedia {
       const mic = participant.tracks.find((t) => t.source === TrackSource.MICROPHONE);
       if (!mic) return false;
       await this.rooms.mutePublishedTrack(roomName, identity, mic.sid, true);
+      return true;
+    } catch (err) {
+      if (isNotFound(err)) return false;
+      throw err;
+    }
+  }
+
+  async setParticipantAttributes(
+    roomName: string,
+    identity: string,
+    attributes: Record<string, string>,
+  ): Promise<boolean> {
+    try {
+      await this.rooms.updateParticipant(roomName, identity, { attributes });
       return true;
     } catch (err) {
       if (isNotFound(err)) return false;
