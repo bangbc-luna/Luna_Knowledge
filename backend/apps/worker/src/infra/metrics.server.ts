@@ -27,8 +27,11 @@ export class MetricsServer implements OnModuleInit, OnModuleDestroy {
     @InjectQueue(QUEUES.FILE_PROCESS) files: Queue,
     @InjectQueue(QUEUES.VIDEO_TRANSCODE) videos: Queue,
     @InjectQueue(QUEUES.SEARCH_INDEX) search: Queue,
+    @InjectQueue(QUEUES.MEETINGS) meetings: Queue,
+    @InjectQueue(QUEUES.MEETING_RECORDER) recorder: Queue,
+    @InjectQueue(QUEUES.MEETING_MINUTES) minutes: Queue,
   ) {
-    const queues = [system, maintenance, files, videos, search];
+    const queues = [system, maintenance, files, videos, search, meetings, recorder, minutes];
     new Gauge({
       name: 'queue_jobs',
       help: 'BullMQ jobs by queue and state',

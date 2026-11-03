@@ -68,6 +68,15 @@ describe('Worker system queue (e2e)', () => {
     expect(await res.text()).toBe('ok');
   });
 
+  it('GET /metrics có số job của cả hàng đợi meetings, meeting-recorder và meeting-minutes', async () => {
+    const res = await fetch('http://127.0.0.1:19464/metrics');
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    for (const name of [QUEUES.MEETINGS, QUEUES.MEETING_RECORDER, QUEUES.MEETING_MINUTES]) {
+      expect(body).toContain(`queue_jobs{queue="${name}",state="waiting"`);
+    }
+  });
+
   it('job không xác định bị đánh dấu failed', async () => {
     const job = await queue.add('unknown-job', {}, { attempts: 1 });
     await expect(job.waitUntilFinished(events, 10_000)).rejects.toThrow(/Unknown job/);
