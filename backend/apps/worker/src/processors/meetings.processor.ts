@@ -30,6 +30,7 @@ const MAX_LIVE_MS = 12 * 3_600_000;
 const STALE_SCHEDULED_MS = 24 * 3_600_000;
 const EMPTY_MARKER_TTL_FACTOR = 3;
 const MINUTES_SWEEP_SLACK_MS = 5 * 60_000;
+const STALE_PUBLISH_MS = 5 * 60_000;
 const MINUTES_SWEEP_ATTEMPT = 900;
 const LIVE_JOB_STATES = new Set([
   'waiting',
@@ -46,6 +47,7 @@ export interface ReconcileResult {
   failed: number;
   cancelled: number;
   minutesRecovered: number;
+  publishingReset: number;
 }
 
 async function forEachLimited<T>(
@@ -152,6 +154,7 @@ export class MeetingsProcessor extends WorkerHost implements OnApplicationBootst
       failed: 0,
       cancelled: 0,
       minutesRecovered: 0,
+      publishingReset: 0,
     };
     let after: string | undefined;
     for (;;) {
@@ -184,12 +187,64 @@ export class MeetingsProcessor extends WorkerHost implements OnApplicationBootst
     } catch (err) {
       this.logger.error({ err }, 'Minutes recovery sweep failed');
     }
-    if (result.ended || result.failed || result.cancelled || result.minutesRecovered) {
+    try {
+      result.publishingReset = await this.resetStalePublishing();
+    } catch (err) {
+      this.logger.error({ err }, 'Stale minutes publishing sweep failed');
+    }
+    if (
+      result.ended ||
+      result.failed ||
+      result.cancelled ||
+      result.minutesRecovered ||
+      result.publishingReset
+    ) {
       this.logger.log(
-        `Reconciled ${result.checked} live meeting(s): ${result.ended} ended, ${result.failed} failed, ${result.cancelled} stale cancelled, ${result.minutesRecovered} minutes job(s) recovered`,
+        `Reconciled ${result.checked} live meeting(s): ${result.ended} ended, ${result.failed} failed, ${result.cancelled} stale cancelled, ${result.minutesRecovered} minutes job(s) recovered, ${result.publishingReset} stuck publish(es) reopened`,
       );
     }
     return result;
+  }
+
+  private async resetStalePublishing(): Promise<number> {
+    const db = this.prisma.client;
+    const cutoff = new Date(Date.now() - STALE_PUBLISH_MS);
+    let reset = 0;
+    let after: string | undefined;
+    for (;;) {
+      const page = await db.meetingMinutes.findMany({
+        where: {
+          status: 'PUBLISHING',
+          updatedAt: { lt: cutoff },
+          ...(after ? { meetingId: { gt: after } } : {}),
+        },
+        orderBy: { meetingId: 'asc' },
+        take: RECONCILE_PAGE,
+        select: { meetingId: true, documentNodeId: true },
+      });
+      if (page.length === 0) break;
+      after = page[page.length - 1]!.meetingId;
+      for (const row of page) {
+        try {
+          if (row.documentNodeId) {
+            await db.node.deleteMany({ where: { id: row.documentNodeId } });
+          }
+          const { count } = await db.meetingMinutes.updateMany({
+            where: {
+              meetingId: row.meetingId,
+              status: 'PUBLISHING',
+              updatedAt: { lt: cutoff },
+            },
+            data: { status: 'AWAITING_REVIEW', documentNodeId: null },
+          });
+          reset += count;
+        } catch (err) {
+          this.logger.error({ err, meetingId: row.meetingId }, 'Reopening stuck minutes failed');
+        }
+      }
+      if (page.length < RECONCILE_PAGE) break;
+    }
+    return reset;
   }
 
   private async recoverLostMinutes(): Promise<number> {

@@ -795,4 +795,54 @@ describe('Meeting minutes worker (e2e)', () => {
     expect(await minutesQueue.getJob(`minutes-${recent.meeting.id}-retry-900`)).toBeUndefined();
     expect(await minutesQueue.getJob(`minutes-${covered.meeting.id}-retry-900`)).toBeUndefined();
   });
+
+  it('quét định kỳ: PUBLISHING kẹt quá 5 phút → xoá tài liệu mồ côi rồi về AWAITING_REVIEW; chưa quá hạn thì giữ nguyên', async () => {
+    const stuck = async (updatedMinutesAgo: number, withNode: boolean) => {
+      const made = await setup();
+      const node = withNode
+        ? await prisma.node.create({
+            data: {
+              workspaceId: made.ws.id,
+              createdById: made.host.id,
+              type: 'DOCUMENT',
+              name: `Biên bản ${++seq}`,
+              nameNormalized: `bien ban ${seq}`,
+            },
+          })
+        : null;
+      await prisma.meetingMinutes.update({
+        where: { meetingId: made.meeting.id },
+        data: {
+          status: 'PUBLISHING',
+          draftDoc: { type: 'doc', content: [] },
+          draftRevision: 3,
+          documentNodeId: node?.id ?? null,
+          updatedAt: minutesAgo(updatedMinutesAgo),
+        },
+      });
+      return { ...made, node };
+    };
+    const stale = await stuck(10, true);
+    const bare = await stuck(10, false);
+    const fresh = await stuck(1, true);
+
+    const result = await meetings.reconcile();
+
+    expect(result.publishingReset).toBeGreaterThanOrEqual(2);
+    for (const m of [stale, bare]) {
+      const row = await prisma.meetingMinutes.findUniqueOrThrow({
+        where: { meetingId: m.meeting.id },
+      });
+      expect(row.status).toBe('AWAITING_REVIEW');
+      expect(row.documentNodeId).toBeNull();
+      expect(row.draftRevision).toBe(3);
+    }
+    expect(await prisma.node.findUnique({ where: { id: stale.node!.id } })).toBeNull();
+    const kept = await prisma.meetingMinutes.findUniqueOrThrow({
+      where: { meetingId: fresh.meeting.id },
+    });
+    expect(kept.status).toBe('PUBLISHING');
+    expect(kept.documentNodeId).toBe(fresh.node!.id);
+    expect(await prisma.node.findUnique({ where: { id: fresh.node!.id } })).not.toBeNull();
+  });
 });
