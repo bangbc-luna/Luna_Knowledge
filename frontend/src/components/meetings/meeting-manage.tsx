@@ -71,7 +71,7 @@ function EditForm({ meeting, onClose, onSaved }: { meeting: MeetingDetail; onClo
     if (!name) return setError("Nhập tiêu đề cuộc họp");
     const patch: UpdateMeetingInput = {};
     if (name !== meeting.title) patch.title = name;
-    if (aiNotes !== meeting.aiNotesEnabled) patch.aiNotesEnabled = aiNotes;
+    if (meeting.aiNotesAvailable && aiNotes !== meeting.aiNotesEnabled) patch.aiNotesEnabled = aiNotes;
     if (when !== initialWhen) {
       const at = inputToDate(when);
       if (!when || Number.isNaN(at.getTime())) return setError("Chọn ngày và giờ họp");
@@ -112,7 +112,7 @@ function EditForm({ meeting, onClose, onSaved }: { meeting: MeetingDetail; onClo
       <div className="flex flex-col gap-4">
         <Field label="Tiêu đề">{(id) => <Input id={id} autoFocus maxLength={200} value={title} onChange={(e) => setTitle(e.target.value)} />}</Field>
         <ScheduleField value={when} onChange={setWhen} />
-        <AiNotesSwitch checked={aiNotes} onChange={setAiNotes} />
+        <AiNotesSwitch checked={aiNotes} onChange={setAiNotes} unavailable={!meeting.aiNotesAvailable} />
         {error ? (
           <p role="alert" className="text-sm text-err-text">
             {error}

@@ -9,6 +9,7 @@ import { ConfirmDialog } from "../ui/dialog";
 import { focusRing } from "../ui/focus";
 import { MenuItem, PopoverPanel, usePopover } from "../ui/popover";
 import { useToast } from "../ui/toast";
+import { AI_UNAVAILABLE_HINT } from "./meeting-form-parts";
 import { REACTIONS } from "./reactions";
 import type { Reaction } from "./reactions";
 
@@ -32,7 +33,7 @@ export function ControlButton({ icon: Icon, label, active = true, danger, presse
   );
 }
 
-function HostMenu({ aiOn, onToggleAi }: { aiOn: boolean; onToggleAi: () => Promise<void> }) {
+function HostMenu({ aiOn, aiAvailable, onToggleAi }: { aiOn: boolean; aiAvailable: boolean; onToggleAi: () => Promise<void> }) {
   const { open, toggle, rootRef } = usePopover();
   const [busy, setBusy] = useState(false);
   return (
@@ -42,15 +43,18 @@ function HostMenu({ aiOn, onToggleAi }: { aiOn: boolean; onToggleAi: () => Promi
         <PopoverPanel open={open} offset="lg" className="w-72 max-w-[calc(100vw-2rem)] text-foreground">
           <div className="px-1">
             <div className="flex min-h-10 items-center gap-3 px-3 py-2">
-              <span id="room-ai-label" className="min-w-0 flex-1 text-sm">
-                Ghi biên bản AI
+              <span className="min-w-0 flex-1">
+                <span id="room-ai-label" className="block text-sm">
+                  Ghi biên bản AI
+                </span>
+                {aiAvailable ? null : <span className="block text-xs text-muted">{AI_UNAVAILABLE_HINT}</span>}
               </span>
               <button
                 type="button"
                 role="switch"
-                aria-checked={aiOn}
+                aria-checked={aiOn && aiAvailable}
                 aria-labelledby="room-ai-label"
-                disabled={busy}
+                disabled={busy || !aiAvailable}
                 onClick={async () => {
                   setBusy(true);
                   try {
@@ -59,9 +63,9 @@ function HostMenu({ aiOn, onToggleAi }: { aiOn: boolean; onToggleAi: () => Promi
                     setBusy(false);
                   }
                 }}
-                className={cn("relative h-6 w-10 shrink-0 cursor-pointer rounded-full transition-colors disabled:cursor-progress disabled:opacity-60", focusRing, aiOn ? "bg-primary" : "bg-border-strong")}
+                className={cn("relative h-6 w-10 shrink-0 cursor-pointer rounded-full transition-colors disabled:cursor-progress disabled:opacity-60", focusRing, aiOn && aiAvailable ? "bg-primary" : "bg-border-strong")}
               >
-                <span className={cn("absolute top-0.5 left-0.5 size-5 rounded-full bg-surface transition-transform motion-reduce:transition-none", aiOn && "translate-x-4")} />
+                <span className={cn("absolute top-0.5 left-0.5 size-5 rounded-full bg-surface transition-transform motion-reduce:transition-none", aiOn && aiAvailable && "translate-x-4")} />
               </button>
             </div>
           </div>
@@ -158,7 +162,7 @@ export interface RoomPanelControls {
   onToggle: () => void;
 }
 
-export function RoomControls({ isHost, aiOn, onToggleAi, onEnd, onReact, handRaised, onToggleHand, panel, panelWrapRef }: { isHost: boolean; aiOn: boolean; onToggleAi: () => Promise<void>; onEnd: () => Promise<void>; onReact: (emoji: Reaction) => void; handRaised: boolean; onToggleHand: () => void; panel: RoomPanelControls; panelWrapRef: React.RefObject<HTMLDivElement | null> }) {
+export function RoomControls({ isHost, aiOn, aiAvailable, onToggleAi, onEnd, onReact, handRaised, onToggleHand, panel, panelWrapRef }: { isHost: boolean; aiOn: boolean; aiAvailable: boolean; onToggleAi: () => Promise<void>; onEnd: () => Promise<void>; onReact: (emoji: Reaction) => void; handRaised: boolean; onToggleHand: () => void; panel: RoomPanelControls; panelWrapRef: React.RefObject<HTMLDivElement | null> }) {
   const room = useRoomContext();
   const toast = useToast();
   const { localParticipant, isMicrophoneEnabled, isScreenShareEnabled } = useLocalParticipant();
@@ -195,7 +199,7 @@ export function RoomControls({ isHost, aiOn, onToggleAi, onEnd, onReact, handRai
           </span>
         ) : null}
       </div>
-      {isHost ? <HostMenu aiOn={aiOn} onToggleAi={onToggleAi} /> : null}
+      {isHost ? <HostMenu aiOn={aiOn} aiAvailable={aiAvailable} onToggleAi={onToggleAi} /> : null}
       <LeaveControl isHost={isHost} onLeave={() => void room.disconnect()} onEnd={onEnd} />
     </div>
   );

@@ -26,20 +26,22 @@ export function CreateMeetingDialog({
   wsId,
   open,
   initialMode,
+  aiAvailable,
   onClose,
   onCreated,
 }: {
   wsId: string;
   open: boolean;
   initialMode: MeetingMode;
+  aiAvailable: boolean;
   onClose: () => void;
   onCreated: () => void;
 }) {
   if (!open) return null;
-  return <CreateForm key={initialMode} wsId={wsId} initialMode={initialMode} onClose={onClose} onCreated={onCreated} />;
+  return <CreateForm key={initialMode} wsId={wsId} initialMode={initialMode} aiAvailable={aiAvailable} onClose={onClose} onCreated={onCreated} />;
 }
 
-function CreateForm({ wsId, initialMode, onClose, onCreated }: { wsId: string; initialMode: MeetingMode; onClose: () => void; onCreated: () => void }) {
+function CreateForm({ wsId, initialMode, aiAvailable, onClose, onCreated }: { wsId: string; initialMode: MeetingMode; aiAvailable: boolean; onClose: () => void; onCreated: () => void }) {
   const router = useRouter();
   const toast = useToast();
   const [mode, setMode] = useState<MeetingMode>(initialMode);
@@ -69,7 +71,7 @@ function CreateForm({ wsId, initialMode, onClose, onCreated }: { wsId: string; i
         title: name,
         mode,
         scheduledAt,
-        aiNotesEnabled: aiNotes,
+        aiNotesEnabled: aiAvailable && aiNotes,
         inviteeEmails: invitees.map((u) => u.email),
       });
       onCreated();
@@ -144,7 +146,7 @@ function CreateForm({ wsId, initialMode, onClose, onCreated }: { wsId: string; i
             <PersonChips people={invitees} label="Người được mời" removeLabel={(name) => `Bỏ ${name}`} onRemove={(u) => setInvitees((list) => list.filter((x) => x.id !== u.id))} />
           </div>
         ) : null}
-        <AiNotesSwitch checked={aiNotes} onChange={setAiNotes} />
+        <AiNotesSwitch checked={aiNotes} onChange={setAiNotes} unavailable={!aiAvailable} />
         {error ? (
           <p role="alert" className="text-sm text-err-text">
             {error}
