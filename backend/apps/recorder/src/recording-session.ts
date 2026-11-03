@@ -90,7 +90,8 @@ export class RecordingSession {
   constructor(
     private readonly prisma: PrismaService,
     private readonly store: ObjectStore,
-    @InjectQueue(QUEUES.MEETING_MINUTES) private readonly minutesQueue: Parameters<typeof promoteMinutes>[0],
+    @InjectQueue(QUEUES.MEETING_MINUTES)
+    private readonly minutesQueue: Parameters<typeof promoteMinutes>[0],
     @Inject(MEETING_MEDIA) private readonly media: MeetingMedia,
     @Inject(RECORDER_CONFIG) private readonly config: RecorderConfig,
     @Optional() @Inject(RECORDER_HOOKS) private readonly hooks: RecorderHooks = {},
