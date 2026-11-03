@@ -1,4 +1,4 @@
-import { JOBS, QUEUES, type QueueJob, recorderBackoffMs } from '@luna/shared';
+import { QUEUES, type QueueJob, recorderBackoffMs, unknownJob } from '@luna/shared';
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger, type OnApplicationBootstrap, type OnModuleDestroy } from '@nestjs/common';
 import { DelayedError, type Job } from 'bullmq';
@@ -36,10 +36,13 @@ export class RecorderProcessor
   }
 
   async process(job: Job, token?: string): Promise<RecordingResult> {
-    if (job.name !== JOBS.MEETING_RECORD) {
-      throw new Error(`Unknown job "${job.name}" on queue ${QUEUES.MEETING_RECORDER}`);
+    const j = job as unknown as QueueJob<'meeting-recorder'>;
+    if (j.name !== 'record') {
+      throw new Error(
+        `Unknown job "${unknownJob(j as never)}" on queue ${QUEUES.MEETING_RECORDER}`,
+      );
     }
-    return this.record(job, (job.data as QueueJob<'meeting-recorder'>['data']).meetingId, token);
+    return this.record(job, j.data.meetingId, token);
   }
 
   private async record(job: Job, meetingId: string, token?: string): Promise<RecordingResult> {

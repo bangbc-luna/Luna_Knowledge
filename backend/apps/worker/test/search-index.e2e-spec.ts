@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import type { PrismaClient } from '@luna/db';
-import { createSearchClient, QUEUES, SEARCH_INDEX, SEARCH_JOBS } from '@luna/shared';
+import { createSearchClient, QUEUES, SEARCH_INDEX } from '@luna/shared';
 import type { INestApplicationContext } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
@@ -125,8 +125,8 @@ describe('Search index worker (e2e)', () => {
       document: { create: { contentText: 'Kế hoạch tuyển dụng quý 4' } },
     });
     const up = await node('dang-tai.pdf', null, { type: 'FILE', status: 'UPLOADING' });
-    expect(await run(SEARCH_JOBS.INDEX_NODE, { nodeId: d.id })).toEqual({ indexed: 1, removed: 0 });
-    expect(await run(SEARCH_JOBS.INDEX_NODE, { nodeId: up.id })).toEqual({
+    expect(await run('index-node', { nodeId: d.id })).toEqual({ indexed: 1, removed: 0 });
+    expect(await run('index-node', { nodeId: up.id })).toEqual({
       indexed: 0,
       removed: 1,
     });
@@ -139,7 +139,7 @@ describe('Search index worker (e2e)', () => {
     const parent = await node('Hợp đồng');
     const child = await node('Hợp đồng 2026', parent.id);
     await prisma.nodeShare.create({ data: { nodeId: parent.id, userId: guestId, role: 'VIEWER' } });
-    expect(await run(SEARCH_JOBS.INDEX_TREE, { nodeId: parent.id })).toEqual({
+    expect(await run('index-tree', { nodeId: parent.id })).toEqual({
       indexed: 2,
       removed: 0,
     });
@@ -150,7 +150,7 @@ describe('Search index worker (e2e)', () => {
       where: { id: { in: [parent.id, child.id] } },
       data: { deletedAt: new Date(), deletedRootId: parent.id },
     });
-    expect(await run(SEARCH_JOBS.INDEX_TREE, { nodeId: parent.id })).toEqual({
+    expect(await run('index-tree', { nodeId: parent.id })).toEqual({
       indexed: 0,
       removed: 2,
     });
@@ -177,7 +177,7 @@ describe('Search index worker (e2e)', () => {
       file: { create: { extractedText: 'Dữ liệu cá nhân được mã hoá' } },
     });
     await prisma.nodeTag.create({ data: { nodeId: f.id, tagId: tag.id } });
-    const res = (await run(SEARCH_JOBS.REINDEX_ALL, {})) as { total: number };
+    const res = (await run('reindex-all', {})) as { total: number };
     expect(res.total).toBe(2);
     expect(await find('mo coi')).toEqual([]);
     expect(await find('phap ly')).toEqual(['Chính sách bảo mật']);
@@ -187,7 +187,7 @@ describe('Search index worker (e2e)', () => {
   });
 
   it('xoá workspace: gỡ mọi tài liệu của workspace đó', async () => {
-    await run(SEARCH_JOBS.DROP_WORKSPACE, { workspaceId });
+    await run('drop-workspace', { workspaceId });
     expect(await find('chinh sach')).toEqual([]);
     expect(await find('de xuat')).toEqual([]);
   });

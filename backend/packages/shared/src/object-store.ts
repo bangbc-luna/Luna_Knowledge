@@ -2,11 +2,15 @@ import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import type { Readable } from 'node:stream';
 import {
+  AbortMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
   CopyObjectCommand,
+  CreateMultipartUploadCommand,
   DeleteObjectCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
   ListObjectsV2Command,
+  ListPartsCommand,
   PutObjectCommand,
   type S3Client,
   UploadPartCommand,
@@ -31,6 +35,12 @@ export interface PresignGetOptions {
   contentType?: string;
   disposition?: 'inline' | { type: 'inline' | 'attachment'; fileName: string };
   cacheControl?: string;
+}
+
+export interface UploadedPart {
+  partNumber: number;
+  size: number;
+  etag: string;
 }
 
 export function contentDisposition(type: 'inline' | 'attachment', fileName: string): string {
@@ -179,6 +189,68 @@ export class ObjectStore {
         PartNumber: partNumber,
       }),
       { expiresIn: expiresInSec },
+    );
+  }
+
+  async createTmpUpload(key: string): Promise<string> {
+    const res = await this.s3.send(
+      new CreateMultipartUploadCommand({ Bucket: this.buckets.tmp, Key: key }),
+    );
+    return res.UploadId!;
+  }
+
+  async listTmpUploadParts(key: string, uploadId: string): Promise<UploadedPart[]> {
+    const parts: UploadedPart[] = [];
+    let marker: string | undefined;
+    for (;;) {
+      const res = await this.s3.send(
+        new ListPartsCommand({
+          Bucket: this.buckets.tmp,
+          Key: key,
+          UploadId: uploadId,
+          PartNumberMarker: marker,
+        }),
+      );
+      for (const p of res.Parts ?? []) {
+        parts.push({ partNumber: p.PartNumber!, size: p.Size ?? 0, etag: p.ETag ?? '' });
+      }
+      if (!res.IsTruncated) return parts;
+      marker = res.NextPartNumberMarker;
+    }
+  }
+
+  async completeTmpUpload(key: string, uploadId: string, parts: UploadedPart[]): Promise<void> {
+    await this.s3.send(
+      new CompleteMultipartUploadCommand({
+        Bucket: this.buckets.tmp,
+        Key: key,
+        UploadId: uploadId,
+        MultipartUpload: {
+          Parts: [...parts]
+            .sort((a, b) => a.partNumber - b.partNumber)
+            .map((p) => ({ PartNumber: p.partNumber, ETag: p.etag })),
+        },
+      }),
+    );
+  }
+
+  async abortTmpUpload(key: string, uploadId: string): Promise<void> {
+    await this.s3.send(
+      new AbortMultipartUploadCommand({ Bucket: this.buckets.tmp, Key: key, UploadId: uploadId }),
+    );
+  }
+
+  presignTmpUploadPart(
+    key: string,
+    uploadId: string,
+    partNumber: number,
+    expiresInSec: number,
+  ): Promise<string> {
+    return this.presignUploadPart(
+      { container: this.buckets.tmp, key },
+      uploadId,
+      partNumber,
+      expiresInSec,
     );
   }
 

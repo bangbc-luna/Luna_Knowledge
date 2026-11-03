@@ -10,7 +10,6 @@ import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { CollabEventsService } from '../infra/redis/collab-events.service.js';
 import { ContentAccessService } from './content-access.service.js';
 import { NodeDtoService } from './node-dto.service.js';
-import { nameKey } from './node-names.js';
 import { NodeTree } from './node-tree.service.js';
 import type { CreateFolderBody, ListNodesQuery, NodeDto } from './nodes.schemas.js';
 
@@ -239,20 +238,7 @@ export class NodesService {
             where: { id: nodeId },
             select: { description: true },
           });
-    try {
-      await this.prisma.client.node.update({
-        where: { id: nodeId },
-        data: { name, nameNormalized: nameKey(name), description, updatedById: user.id },
-      });
-    } catch (err) {
-      throw await this.tree.mapConflict(err, {
-        workspaceId: node.workspaceId,
-        parentId: node.parentId,
-        section: node.section,
-        name,
-        excludeId: nodeId,
-      });
-    }
+    await this.tree.rename(user, node, { name, description });
     await this.audit.log({
       actorId: user.id,
       action: before ? 'video.update_info' : 'node.rename',
@@ -280,14 +266,7 @@ export class NodesService {
 
   async trash(user: AuthenticatedUser, nodeId: string, ctx: RequestContext): Promise<void> {
     const node = await this.access.requireNode(user, nodeId, 'EDITOR');
-    const count = await this.tree.withLock(
-      node.workspaceId,
-      (tx) => tx.$executeRaw`
-        UPDATE nodes
-           SET deleted_at = now(), deleted_by = ${user.id}::uuid, deleted_root_id = ${nodeId}::uuid
-         WHERE path <@ (SELECT path FROM nodes WHERE id = ${nodeId}::uuid)
-           AND deleted_at IS NULL`,
-    );
+    const count = await this.tree.trash(user, node);
     await this.audit.log({
       actorId: user.id,
       action: 'node.trash',

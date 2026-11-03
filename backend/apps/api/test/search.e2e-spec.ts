@@ -4,7 +4,6 @@ import {
   QUEUES,
   redisConnection,
   SEARCH_INDEX,
-  SEARCH_JOBS,
   type SearchDoc,
   searchSettings,
 } from '@luna/shared';
@@ -69,13 +68,13 @@ describe('Tìm kiếm (e2e)', () => {
     worker = new Worker(
       QUEUES.SEARCH_INDEX,
       async (job: Job) => {
-        if (job.name === SEARCH_JOBS.INDEX_NODE) return index([job.data.nodeId]);
-        if (job.name === SEARCH_JOBS.INDEX_TREE) {
+        if (job.name === 'index-node') return index([job.data.nodeId]);
+        if (job.name === 'index-tree') {
           const rows = await ctx.prisma.$queryRaw<{ id: string }[]>`
             SELECT id FROM nodes WHERE path <@ (SELECT path FROM nodes WHERE id = ${job.data.nodeId}::uuid)`;
           return index(rows.length ? rows.map((r) => r.id) : [job.data.nodeId]);
         }
-        if (job.name === SEARCH_JOBS.REINDEX_ALL) {
+        if (job.name === 'reindex-all') {
           const rows = await ctx.prisma.node.findMany({ select: { id: true } });
           return index(rows.map((r) => r.id));
         }
@@ -133,7 +132,7 @@ describe('Tìm kiếm (e2e)', () => {
         contentText: `${'Mở đầu tài liệu. '.repeat(20)}Quy trình đề xuất ngân sách cho phòng ban. Kết thúc.`,
       },
     });
-    await queue.add(SEARCH_JOBS.INDEX_NODE, { nodeId: docId });
+    await queue.add('index-node', { nodeId: docId });
     await settle();
 
     const byName = await search(bob, 'bao cao').expect(200);
