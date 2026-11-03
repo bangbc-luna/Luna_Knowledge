@@ -21,7 +21,6 @@ export const recorderEnvSchema = baseEnvSchema
     RECORDER_METRICS_PORT: z.coerce.number().int().min(0).default(9465),
     FFMPEG_PATH: z.string().default('ffmpeg'),
     FFMPEG_NICE: z.coerce.number().int().min(0).max(19).default(10),
-    MEETING_AUDIO_RETENTION_DAYS: z.coerce.number().int().min(1).default(7),
   });
 
 export type RecorderConfig = z.output<typeof recorderEnvSchema>;

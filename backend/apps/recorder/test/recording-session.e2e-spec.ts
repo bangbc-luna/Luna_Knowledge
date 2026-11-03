@@ -4,7 +4,11 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import {
+  GetBucketLifecycleConfigurationCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+} from '@aws-sdk/client-s3';
 import { ParticipantKind, RoomEvent, TrackKind, TrackSource } from '@livekit/rtc-node';
 import { createPrismaClient, type PrismaClient } from '@luna/db';
 import { encodeRoomMetadata, MEETING_MEDIA } from '@luna/meetings';
@@ -265,6 +269,23 @@ describe('Recording session (e2e)', () => {
     await Promise.all(containers.map((c) => c.stop()));
   });
 
+  it('ensureBuckets đặt vòng đời bucket âm thanh: hết hạn sau số ngày giữ cộng 7, theo cấu hình', async () => {
+    const rulesOf = async () =>
+      (await s3.send(new GetBucketLifecycleConfigurationCommand({ Bucket: bucket }))).Rules ?? [];
+    expect(await rulesOf()).toEqual([
+      expect.objectContaining({ ID: 'expire-meeting-audio', Expiration: { Days: 14 } }),
+    ]);
+    const s3Env = loadEnv(s3EnvSchema, process.env);
+    await ensureBuckets(s3, { ...s3Env, MEETING_AUDIO_RETENTION_DAYS: 3 });
+    expect((await rulesOf())[0]!.Expiration).toEqual({ Days: 10 });
+    await ensureBuckets(s3, s3Env);
+    expect((await rulesOf())[0]!.Expiration).toEqual({ Days: 14 });
+    const tmp = await s3.send(
+      new GetBucketLifecycleConfigurationCommand({ Bucket: s3Env.S3_BUCKET_TMP }),
+    );
+    expect(tmp.Rules?.[0]?.ID).toBe('expire-tmp');
+  });
+
   it('phiên ghi: chỉ đăng ký mic, không đăng ký camera và màn hình; bỏ qua participant ẩn', async () => {
     const { meeting, owner } = await newMeeting();
     const alice = await newUser();
@@ -507,8 +528,15 @@ describe('Recording session (e2e)', () => {
     ];
     const room = new FakeRoom(roomMeta(owner.id, true));
     room.join(alice.id);
-    room.mic(alice.id).setSubscribed = () => {
-      throw new Error('setSubscribed boom');
+    const aliceMic = room.mic(alice.id);
+    const record = aliceMic.setSubscribed;
+    let thrown = false;
+    aliceMic.setSubscribed = (value) => {
+      if (!thrown) {
+        thrown = true;
+        throw new Error('setSubscribed boom');
+      }
+      record(value);
     };
     useRoom(room);
     const abort = new AbortController();
@@ -521,6 +549,8 @@ describe('Recording session (e2e)', () => {
     await waitUntil(async () => room.mic(dave.id).subscribedCalls.length > 0);
     expect(failure).toBeUndefined();
     expect(room.mic(bob.id).subscribedCalls).toEqual([true]);
+    await waitUntil(async () => aliceMic.subscribedCalls.length > 0);
+    expect(aliceMic.subscribedCalls).toEqual([true]);
 
     const carolMic = room.mic(carol.id);
     const daveMic = room.mic(dave.id);
