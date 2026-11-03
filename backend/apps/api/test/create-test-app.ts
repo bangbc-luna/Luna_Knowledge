@@ -42,7 +42,7 @@ export async function resetDatabase(prisma: TestContext['prisma']) {
   await prisma.$transaction([
     prisma.$executeRawUnsafe('ALTER TABLE audit_logs DISABLE TRIGGER audit_logs_no_truncate'),
     prisma.$executeRawUnsafe(
-      'TRUNCATE meeting_chat_messages, meeting_attendances, meeting_invites, meetings, notifications, blob_gc, audit_logs, recent_views, favorites, node_tags, tags, node_shares, nodes, refresh_tokens, sessions, workspace_members, workspaces, users CASCADE',
+      'TRUNCATE meeting_ai_usage, meeting_utterances, meeting_audio_chunks, meeting_minutes, meeting_chat_messages, meeting_attendances, meeting_invites, meetings, notifications, blob_gc, audit_logs, recent_views, favorites, node_tags, tags, node_shares, nodes, refresh_tokens, sessions, workspace_members, workspaces, users CASCADE',
     ),
     prisma.$executeRawUnsafe('ALTER TABLE audit_logs ENABLE TRIGGER audit_logs_no_truncate'),
   ]);

@@ -4,6 +4,8 @@ import {
   enqueueFileJob,
   enqueueIndexNode,
   enqueueMeetingReminder,
+  enqueueMinutes,
+  promoteMinutes,
   enqueueTranscode,
   type JobName,
   type JobPayloads,
@@ -156,5 +158,42 @@ describe('enqueue helpers', () => {
       await enqueueMeetingReminder(q, 'm1', new Date('2026-11-01T10:00:30.000Z'), 10);
       expect(q.add).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('meeting minutes jobs', () => {
+  it('enqueueMinutes: jobId lần đầu và lần thử lại khác nhau; promoteMinutes đẩy job đang chờ chạy ngay', async () => {
+    const q = fakeQueue();
+    await enqueueMinutes(q, 'm1', { delayMs: 60_000 });
+    await enqueueMinutes(q, 'm1', { attempt: 2 });
+    expect(q.add).toHaveBeenNthCalledWith(
+      1,
+      'process',
+      { meetingId: 'm1' },
+      expect.objectContaining({ jobId: 'minutes-m1', delay: 60_000, attempts: 4 }),
+    );
+    expect(q.add).toHaveBeenNthCalledWith(
+      2,
+      'process',
+      { meetingId: 'm1' },
+      expect.objectContaining({ jobId: 'minutes-m1-retry-2' }),
+    );
+    expect(q.add.mock.calls[1]![2]).not.toHaveProperty('delay');
+
+    const promote = vi.fn().mockResolvedValue(undefined);
+    const delayed = { isDelayed: vi.fn().mockResolvedValue(true), promote };
+    const waiting = { isDelayed: vi.fn().mockResolvedValue(false), promote: vi.fn() };
+    const withJob = (job: unknown) => ({ ...fakeQueue(), getJob: vi.fn().mockResolvedValue(job) });
+    await promoteMinutes(withJob(delayed), 'm1');
+    expect(promote).toHaveBeenCalledTimes(1);
+    await promoteMinutes(withJob(waiting), 'm1');
+    expect(waiting.promote).not.toHaveBeenCalled();
+    const empty = withJob(undefined);
+    await promoteMinutes(empty, 'm1');
+    expect(empty.add).toHaveBeenCalledWith(
+      'process',
+      { meetingId: 'm1' },
+      expect.objectContaining({ jobId: 'minutes-m1' }),
+    );
   });
 });

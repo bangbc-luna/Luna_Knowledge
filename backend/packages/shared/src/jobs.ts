@@ -30,6 +30,8 @@ export interface JobPayloads {
     'blob-gc': Empty;
   };
   meetings: { remind: { meetingId: string; scheduledAt: string }; reconcile: Empty };
+  'meeting-recorder': { record: { meetingId: string } };
+  'meeting-minutes': { process: { meetingId: string }; 'purge-audio': Empty };
   system: { ping: Empty };
 }
 
@@ -139,4 +141,53 @@ export async function enqueueMeetingReminder(
       removeOnFail: 100,
     },
   );
+}
+
+export const RECORDER_JOB_OPTS = {
+  attempts: 5,
+  backoff: { type: 'fixed' as const, delay: 5000 },
+  removeOnComplete: true,
+  removeOnFail: 50,
+};
+
+export async function enqueueRecording(
+  queue: JobQueue<'meeting-recorder'>,
+  meetingId: string,
+): Promise<void> {
+  await queue.add('record', { meetingId }, { jobId: `record-${meetingId}`, ...RECORDER_JOB_OPTS });
+}
+
+export async function enqueueMinutes(
+  queue: JobQueue<'meeting-minutes'>,
+  meetingId: string,
+  opts: { delayMs?: number; attempt?: number } = {},
+): Promise<void> {
+  await queue.add(
+    'process',
+    { meetingId },
+    {
+      jobId: opts.attempt ? `minutes-${meetingId}-retry-${opts.attempt}` : `minutes-${meetingId}`,
+      ...(opts.delayMs ? { delay: opts.delayMs } : {}),
+      attempts: 4,
+      backoff: { type: 'exponential' as const, delay: 60_000 },
+      removeOnComplete: 100,
+      removeOnFail: 200,
+    },
+  );
+}
+
+export async function promoteMinutes(
+  queue: JobQueue<'meeting-minutes'> & {
+    getJob(
+      id: string,
+    ): Promise<{ isDelayed(): Promise<boolean>; promote(): Promise<void> } | undefined>;
+  },
+  meetingId: string,
+): Promise<void> {
+  const job = await queue.getJob(`minutes-${meetingId}`);
+  if (!job) {
+    await enqueueMinutes(queue, meetingId);
+    return;
+  }
+  if (await job.isDelayed()) await job.promote();
 }

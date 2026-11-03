@@ -31,6 +31,7 @@ export function bucketNames(env: S3Env): Record<BucketKey, string> {
     thumbnails: env.S3_BUCKET_THUMBNAILS,
     assets: env.S3_BUCKET_ASSETS,
     originals: env.S3_BUCKET_ORIGINALS,
+    meetingAudio: env.S3_BUCKET_MEETING_AUDIO,
   };
 }
 

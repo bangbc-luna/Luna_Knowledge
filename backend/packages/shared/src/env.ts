@@ -43,6 +43,7 @@ export const s3EnvSchema = z.object({
   S3_BUCKET_THUMBNAILS: z.string().min(3),
   S3_BUCKET_ASSETS: z.string().min(3),
   S3_BUCKET_ORIGINALS: z.string().min(3),
+  S3_BUCKET_MEETING_AUDIO: z.string().min(3).default('luna-meeting-audio'),
   S3_PUBLIC_ENDPOINT: optionalEnv(z.url()),
 });
 

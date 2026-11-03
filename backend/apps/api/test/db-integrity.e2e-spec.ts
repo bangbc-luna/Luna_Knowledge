@@ -296,4 +296,61 @@ describe('Database integrity (e2e)', () => {
     });
     await open();
   });
+
+  it('meeting_audio_chunks: không trùng (meeting, user, offset); CHECK chặn duration 0', async () => {
+    const meeting = await ctx.prisma.meeting.create({
+      data: {
+        workspaceId: wsId,
+        createdById: userId,
+        title: 'Âm thanh',
+        status: 'LIVE',
+        startedAt: new Date(),
+      },
+    });
+    const chunk = (startOffsetMs: number, durationMs = 1000) =>
+      ctx.prisma.meetingAudioChunk.create({
+        data: {
+          meetingId: meeting.id,
+          userId,
+          startOffsetMs,
+          durationMs,
+          container: 'luna-meeting-audio',
+          key: randomUUID(),
+          sizeBytes: 10n,
+        },
+      });
+    await chunk(0);
+    await expect(chunk(0)).rejects.toThrow(/Unique/);
+    await chunk(1000);
+    await expect(chunk(2000, 0)).rejects.toThrow(/meeting_audio_chunks_offsets/);
+  });
+
+  it('meeting_ai_usage: kind chỉ stt hoặc llm; xoá buổi họp giữ dòng chi phí với meeting_id NULL', async () => {
+    const meeting = await ctx.prisma.meeting.create({
+      data: {
+        workspaceId: wsId,
+        createdById: userId,
+        title: 'Chi phí',
+        status: 'LIVE',
+        startedAt: new Date(),
+      },
+    });
+    const usage = (kind: string) =>
+      ctx.prisma.meetingAiUsage.create({
+        data: {
+          meetingId: meeting.id,
+          workspaceId: wsId,
+          kind,
+          provider: 'deepgram',
+          model: 'nova-3',
+          costMicroUsd: 1500n,
+        },
+      });
+    await expect(usage('tts')).rejects.toThrow(/meeting_ai_usage_kind/);
+    const row = await usage('stt');
+    await ctx.prisma.meeting.delete({ where: { id: meeting.id } });
+    const kept = await ctx.prisma.meetingAiUsage.findUniqueOrThrow({ where: { id: row.id } });
+    expect(kept.meetingId).toBeNull();
+    expect(kept.costMicroUsd).toBe(1500n);
+  });
 });

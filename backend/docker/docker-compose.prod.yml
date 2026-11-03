@@ -224,6 +224,7 @@ services:
       S3_BUCKET_THUMBNAILS: ${S3_BUCKET_THUMBNAILS:-luna-thumbnails}
       S3_BUCKET_ASSETS: ${S3_BUCKET_ASSETS:-luna-assets}
       S3_BUCKET_ORIGINALS: ${S3_BUCKET_ORIGINALS:-luna-originals}
+      S3_BUCKET_MEETING_AUDIO: ${S3_BUCKET_MEETING_AUDIO:-luna-meeting-audio}
     volumes:
       - ./minio:/init:ro
     depends_on:

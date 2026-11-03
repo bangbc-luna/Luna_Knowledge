@@ -82,32 +82,35 @@ model User {
   createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt     DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  sessions           Session[]
-  memberships        WorkspaceMember[]    @relation("member")
-  addedMemberships   WorkspaceMember[]    @relation("addedBy")
-  createdWorkspaces  Workspace[]
-  createdNodes       Node[]               @relation("nodeCreatedBy")
-  updatedNodes       Node[]               @relation("nodeUpdatedBy")
-  deletedNodes       Node[]               @relation("nodeDeletedBy")
-  shares             NodeShare[]          @relation("shareUser")
-  grantedShares      NodeShare[]          @relation("shareGrantedBy")
-  favorites          Favorite[]
-  recentViews        RecentView[]
-  fileVersions       FileVersion[]
-  uploadSessions     UploadSession[]
-  videoWatches       VideoWatch[]
-  docVersions        DocumentVersion[]
-  threadsCreated     CommentThread[]      @relation("threadCreatedBy")
-  threadsResolved    CommentThread[]      @relation("threadResolvedBy")
-  comments           Comment[]
-  notifications      Notification[]
-  documentAssets     DocumentAsset[]
-  editedDocuments    Document[]           @relation("documentLastEditor")
-  meetingsCreated    Meeting[]            @relation("meetingCreatedBy")
-  meetingInvites     MeetingInvite[]      @relation("meetingInvitee")
-  meetingInvitesMade MeetingInvite[]      @relation("meetingInviter")
-  meetingAttendances MeetingAttendance[]
-  meetingChats       MeetingChatMessage[]
+  sessions                Session[]
+  memberships             WorkspaceMember[]    @relation("member")
+  addedMemberships        WorkspaceMember[]    @relation("addedBy")
+  createdWorkspaces       Workspace[]
+  createdNodes            Node[]               @relation("nodeCreatedBy")
+  updatedNodes            Node[]               @relation("nodeUpdatedBy")
+  deletedNodes            Node[]               @relation("nodeDeletedBy")
+  shares                  NodeShare[]          @relation("shareUser")
+  grantedShares           NodeShare[]          @relation("shareGrantedBy")
+  favorites               Favorite[]
+  recentViews             RecentView[]
+  fileVersions            FileVersion[]
+  uploadSessions          UploadSession[]
+  videoWatches            VideoWatch[]
+  docVersions             DocumentVersion[]
+  threadsCreated          CommentThread[]      @relation("threadCreatedBy")
+  threadsResolved         CommentThread[]      @relation("threadResolvedBy")
+  comments                Comment[]
+  notifications           Notification[]
+  documentAssets          DocumentAsset[]
+  editedDocuments         Document[]           @relation("documentLastEditor")
+  meetingsCreated         Meeting[]            @relation("meetingCreatedBy")
+  meetingInvites          MeetingInvite[]      @relation("meetingInvitee")
+  meetingInvitesMade      MeetingInvite[]      @relation("meetingInviter")
+  meetingAttendances      MeetingAttendance[]
+  meetingChats            MeetingChatMessage[]
+  meetingAudioChunks      MeetingAudioChunk[]
+  meetingUtterances       MeetingUtterance[]
+  meetingMinutesPublished MeetingMinutes[]
 
   @@map("users")
 }
@@ -155,11 +158,12 @@ model Workspace {
   updatedAt   DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
   deletedAt   DateTime?     @map("deleted_at") @db.Timestamptz(3)
 
-  createdBy User              @relation(fields: [createdById], references: [id])
-  members   WorkspaceMember[]
-  nodes     Node[]
-  tags      Tag[]
-  meetings  Meeting[]
+  createdBy      User              @relation(fields: [createdById], references: [id])
+  members        WorkspaceMember[]
+  nodes          Node[]
+  tags           Tag[]
+  meetings       Meeting[]
+  meetingAiUsage MeetingAiUsage[]
 
   @@unique([kind], map: "workspaces_single_company", where: raw("kind = 'COMPANY' AND deleted_at IS NULL"))
   @@map("workspaces")
@@ -220,26 +224,27 @@ model Node {
   deletedById    String?               @map("deleted_by") @db.Uuid
   deletedRootId  String?               @map("deleted_root_id") @db.Uuid
 
-  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  parent      Node?             @relation("tree", fields: [parentId], references: [id], onDelete: Cascade)
-  children    Node[]            @relation("tree")
-  createdBy   User              @relation("nodeCreatedBy", fields: [createdById], references: [id])
-  updatedBy   User?             @relation("nodeUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
-  deletedBy   User?             @relation("nodeDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
-  shares      NodeShare[]
-  tags        NodeTag[]
-  favorites   Favorite[]
-  recents     RecentView[]
-  blobs       Blob[]
-  file        FileInfo?
-  versions    FileVersion[]
-  uploads     UploadSession[]
-  video       Video?
-  watches     VideoWatch[]
-  document    Document?
-  docVersions DocumentVersion[]
-  threads     CommentThread[]
-  assets      DocumentAsset[]
+  workspace      Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  parent         Node?             @relation("tree", fields: [parentId], references: [id], onDelete: Cascade)
+  children       Node[]            @relation("tree")
+  createdBy      User              @relation("nodeCreatedBy", fields: [createdById], references: [id])
+  updatedBy      User?             @relation("nodeUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  deletedBy      User?             @relation("nodeDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+  shares         NodeShare[]
+  tags           NodeTag[]
+  favorites      Favorite[]
+  recents        RecentView[]
+  blobs          Blob[]
+  meetingMinutes MeetingMinutes[]  @relation("meetingMinutesDocument")
+  file           FileInfo?
+  versions       FileVersion[]
+  uploads        UploadSession[]
+  video          Video?
+  watches        VideoWatch[]
+  document       Document?
+  docVersions    DocumentVersion[]
+  threads        CommentThread[]
+  assets         DocumentAsset[]
 
   @@unique([parentId, nameNormalized], map: "nodes_unique_name_in_folder", where: raw("deleted_at IS NULL AND parent_id IS NOT NULL"))
   @@unique([workspaceId, section, nameNormalized], map: "nodes_unique_name_at_root", where: raw("deleted_at IS NULL AND parent_id IS NULL"))
@@ -616,6 +621,10 @@ model Meeting {
   invites     MeetingInvite[]
   attendances MeetingAttendance[]
   chats       MeetingChatMessage[]
+  minutes     MeetingMinutes?
+  audioChunks MeetingAudioChunk[]
+  utterances  MeetingUtterance[]
+  aiUsage     MeetingAiUsage[]
 
   @@index([workspaceId, status, scheduledAt])
   @@index([workspaceId, status, endedAt(sort: Desc), id(sort: Desc)])
@@ -667,4 +676,102 @@ model MeetingChatMessage {
 
   @@index([meetingId, createdAt])
   @@map("meeting_chat_messages")
+}
+
+enum MinutesStatus {
+  RECORDING
+  PROCESSING
+  AWAITING_REVIEW
+  PUBLISHING
+  PUBLISHED
+  FAILED
+}
+
+model MeetingMinutes {
+  meetingId             String        @id @map("meeting_id") @db.Uuid
+  status                MinutesStatus @default(RECORDING)
+  audioCompletedAt      DateTime?     @map("audio_completed_at") @db.Timestamptz(3)
+  transcriptCompletedAt DateTime?     @map("transcript_completed_at") @db.Timestamptz(3)
+  draft                 Json?
+  draftDoc              Json?         @map("draft_doc")
+  draftRevision         Int           @default(0) @map("draft_revision")
+  suggestions           Json?
+  droppedItemCount      Int           @default(0) @map("dropped_item_count")
+  failedStage           String?       @map("failed_stage")
+  error                 String?
+  documentNodeId        String?       @map("document_node_id") @db.Uuid
+  publishedAt           DateTime?     @map("published_at") @db.Timestamptz(3)
+  publishedById         String?       @map("published_by") @db.Uuid
+  audioPurgeAfter       DateTime?     @map("audio_purge_after") @db.Timestamptz(3)
+  audioPurgedAt         DateTime?     @map("audio_purged_at") @db.Timestamptz(3)
+  createdAt             DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  meeting      Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  documentNode Node?   @relation("meetingMinutesDocument", fields: [documentNodeId], references: [id], onDelete: SetNull)
+  publishedBy  User?   @relation(fields: [publishedById], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([audioPurgeAfter], map: "meeting_minutes_audio_purge_idx", where: raw("audio_purged_at IS NULL"))
+  @@map("meeting_minutes")
+}
+
+model MeetingAudioChunk {
+  id            String    @id @default(uuid(7)) @db.Uuid
+  meetingId     String    @map("meeting_id") @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  startOffsetMs Int       @map("start_offset_ms")
+  durationMs    Int       @map("duration_ms")
+  container     String
+  key           String
+  sizeBytes     BigInt    @map("size_bytes")
+  transcribedAt DateTime? @map("transcribed_at") @db.Timestamptz(3)
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  meeting    Meeting            @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user       User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  utterances MeetingUtterance[]
+
+  @@unique([meetingId, userId, startOffsetMs])
+  @@index([meetingId])
+  @@map("meeting_audio_chunks")
+}
+
+model MeetingUtterance {
+  id        String @id @default(uuid(7)) @db.Uuid
+  meetingId String @map("meeting_id") @db.Uuid
+  chunkId   String @map("chunk_id") @db.Uuid
+  userId    String @map("user_id") @db.Uuid
+  startMs   Int    @map("start_ms")
+  endMs     Int    @map("end_ms")
+  text      String
+
+  meeting Meeting           @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  chunk   MeetingAudioChunk @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+  user    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId, startMs])
+  @@map("meeting_utterances")
+}
+
+model MeetingAiUsage {
+  id           BigInt   @id @default(autoincrement())
+  meetingId    String?  @map("meeting_id") @db.Uuid
+  workspaceId  String?  @map("workspace_id") @db.Uuid
+  kind         String
+  provider     String
+  model        String
+  audioMs      Int      @default(0) @map("audio_ms")
+  inputTokens  Int      @default(0) @map("input_tokens")
+  outputTokens Int      @default(0) @map("output_tokens")
+  costMicroUsd BigInt   @map("cost_micro_usd")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  meeting   Meeting?   @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt], type: Brin)
+  @@index([meetingId])
+  @@map("meeting_ai_usage")
 }
