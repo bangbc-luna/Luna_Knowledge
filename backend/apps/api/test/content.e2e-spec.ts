@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { purgeExpiredTrash } from '@luna/db';
 import request from 'supertest';
 import {
@@ -562,6 +563,31 @@ describe('Content tree, sharing, trash (e2e)', () => {
       expect(trash.body).toEqual([]);
     });
 
+    it('dọn sạch thùng rác nhiều hơn 200 mục gốc: xóa hết, cộng đủ số lượng', async () => {
+      await http().delete(`/api/v1/workspaces/${wsId}/trash`).set(alice.auth).expect(200);
+      const total = 450;
+      const ids = Array.from({ length: total }, () => randomUUID());
+      await ctx.prisma.node.createMany({
+        data: ids.map((id, i) => ({
+          id,
+          workspaceId: wsId,
+          type: 'DOCUMENT' as const,
+          name: `Rác ${i}`,
+          nameNormalized: `rác ${i}`,
+          createdById: alice.userId,
+          deletedAt: new Date(),
+          deletedById: alice.userId,
+          deletedRootId: id,
+        })),
+      });
+      const res = await http()
+        .delete(`/api/v1/workspaces/${wsId}/trash`)
+        .set(alice.auth)
+        .expect(200);
+      expect(res.body.deleted).toBe(total);
+      expect(await ctx.prisma.node.count({ where: { id: { in: ids } } })).toBe(0);
+    });
+
     it('job dọn thùng rác chỉ xóa mục quá 30 ngày', async () => {
       const oldF = (await createFolder(alice, 'Cũ').expect(201)).body.id;
       const newF = (await createFolder(alice, 'Mới').expect(201)).body.id;
@@ -689,6 +715,92 @@ describe('Content tree, sharing, trash (e2e)', () => {
       await http().get(`/api/v1/nodes/${doc.id}`).set(bob.auth).expect(200);
       const recent = await http().get('/api/v1/me/recent').set(bob.auth).expect(200);
       expect(recent.body.map((r: { node: { id: string } }) => r.node.id)).toEqual([doc.id]);
+    });
+  });
+
+  describe('audit trong cùng giao dịch', () => {
+    const blockAudit = async (action: string) => {
+      await ctx.prisma.$executeRawUnsafe(
+        `CREATE OR REPLACE FUNCTION fail_audit() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'audit blocked'; END $$ LANGUAGE plpgsql`,
+      );
+      await ctx.prisma.$executeRawUnsafe(
+        `CREATE TRIGGER fail_audit_trg BEFORE INSERT ON audit_logs FOR EACH ROW WHEN (NEW.action = '${action}') EXECUTE FUNCTION fail_audit()`,
+      );
+    };
+    const unblockAudit = () =>
+      ctx.prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS fail_audit_trg ON audit_logs');
+    const auditCount = (action: string, targetId: string) =>
+      ctx.prisma.auditLog.count({ where: { action, targetId } });
+
+    afterEach(unblockAudit);
+
+    it('đổi tên: ghi audit lỗi thì đổi tên được hoàn tác', async () => {
+      const f = (await createFolder(alice, 'Tên gốc').expect(201)).body.id;
+      await blockAudit('node.rename');
+      await http()
+        .patch(`/api/v1/nodes/${f}`)
+        .set(alice.auth)
+        .send({ name: 'Tên mới' })
+        .expect(500);
+      await unblockAudit();
+      expect((await ctx.prisma.node.findUniqueOrThrow({ where: { id: f } })).name).toBe('Tên gốc');
+      expect(await auditCount('node.rename', f)).toBe(0);
+      await http()
+        .patch(`/api/v1/nodes/${f}`)
+        .set(alice.auth)
+        .send({ name: 'Tên mới' })
+        .expect(200);
+      expect(await auditCount('node.rename', f)).toBe(1);
+    });
+
+    it('đổi tên thất bại (trùng tên) không ghi audit', async () => {
+      const a = (await createFolder(alice, 'Trùng A').expect(201)).body.id;
+      await createFolder(alice, 'Trùng B').expect(201);
+      await http()
+        .patch(`/api/v1/nodes/${a}`)
+        .set(alice.auth)
+        .send({ name: 'trùng b' })
+        .expect(409);
+      expect(await auditCount('node.rename', a)).toBe(0);
+    });
+
+    it('xoá vào thùng rác: ghi audit lỗi thì mục không bị xoá', async () => {
+      const f = (await createFolder(alice, 'Sắp xoá').expect(201)).body.id;
+      await blockAudit('node.trash');
+      await http().delete(`/api/v1/nodes/${f}`).set(alice.auth).expect(500);
+      await unblockAudit();
+      expect((await ctx.prisma.node.findUniqueOrThrow({ where: { id: f } })).deletedAt).toBeNull();
+      expect(await auditCount('node.trash', f)).toBe(0);
+    });
+
+    it('xoá vĩnh viễn: ghi audit lỗi thì mục vẫn còn; không nằm trong thùng rác thì không ghi audit', async () => {
+      const f = (await createFolder(alice, 'Xoá hẳn').expect(201)).body.id;
+      await http().delete(`/api/v1/nodes/${f}/permanent`).set(alice.auth).expect(400);
+      expect(await auditCount('node.delete_permanent', f)).toBe(0);
+      await http().delete(`/api/v1/nodes/${f}`).set(alice.auth).expect(204);
+      await blockAudit('node.delete_permanent');
+      await http().delete(`/api/v1/nodes/${f}/permanent`).set(alice.auth).expect(500);
+      await unblockAudit();
+      expect(await ctx.prisma.node.count({ where: { id: f } })).toBe(1);
+      await http().delete(`/api/v1/nodes/${f}/permanent`).set(alice.auth).expect(204);
+      expect(await auditCount('node.delete_permanent', f)).toBe(1);
+    });
+
+    it('dọn thùng rác: ghi audit lỗi thì không xoá gì; thành công thì ghi audit cho từng đợt', async () => {
+      await http().delete(`/api/v1/workspaces/${wsId}/trash`).set(alice.auth).expect(200);
+      const f = (await createFolder(alice, 'Dọn thử').expect(201)).body.id;
+      await http().delete(`/api/v1/nodes/${f}`).set(alice.auth).expect(204);
+      await blockAudit('trash.empty');
+      await http().delete(`/api/v1/workspaces/${wsId}/trash`).set(alice.auth).expect(500);
+      await unblockAudit();
+      expect(await ctx.prisma.node.count({ where: { id: f } })).toBe(1);
+      const before = await ctx.prisma.auditLog.count({
+        where: { action: 'trash.empty', workspaceId: wsId },
+      });
+      await http().delete(`/api/v1/workspaces/${wsId}/trash`).set(alice.auth).expect(200);
+      expect(
+        await ctx.prisma.auditLog.count({ where: { action: 'trash.empty', workspaceId: wsId } }),
+      ).toBe(before + 1);
     });
   });
 });

@@ -11,7 +11,7 @@ import { decodeRoomMetadata, MEETING_MEDIA, type MeetingMedia, roomNameFor } fro
 import { ObjectStore, promoteMinutes, QUEUES } from '@luna/shared';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { type Queue, UnrecoverableError } from 'bullmq';
+import { UnrecoverableError } from 'bullmq';
 import { RECORDER_CONFIG, type RecorderConfig } from './config.js';
 import { PrismaService } from './prisma.provider.js';
 import { type AudioEncoder, OpusEncoder } from './opus-encoder.js';
@@ -49,6 +49,7 @@ export interface RecorderHooks {
   openAudio?: (track: unknown) => AsyncIterable<RecordedFrame>;
   createEncoder?: () => AudioEncoder;
   now?: () => number;
+  monotonic?: () => number;
   pollMs?: number;
 }
 
@@ -89,7 +90,8 @@ export class RecordingSession {
   constructor(
     private readonly prisma: PrismaService,
     private readonly store: ObjectStore,
-    @InjectQueue(QUEUES.MEETING_MINUTES) private readonly minutesQueue: Queue,
+    @InjectQueue(QUEUES.MEETING_MINUTES)
+    private readonly minutesQueue: Parameters<typeof promoteMinutes>[0],
     @Inject(MEETING_MEDIA) private readonly media: MeetingMedia,
     @Inject(RECORDER_CONFIG) private readonly config: RecorderConfig,
     @Optional() @Inject(RECORDER_HOOKS) private readonly hooks: RecorderHooks = {},
@@ -144,7 +146,9 @@ export class RecordingSession {
     const micPublications = new Map<PublicationLike, { identity: string; on: boolean }>();
     const consumers = new Set<Promise<void>>();
     let dbEnabled = meeting.aiNotesEnabled;
-    let metaEnabled = decodeRoomMetadata(room.metadata ?? '')?.aiNotesEnabled ?? false;
+    const initialMeta = decodeRoomMetadata(room.metadata ?? '');
+    let metaEnabled = initialMeta?.aiNotesEnabled ?? false;
+    let metaVersion = initialMeta?.version ?? -1;
     let recording = false;
     let minutesReady = false;
     let disconnected = false;
@@ -239,6 +243,7 @@ export class RecordingSession {
             tmpDir: this.config.RECORDER_TMP_DIR,
             createEncoder,
             now,
+            ...(this.hooks.monotonic ? { monotonic: this.hooks.monotonic } : {}),
             logger: this.logger,
           },
           { id: meetingId, startedAt },
@@ -261,7 +266,12 @@ export class RecordingSession {
       consumers.add(consumer);
     };
     const onMetadata = (metadata: string) => {
-      metaEnabled = decodeRoomMetadata(metadata)?.aiNotesEnabled ?? false;
+      const decoded = decodeRoomMetadata(metadata);
+      if (decoded?.version !== undefined) {
+        if (decoded.version < metaVersion) return;
+        metaVersion = decoded.version;
+      }
+      metaEnabled = decoded?.aiNotesEnabled ?? false;
       if (!metaEnabled) {
         recording = false;
         for (const r of recorders.values()) {
@@ -377,7 +387,7 @@ export class RecordingSession {
         audioPurgeAfter: new Date(at.getTime() + this.config.MEETING_AUDIO_RETENTION_DAYS * DAY_MS),
       },
     });
-    await promoteMinutes(this.minutesQueue as never, meetingId);
+    await promoteMinutes(this.minutesQueue, meetingId);
   }
 
   private async resultOf(meetingId: string): Promise<RecordingResult> {

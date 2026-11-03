@@ -18,8 +18,13 @@ test("the same version is accepted and keeps the version", () => {
   assert.deepEqual(acceptAiNotes({ enabled: true, version: 3 }, { enabled: false, version: 3 }), { enabled: false, version: 3 });
 });
 
-test("an unversioned message from an old room is accepted without lowering the version", () => {
-  assert.deepEqual(acceptAiNotes({ enabled: true, version: 3 }, { enabled: false }), { enabled: false, version: 3 });
+test("an unversioned message from an old room can turn notes on without lowering the version", () => {
+  assert.deepEqual(acceptAiNotes({ enabled: false, version: 3 }, { enabled: true }), { enabled: true, version: 3 });
+});
+
+test("an unversioned message never turns notes off", () => {
+  const current = { enabled: true, version: 3 };
+  assert.equal(acceptAiNotes(current, { enabled: false }), current);
 });
 
 test("metadata is parsed with and without a version", () => {

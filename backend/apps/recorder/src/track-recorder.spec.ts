@@ -1,4 +1,5 @@
 import { tmpdir } from 'node:os';
+import { performance } from 'node:perf_hooks';
 import { vi } from 'vitest';
 import type { AudioEncoder } from './opus-encoder.js';
 import { TrackRecorder, type TrackRecorderDeps } from './track-recorder.js';
@@ -152,5 +153,62 @@ describe('TrackRecorder', () => {
       (call) => (call[0] as { data: { startOffsetMs: number } }).data.startOffsetMs,
     );
     expect(offsets).toEqual([0, 11_000]);
+  });
+
+  it('dựng thật: đồng hồ đơn điệu lấy từ performance.now, không rơi về Date.now', async () => {
+    const spy = vi.spyOn(performance, 'now');
+    try {
+      const { recorder } = setup({ now: () => 0 });
+      await recorder.consume(burst(3, loud));
+      await recorder.stop();
+      expect(spy).toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('kẹt 2 giây rồi frame dồn về: đồng hồ mẫu không vượt đồng hồ thật quá một frame', async () => {
+    const clock = { t: 0 };
+    const { recorder } = setup({ now: () => clock.t, monotonic: () => clock.t });
+    async function* stalled() {
+      for (let i = 0; i < 100; i++) {
+        clock.t += 10;
+        yield loud();
+      }
+      clock.t += 2000;
+      for (let i = 0; i < 200; i++) yield loud();
+      for (let i = 0; i < 50; i++) {
+        clock.t += 10;
+        yield loud();
+      }
+    }
+    await recorder.consume(stalled());
+    const sampleClock = (recorder as unknown as { sampleClockMs: number }).sampleClockMs;
+    expect(Math.abs(sampleClock - clock.t)).toBeLessThanOrEqual(10);
+  });
+
+  it('mic tắt thật 800 ms giữa câu: khoảng trống được đệm im lặng trong cùng một đoạn', async () => {
+    const clock = { t: 0 };
+    const written = { samples: 0 };
+    const { recorder, create } = setup({
+      now: () => clock.t,
+      monotonic: () => clock.t,
+      createEncoder: () => countingEncoder(written),
+    });
+    async function* gapped() {
+      for (let i = 0; i < 100; i++) {
+        clock.t += 10;
+        yield loud();
+      }
+      clock.t += 800;
+      for (let i = 0; i < 100; i++) {
+        clock.t += 10;
+        yield loud();
+      }
+    }
+    await recorder.consume(gapped());
+    await recorder.stop();
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(written.samples).toBe((100 + 80 + 100) * 160);
   });
 });

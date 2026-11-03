@@ -170,8 +170,8 @@ describe('Recording session (e2e)', () => {
     });
     return { meeting, owner };
   };
-  const roomMeta = (hostId: string, aiNotesEnabled: boolean) =>
-    encodeRoomMetadata({ title: 'Recorded', aiNotesEnabled, hostId });
+  const roomMeta = (hostId: string, aiNotesEnabled: boolean, version?: number) =>
+    encodeRoomMetadata({ title: 'Recorded', aiNotesEnabled, hostId, version });
 
   const useRoom = (room: FakeRoom) => {
     hooks.connectRoom = async () => room;
@@ -242,7 +242,12 @@ describe('Recording session (e2e)', () => {
     bucket = s3Env.S3_BUCKET_MEETING_AUDIO;
 
     media = new FakeMeetingMedia();
-    hooks = { now: () => clock, pollMs: 50, openAudio: (track) => track as FrameQueue };
+    hooks = {
+      now: () => clock,
+      monotonic: () => clock,
+      pollMs: 50,
+      openAudio: (track) => track as FrameQueue,
+    };
     const { RecorderModule } = await import('../src/recorder.module.js');
     const { RECORDER_HOOKS, RecordingSession } = await import('../src/recording-session.js');
     const { PrismaService } = await import('../src/prisma.provider.js');
@@ -587,6 +592,27 @@ describe('Recording session (e2e)', () => {
     abort.abort();
     await expect(running).rejects.toThrow('interrupted');
   });
+  it('phiên ghi: metadata có version thấp hơn bản đã thấy bị bỏ qua, metadata không version vẫn được nhận', async () => {
+    const { meeting, owner } = await newMeeting();
+    const alice = await newUser();
+    const room = new FakeRoom(roomMeta(owner.id, true, 1));
+    room.join(alice.id);
+    useRoom(room);
+    const abort = new AbortController();
+    const running = session.run(meeting.id, abort.signal);
+    await waitUntil(async () => room.mic(alice.id).subscribedCalls.length > 0);
+    room.setMetadata(roomMeta(owner.id, false, 3));
+    await waitUntil(async () => room.mic(alice.id).subscribedCalls.length === 2);
+    room.setMetadata(roomMeta(owner.id, true, 2));
+    await sleep(300);
+    expect(room.mic(alice.id).subscribedCalls).toEqual([true, false]);
+    room.setMetadata(roomMeta(owner.id, true));
+    await waitUntil(async () => room.mic(alice.id).subscribedCalls.length === 3);
+    expect(room.mic(alice.id).subscribedCalls).toEqual([true, false, true]);
+    abort.abort();
+    await expect(running).rejects.toThrow('interrupted');
+  });
+
   it('phiên ghi: ghi biên bản tắt suốt buổi họp → không có dòng meeting_minutes, không có job biên bản, không đăng ký mic', async () => {
     const { meeting, owner } = await newMeeting({ aiNotesEnabled: false });
     const alice = await newUser();

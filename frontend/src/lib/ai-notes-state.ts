@@ -35,6 +35,7 @@ export function aiNotesFromPacket(payload: Uint8Array): AiNotesUpdate | null {
 }
 
 export function acceptAiNotes(current: AiNotesState, incoming: AiNotesUpdate): AiNotesState {
+  if (incoming.version === undefined && !incoming.enabled) return current;
   if (incoming.version !== undefined && incoming.version < current.version) return current;
   return { enabled: incoming.enabled, version: incoming.version ?? current.version };
 }

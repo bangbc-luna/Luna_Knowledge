@@ -77,9 +77,7 @@ export class TrashService {
     if (!user.isSystemAdmin && node.memberRole !== 'ADMIN') {
       throw AppError.forbidden('Only a workspace admin can delete permanently');
     }
-    await this.tree.purge(node);
-    await this.collectGarbageSoon();
-    await this.audit.log({
+    await this.tree.purge(node, {
       actorId: user.id,
       action: 'node.delete_permanent',
       targetType: 'node',
@@ -88,21 +86,21 @@ export class TrashService {
       metadata: { name: node.name, type: node.type },
       ctx,
     });
+    await this.collectGarbageSoon();
   }
 
   async empty(user: AuthenticatedUser, workspaceId: string, ctx: RequestContext) {
     if (!user.isSystemAdmin) await this.access.requireMember(user, workspaceId, 'ADMIN');
-    const count = await this.tree.purgeAll(workspaceId);
-    await this.collectGarbageSoon();
-    await this.audit.log({
+    const count = await this.tree.purgeAll(workspaceId, (deletedRoots) => ({
       actorId: user.id,
       action: 'trash.empty',
       targetType: 'workspace',
       targetId: workspaceId,
       workspaceId,
-      metadata: { deletedRoots: count },
+      metadata: { deletedRoots },
       ctx,
-    });
+    }));
+    await this.collectGarbageSoon();
     return { deleted: count };
   }
 

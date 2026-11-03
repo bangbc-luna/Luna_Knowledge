@@ -205,4 +205,40 @@ describe('ObjectStore', () => {
       expect(url).toContain('X-Amz-Expires=3600');
     });
   });
+
+  it('createTmpUpload ném lỗi khi S3 không trả UploadId', async () => {
+    const send = vi.fn(async () => ({}));
+    const store = new ObjectStore(env, { s3: { send } as never });
+    await expect(store.createTmpUpload('k')).rejects.toThrow('UploadId');
+    send.mockResolvedValueOnce({ UploadId: 'u1' } as never);
+    await expect(store.createTmpUpload('k')).resolves.toBe('u1');
+  });
+
+  it('listTmpUploadParts để trống etag khi S3 không trả ETag, completeTmpUpload không gửi ETag rỗng', async () => {
+    const send = vi.fn(async (command: unknown) => {
+      if (command instanceof ListPartsCommand) {
+        return {
+          Parts: [
+            { PartNumber: 1, Size: 5, ETag: '"a"' },
+            { PartNumber: 2, Size: 6 },
+          ],
+        };
+      }
+      return {};
+    });
+    const store = new ObjectStore(env, { s3: { send } as never });
+    const parts = await store.listTmpUploadParts('k', 'u');
+    expect(parts).toEqual([
+      { partNumber: 1, size: 5, etag: '"a"' },
+      { partNumber: 2, size: 6 },
+    ]);
+    await store.completeTmpUpload('k', 'u', parts);
+    const complete = send.mock.calls
+      .map((c) => c[0])
+      .find((c) => c instanceof CompleteMultipartUploadCommand) as CompleteMultipartUploadCommand;
+    expect(complete.input.MultipartUpload?.Parts).toEqual([
+      { PartNumber: 1, ETag: '"a"' },
+      { PartNumber: 2 },
+    ]);
+  });
 });
