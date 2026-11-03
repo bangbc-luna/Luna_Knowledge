@@ -25,6 +25,12 @@ const TREE_TX_MAX_WAIT_MS = 5_000;
 const DEFAULT_STATEMENT_TIMEOUT_MS = 30_000;
 const PURGE_BATCH_SIZE = 200;
 
+export interface PurgeBatch {
+  count: number;
+  index: number;
+  total: number;
+}
+
 export type NodeExtra = {
   description?: string | null;
   status?: NodeStatus;
@@ -208,6 +214,15 @@ export class NodeTree {
             throw AppError.validation('Cannot move a folder into its own subfolder');
         }
         await this.placeAt(tx, node, targetParentId, { autoRename: false, userId: user.id });
+        await this.writeAudit(tx, {
+          actorId: user.id,
+          action: 'node.move',
+          targetType: 'node',
+          targetId: nodeId,
+          workspaceId: node.workspaceId,
+          metadata: { from: node.parentId, to: targetParentId },
+          ctx,
+        });
       });
     } catch (err) {
       throw await this.mapConflict(err, {
@@ -219,15 +234,6 @@ export class NodeTree {
       });
     }
 
-    await this.audit.log({
-      actorId: user.id,
-      action: 'node.move',
-      targetType: 'node',
-      targetId: nodeId,
-      workspaceId: node.workspaceId,
-      metadata: { from: node.parentId, to: targetParentId },
-      ctx,
-    });
     await this.search.tree(nodeId);
     await this.collab.accessChanged({ workspaceId: node.workspaceId });
   }
@@ -254,22 +260,22 @@ export class NodeTree {
         where: { deletedRootId: root.id },
         data: { deletedAt: null, deletedById: null, deletedRootId: null },
       });
+      await this.writeAudit(tx, {
+        actorId: user.id,
+        action: 'node.restore',
+        targetType: 'node',
+        targetId: root.id,
+        workspaceId: root.workspaceId,
+        metadata: {
+          restoredTo: parentId,
+          movedToRoot: parentId !== root.parentId,
+          renamedTo: name !== root.name ? name : undefined,
+        },
+        ctx,
+      });
       return { parentId, name };
     });
 
-    await this.audit.log({
-      actorId: user.id,
-      action: 'node.restore',
-      targetType: 'node',
-      targetId: root.id,
-      workspaceId: root.workspaceId,
-      metadata: {
-        restoredTo: result.parentId,
-        movedToRoot: result.parentId !== root.parentId,
-        renamedTo: result.name !== root.name ? result.name : undefined,
-      },
-      ctx,
-    });
     await this.search.tree(root.id);
     return result;
   }
@@ -331,24 +337,28 @@ export class NodeTree {
     });
   }
 
-  async purgeAll(workspaceId: string, audit: (count: number) => AuditEntry): Promise<number> {
+  async purgeAll(workspaceId: string, audit: (batch: PurgeBatch) => AuditEntry): Promise<number> {
     const roots = await this.prisma.client.$queryRaw<{ id: string }[]>`
       SELECT id FROM nodes WHERE workspace_id = ${workspaceId}::uuid AND deleted_root_id = id`;
+    if (roots.length === 0) {
+      await this.prisma.client.$transaction((tx) =>
+        this.writeAudit(tx, audit({ count: 0, index: 1, total: 1 })),
+      );
+      return 0;
+    }
+    const total = Math.ceil(roots.length / PURGE_BATCH_SIZE);
     let deleted = 0;
-    for (let i = 0; i < roots.length; i += PURGE_BATCH_SIZE) {
-      const ids = roots.slice(i, i + PURGE_BATCH_SIZE).map((r) => r.id);
+    for (let index = 1; index <= total; index++) {
+      const ids = roots.slice((index - 1) * PURGE_BATCH_SIZE, index * PURGE_BATCH_SIZE);
       deleted += await this.withLock(workspaceId, async (tx) => {
         const count = await tx.$executeRaw`
           DELETE FROM nodes
           WHERE workspace_id = ${workspaceId}::uuid
             AND deleted_root_id = id
-            AND id = ANY(${ids}::uuid[])`;
-        await this.writeAudit(tx, audit(count));
+            AND id = ANY(${ids.map((r) => r.id)}::uuid[])`;
+        if (count > 0 || total === 1) await this.writeAudit(tx, audit({ count, index, total }));
         return count;
       });
-    }
-    if (roots.length === 0) {
-      await this.prisma.client.$transaction((tx) => this.writeAudit(tx, audit(0)));
     }
     return deleted;
   }

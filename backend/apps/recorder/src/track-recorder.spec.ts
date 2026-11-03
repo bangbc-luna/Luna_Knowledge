@@ -211,4 +211,80 @@ describe('TrackRecorder', () => {
     expect(create).toHaveBeenCalledTimes(1);
     expect(written.samples).toBe((100 + 80 + 100) * 160);
   });
+
+  it('hai lần kẹt liền nhau, mỗi lần frame đầu cách frame thứ hai một nhịp rồi dồn: đồng hồ mẫu không vượt đồng hồ thật quá một frame', async () => {
+    const clock = { t: 0 };
+    const { recorder } = setup({ now: () => clock.t, monotonic: () => clock.t });
+    async function* stalls() {
+      for (let i = 0; i < 100; i++) {
+        clock.t += 10;
+        yield loud();
+      }
+      for (let round = 0; round < 2; round++) {
+        clock.t += 2000;
+        yield loud();
+        clock.t += 10;
+        for (let i = 0; i < 199; i++) yield loud();
+        for (let i = 0; i < 20; i++) {
+          clock.t += 10;
+          yield loud();
+        }
+      }
+    }
+    await recorder.consume(stalls());
+    const sampleClock = (recorder as unknown as { sampleClockMs: number }).sampleClockMs;
+    expect(sampleClock - clock.t).toBeLessThanOrEqual(10);
+  });
+
+  it('tạm dừng khi đang giữ một frame: frame đó vẫn được ghi vào đoạn đang mở', async () => {
+    const clock = { t: 0 };
+    const written = { samples: 0 };
+    const { recorder } = setup({
+      now: () => clock.t,
+      monotonic: () => clock.t,
+      createEncoder: () => countingEncoder(written),
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    async function* held() {
+      for (let i = 0; i < 100; i++) {
+        clock.t += 10;
+        yield loud();
+      }
+      clock.t += 2000;
+      yield loud();
+      await gate;
+    }
+    const consuming = recorder.consume(held());
+    await new Promise((resolve) => setImmediate(resolve));
+    await recorder.pause();
+    expect(written.samples).toBe(101 * 160);
+    release();
+    await consuming;
+    await recorder.stop();
+    expect(written.samples).toBe(101 * 160);
+  });
+
+  it('luồng kết thúc khi đang giữ một frame: frame đó vẫn được ghi', async () => {
+    const clock = { t: 0 };
+    const written = { samples: 0 };
+    const { recorder } = setup({
+      now: () => clock.t,
+      monotonic: () => clock.t,
+      createEncoder: () => countingEncoder(written),
+    });
+    async function* endsHeld() {
+      for (let i = 0; i < 100; i++) {
+        clock.t += 10;
+        yield loud();
+      }
+      clock.t += 2000;
+      yield loud();
+    }
+    await recorder.consume(endsHeld());
+    await recorder.stop();
+    expect(written.samples).toBe(101 * 160);
+  });
 });

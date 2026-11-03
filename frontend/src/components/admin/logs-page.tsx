@@ -5,7 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { api, describeError, downloadFile } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { ACTION_GROUPS, ACTION_LABEL, formatWhen } from "@/lib/format";
+import { ACTION_GROUPS, actionText, formatWhen } from "@/lib/format";
 import type { AdminUser, AuditItem, Page, Workspace } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 import { PageBody, TopBar } from "../shell/shell";
@@ -146,7 +146,7 @@ export function LogsPage() {
                         <tr
                           key={item.id}
                           tabIndex={0}
-                          aria-label={`${actorName(item)} ${ACTION_LABEL[item.action] ?? item.action}, xem chi tiết`}
+                          aria-label={`${actorName(item)} ${actionText(item.action, item.metadata)}, xem chi tiết`}
                           onClick={() => setSelected(item)}
                           onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setSelected(item))}
                           className={cn(
@@ -168,7 +168,7 @@ export function LogsPage() {
                             ) : null}
                           </td>
                           <td className="col-span-2 flex min-w-0 items-center gap-2 pl-9.5 sm:table-cell sm:w-px sm:px-4">
-                            <ActionBadge action={item.action} />
+                            <ActionBadge action={item.action} metadata={item.metadata} />
                             {target || item.workspace ? (
                               <span className="min-w-0 truncate text-xs text-muted sm:hidden">{[target, item.workspace?.name].filter(Boolean).join(" · ")}</span>
                             ) : null}
@@ -209,7 +209,7 @@ export function LogsPage() {
       <Sheet
         open={!!selected}
         onClose={() => setSelected(null)}
-        title={selected ? (ACTION_LABEL[selected.action] ?? selected.action) : ""}
+        title={selected ? actionText(selected.action, selected.metadata) : ""}
         subtitle={selected ? `${formatWhen(selected.createdAt, { withTime: true })} · sự kiện #${selected.id}` : undefined}
       >
         {selected ? (
@@ -222,7 +222,7 @@ export function LogsPage() {
               </dd>
               <dt className="text-muted">Hành động</dt>
               <dd>
-                <ActionBadge action={selected.action} />
+                <ActionBadge action={selected.action} metadata={selected.metadata} />
               </dd>
               <dt className="text-muted">Đối tượng</dt>
               <dd className="[overflow-wrap:anywhere]">{targetText(selected) ?? "—"}</dd>
