@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# Một Dockerfile cho cả monorepo; chọn app bằng target: api | worker | collab.
+# Một Dockerfile cho cả monorepo; chọn app bằng target: api | worker | recorder | collab.
 #   docker build --target api -t luna-api .
 
 FROM node:22-bookworm-slim AS base
@@ -11,6 +11,7 @@ FROM base AS build
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps/api/package.json apps/api/
 COPY apps/worker/package.json apps/worker/
+COPY apps/recorder/package.json apps/recorder/
 COPY apps/collab/package.json apps/collab/
 COPY packages/db/package.json packages/db/
 COPY packages/shared/package.json packages/shared/
@@ -24,6 +25,7 @@ RUN pnpm turbo run build
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     pnpm deploy --filter @luna/api --prod /out/api && \
     pnpm deploy --filter @luna/worker --prod /out/worker && \
+    pnpm deploy --filter @luna/recorder --prod /out/recorder && \
     pnpm deploy --filter @luna/collab --prod /out/collab
 
 FROM build AS migrate
@@ -50,6 +52,15 @@ RUN mkdir -p /var/tmp/luna && chown node:node /var/tmp/luna
 USER node
 COPY --from=build --chown=node:node /out/worker /app
 HEALTHCHECK --interval=15s --timeout=5s CMD node -e "fetch('http://127.0.0.1:'+(process.env.WORKER_METRICS_PORT||9464)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+CMD ["node", "dist/main.js"]
+
+FROM runtime AS recorder
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+RUN mkdir -p /var/tmp/luna-recorder && chown node:node /var/tmp/luna-recorder
+USER node
+COPY --from=build --chown=node:node /out/recorder /app
+HEALTHCHECK --interval=15s --timeout=5s CMD node -e "fetch('http://127.0.0.1:'+(process.env.RECORDER_METRICS_PORT||9465)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "dist/main.js"]
 
 FROM runtime AS collab
