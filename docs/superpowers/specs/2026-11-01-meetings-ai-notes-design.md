@@ -10,6 +10,8 @@ Mục tiêu: họp ngay trong Luna (không cần Google Meet), và sau mỗi bu�
 
 ## 2. Mục tiêu, không làm, phản mục tiêu
 
+> 2026-11-03 chủ dự án bỏ camera: họp bằng âm thanh + chia sẻ màn hình + chat.
+
 **Mục tiêu**
 - Phòng họp trong Luna: gọi video, chia sẻ màn hình, chat, thả icon tương tác nhanh, giơ tay, danh sách người tham gia, viền sáng người đang nói. Ổn định cho 5–15 người, người ở xa vào được.
 - Sau buổi họp, tự sinh biên bản tiếng Việt gồm: **tổng quan** (bàn gì, chốt gì), **phân việc theo từng người** (việc, người phụ trách, hạn nếu có nhắc tới), **chi tiết theo chủ đề**, **bản ghi lời nói** (ai nói gì, lúc nào).

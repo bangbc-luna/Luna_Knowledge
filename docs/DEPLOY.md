@@ -358,7 +358,7 @@ Sự cố thường gặp:
 
 ## 10. Phòng họp
 
-Phòng họp (âm thanh, video, chia sẻ màn hình) chạy trên LiveKit. Có hai cách: LiveKit Cloud (các bước dưới đây) hoặc tự cài LiveKit server (xem "Tự cài LiveKit" bên dưới). Với cả hai, trình duyệt nối thẳng tới LiveKit, API chỉ cấp token ngắn hạn và nhận webhook; chuyển qua lại chỉ cần đổi ba biến `LIVEKIT_*` và build lại frontend.
+Phòng họp (âm thanh, chia sẻ màn hình, chat; không có camera) chạy trên LiveKit. Có hai cách: LiveKit Cloud (các bước dưới đây) hoặc tự cài LiveKit server (xem "Tự cài LiveKit" bên dưới). Với cả hai, trình duyệt nối thẳng tới LiveKit, API chỉ cấp token ngắn hạn và nhận webhook; chuyển qua lại chỉ cần đổi ba biến `LIVEKIT_*` và build lại frontend.
 
 1. Tạo project trên LiveKit Cloud (cloud.livekit.io), vào Project Settings → Keys, tạo một cặp API key và secret.
 2. Điền các biến trong `.env.prod`:
@@ -397,11 +397,11 @@ Dùng khi chưa có LiveKit Cloud. Chạy `livekit-server` bằng docker trên m
 
 | | Server văn phòng | VPS (khuyến nghị cho người họp từ xa) |
 |---|---|---|
-| Băng thông | Đường lên của văn phòng chỉ đủ khoảng 8 người xem ở 1080p cùng lúc | Nên chọn đường 1 Gbps |
+| Băng thông | Đường lên của văn phòng phải đủ cho số người xem màn hình chia sẻ (xem ước tính bên dưới) | Nên chọn đường 1 Gbps |
 | Người ngoài văn phòng | Phải mở cổng ra Internet, trải nghiệm phụ thuộc đường truyền văn phòng | Ổn định, ở cùng khu vực với người dùng |
 | Chi phí | Không thêm | Thuê thêm một VPS |
 
-Ước tính: một buổi 10 người dùng khoảng 50-90 Mbps ở đỉnh (LiveKit gửi lại luồng video của từng người cho mọi người xem, nên đường lên của server là nút thắt). Nếu chọn server văn phòng, đo đường lên trước (`speedtest`) và chỉ dùng cho buổi họp nhỏ.
+Ước tính băng thông phòng họp: âm thanh khoảng 30-50 kbps mỗi người; chia sẻ màn hình khoảng 1-2,5 Mbps mỗi người chia sẻ, nhân với số người xem (LiveKit gửi lại luồng cho từng người xem, nên đường lên của server là nút thắt). Ví dụ một người chia sẻ cho 10 người xem tốn khoảng 10-25 Mbps đường lên, âm thanh của 10 người cộng lại dưới 5 Mbps. Nếu chọn server văn phòng, đo đường lên trước (`speedtest`) và chỉ dùng cho buổi họp nhỏ.
 
 **1. Chuẩn bị**
 

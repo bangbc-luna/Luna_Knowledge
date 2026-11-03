@@ -26,7 +26,6 @@ type LiveKitEnv = Pick<
 >;
 
 const PUBLISH_SOURCES = [
-  TrackSource.CAMERA,
   TrackSource.MICROPHONE,
   TrackSource.SCREEN_SHARE,
   TrackSource.SCREEN_SHARE_AUDIO,

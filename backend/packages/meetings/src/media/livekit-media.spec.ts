@@ -37,7 +37,7 @@ describe('LiveKitMeetingMedia', () => {
     expect(media.serverUrl).toBe('wss://luna.livekit.test');
   });
 
-  it('participant token: right room, publishes mic/camera/screen, no roomAdmin, expires after 600 seconds', async () => {
+  it('participant token: right room, publishes mic and screen only (no camera), no roomAdmin, expires after 600 seconds', async () => {
     const jwt = await media.joinToken({
       roomName: 'luna-m1',
       identity: 'u1',
@@ -53,8 +53,9 @@ describe('LiveKitMeetingMedia', () => {
       canPublish: true,
       canSubscribe: true,
       canPublishData: true,
-      canPublishSources: ['camera', 'microphone', 'screen_share', 'screen_share_audio'],
+      canPublishSources: ['microphone', 'screen_share', 'screen_share_audio'],
     });
+    expect(claims.video.canPublishSources).not.toContain('camera');
     expect(claims.video.roomAdmin).toBeUndefined();
     expect(claims.video.canUpdateOwnMetadata).toBeUndefined();
   });
