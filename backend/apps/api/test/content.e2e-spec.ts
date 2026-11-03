@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { purgeExpiredTrash } from '@luna/db';
 import request from 'supertest';
 import {
@@ -560,6 +561,31 @@ describe('Content tree, sharing, trash (e2e)', () => {
         .set(alice.auth)
         .expect(200);
       expect(trash.body).toEqual([]);
+    });
+
+    it('dọn sạch thùng rác nhiều hơn 200 mục gốc: xóa hết, cộng đủ số lượng', async () => {
+      await http().delete(`/api/v1/workspaces/${wsId}/trash`).set(alice.auth).expect(200);
+      const total = 450;
+      const ids = Array.from({ length: total }, () => randomUUID());
+      await ctx.prisma.node.createMany({
+        data: ids.map((id, i) => ({
+          id,
+          workspaceId: wsId,
+          type: 'DOCUMENT' as const,
+          name: `Rác ${i}`,
+          nameNormalized: `rác ${i}`,
+          createdById: alice.userId,
+          deletedAt: new Date(),
+          deletedById: alice.userId,
+          deletedRootId: id,
+        })),
+      });
+      const res = await http()
+        .delete(`/api/v1/workspaces/${wsId}/trash`)
+        .set(alice.auth)
+        .expect(200);
+      expect(res.body.deleted).toBe(total);
+      expect(await ctx.prisma.node.count({ where: { id: { in: ids } } })).toBe(0);
     });
 
     it('job dọn thùng rác chỉ xóa mục quá 30 ngày', async () => {

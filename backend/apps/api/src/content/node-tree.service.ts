@@ -22,6 +22,7 @@ import { nameKey, suggestName } from './node-names.js';
 const TREE_LOCK_WAIT_MS = 5_000;
 const TREE_TX_MAX_WAIT_MS = 5_000;
 const DEFAULT_STATEMENT_TIMEOUT_MS = 30_000;
+const PURGE_BATCH_SIZE = 200;
 
 export type NodeExtra = {
   description?: string | null;
@@ -319,12 +320,22 @@ export class NodeTree {
     });
   }
 
-  purgeAll(workspaceId: string): Promise<number> {
-    return this.withLock(
-      workspaceId,
-      (tx) => tx.$executeRaw`
-        DELETE FROM nodes WHERE workspace_id = ${workspaceId}::uuid AND deleted_root_id = id`,
-    );
+  async purgeAll(workspaceId: string): Promise<number> {
+    const roots = await this.prisma.client.$queryRaw<{ id: string }[]>`
+      SELECT id FROM nodes WHERE workspace_id = ${workspaceId}::uuid AND deleted_root_id = id`;
+    let deleted = 0;
+    for (let i = 0; i < roots.length; i += PURGE_BATCH_SIZE) {
+      const ids = roots.slice(i, i + PURGE_BATCH_SIZE).map((r) => r.id);
+      deleted += await this.withLock(
+        workspaceId,
+        (tx) => tx.$executeRaw`
+          DELETE FROM nodes
+          WHERE workspace_id = ${workspaceId}::uuid
+            AND deleted_root_id = id
+            AND id = ANY(${ids}::uuid[])`,
+      );
+    }
+    return deleted;
   }
 
   private async withLock<T>(
