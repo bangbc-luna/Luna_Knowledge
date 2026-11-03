@@ -1583,6 +1583,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/meetings/{id}/minutes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["MinutesController_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/meetings/{id}/minutes/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["MinutesController_saveDraft"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/meetings/{id}/minutes/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["MinutesController_publish"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/meetings/{id}/minutes/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["MinutesController_retry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/dev/token": {
         parameters: {
             query?: never;
@@ -8713,6 +8777,12 @@ export interface operations {
                             meetings: number;
                             roomMinutes: number;
                             participantMinutes: number;
+                            sttMinutes: number;
+                            llmInputTokens: number;
+                            llmOutputTokens: number;
+                            aiCostMicroUsd: number;
+                            aiCostUsd: number;
+                            liveKitEstimateUsd: number;
                             byWorkspace: {
                                 workspaceId: string;
                                 name: string;
@@ -9071,6 +9141,7 @@ export interface operations {
                             startedAt: string | null;
                             endedAt: string | null;
                             aiNotesEnabled: boolean;
+                            aiNotesAvailable: boolean;
                             createdBy: {
                                 id: string;
                                 email: string;
@@ -9078,6 +9149,9 @@ export interface operations {
                                 avatarUrl: string | null;
                             };
                             attendeeCount: number;
+                            minutes: {
+                                status: "NONE" | "RECORDING" | "PROCESSING" | "AWAITING_REVIEW" | "PUBLISHING" | "PUBLISHED" | "FAILED";
+                            };
                         }[];
                         nextCursor: string | null;
                     };
@@ -9160,6 +9234,7 @@ export interface operations {
                         startedAt: string | null;
                         endedAt: string | null;
                         aiNotesEnabled: boolean;
+                        aiNotesAvailable: boolean;
                         createdBy: {
                             id: string;
                             email: string;
@@ -9167,6 +9242,9 @@ export interface operations {
                             avatarUrl: string | null;
                         };
                         attendeeCount: number;
+                        minutes: {
+                            status: "NONE" | "RECORDING" | "PROCESSING" | "AWAITING_REVIEW" | "PUBLISHING" | "PUBLISHED" | "FAILED";
+                        };
                     };
                 };
             };
@@ -9237,6 +9315,7 @@ export interface operations {
                         startedAt: string | null;
                         endedAt: string | null;
                         aiNotesEnabled: boolean;
+                        aiNotesAvailable: boolean;
                         createdBy: {
                             id: string;
                             email: string;
@@ -9244,6 +9323,10 @@ export interface operations {
                             avatarUrl: string | null;
                         };
                         attendeeCount: number;
+                        minutes: {
+                            status: "NONE" | "RECORDING" | "PROCESSING" | "AWAITING_REVIEW" | "PUBLISHING" | "PUBLISHED" | "FAILED";
+                            documentNodeId: string | null;
+                        };
                         invitees: {
                             id: string;
                             email: string;
@@ -9331,6 +9414,7 @@ export interface operations {
                         startedAt: string | null;
                         endedAt: string | null;
                         aiNotesEnabled: boolean;
+                        aiNotesAvailable: boolean;
                         createdBy: {
                             id: string;
                             email: string;
@@ -9338,6 +9422,10 @@ export interface operations {
                             avatarUrl: string | null;
                         };
                         attendeeCount: number;
+                        minutes: {
+                            status: "NONE" | "RECORDING" | "PROCESSING" | "AWAITING_REVIEW" | "PUBLISHING" | "PUBLISHED" | "FAILED";
+                            documentNodeId: string | null;
+                        };
                         invitees: {
                             id: string;
                             email: string;
@@ -10002,6 +10090,284 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Error"];
                 };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    MinutesController_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        status: "NONE" | "RECORDING" | "PROCESSING" | "AWAITING_REVIEW" | "PUBLISHING" | "PUBLISHED" | "FAILED";
+                        documentNodeId: string | null;
+                        canReview: boolean;
+                        error: string | null;
+                        warning: string | null;
+                        failedStage: string | null;
+                        failureReason: string | null;
+                        canRetry: boolean;
+                        droppedItemCount: number;
+                        draft: {
+                            doc: {
+                                [key: string]: unknown;
+                            };
+                            revision: number;
+                            suggestions: {
+                                actionIndex: number;
+                                name: string;
+                                userId: string;
+                                userName: string;
+                            }[];
+                        } | null;
+                    };
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    MinutesController_saveDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    doc: {
+                        [key: string]: unknown;
+                    };
+                    revision: number;
+                };
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        revision: number;
+                    };
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    MinutesController_publish: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    revision: number;
+                    confirmedUserIds?: string[];
+                };
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        documentNodeId: string;
+                    };
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    MinutesController_retry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        attempt: number;
+                    };
+                };
+            };
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             401: {
                 headers: {

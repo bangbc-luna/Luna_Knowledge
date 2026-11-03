@@ -15,6 +15,12 @@ x-no-owner-secrets: &no-owner-secrets
   CLOUDFLARE_TUNNEL_TOKEN: ''
   GRAFANA_ADMIN_PASSWORD: ''
 
+x-no-ai-keys: &no-ai-keys
+  DEEPGRAM_API_KEY: ''
+  ANTHROPIC_API_KEY: ''
+  GEMINI_API_KEY: ''
+  OMNIROUTE_API_KEY: ''
+
 services:
   traefik:
     image: traefik:3.6.2
@@ -74,7 +80,8 @@ services:
     <<: *app-env
     build: { context: .., target: api }
     image: luna-api:${LUNA_VERSION:-latest}
-    environment: *no-owner-secrets
+    environment:
+      <<: [*no-owner-secrets, *no-ai-keys]
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
@@ -93,7 +100,8 @@ services:
     <<: *app-env
     build: { context: .., target: collab }
     image: luna-collab:${LUNA_VERSION:-latest}
-    environment: *no-owner-secrets
+    environment:
+      <<: [*no-owner-secrets, *no-ai-keys]
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
@@ -131,6 +139,32 @@ services:
     networks: [internal, processing]
     healthcheck:
       test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:'+(process.env.WORKER_METRICS_PORT||9464)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  recorder:
+    <<: *app-env
+    build: { context: .., target: recorder }
+    image: luna-recorder:${LUNA_VERSION:-latest}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
+    cpus: '1'
+    mem_limit: 1g
+    stop_grace_period: 60s
+    tmpfs:
+      - /var/tmp/luna-recorder:size=512m,uid=1000,gid=1000,mode=0700
+    environment:
+      <<: [*no-owner-secrets, *no-ai-keys]
+      RECORDER_TMP_DIR: /var/tmp/luna-recorder
+      FFMPEG_NICE: '10'
+    networks: [internal]
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:'+(process.env.RECORDER_METRICS_PORT||9465)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -224,6 +258,7 @@ services:
       S3_BUCKET_THUMBNAILS: ${S3_BUCKET_THUMBNAILS:-luna-thumbnails}
       S3_BUCKET_ASSETS: ${S3_BUCKET_ASSETS:-luna-assets}
       S3_BUCKET_ORIGINALS: ${S3_BUCKET_ORIGINALS:-luna-originals}
+      S3_BUCKET_MEETING_AUDIO: ${S3_BUCKET_MEETING_AUDIO:-luna-meeting-audio}
     volumes:
       - ./minio:/init:ro
     depends_on:

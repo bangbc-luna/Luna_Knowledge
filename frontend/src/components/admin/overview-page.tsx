@@ -4,6 +4,8 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { formatNumber, formatWhen } from "@/lib/format";
+import { getMeetingUsage } from "@/lib/meetings";
+import type { MeetingUsage } from "@/lib/meetings";
 import type { AdminStats, AuditItem, Page } from "@/lib/types";
 import { useApi } from "@/lib/use-api";
 import { PageBody, TopBar } from "../shell/shell";
@@ -55,9 +57,60 @@ function ActivityChart({ days }: { days: AdminStats["activity"]["last7Days"] }) 
   );
 }
 
+const usd = (n: number) => `$${n.toLocaleString("vi-VN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+function usageRange() {
+  const now = new Date(Date.now() + 7 * 3_600_000);
+  const key = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 5, 1));
+  return { from: key(start), to: key(now) };
+}
+
+function MeetingsUsage({ months }: { months: MeetingUsage["months"] }) {
+  const showLiveKit = months.some((m) => m.liveKitEstimateUsd > 0);
+  const th = "h-9 px-3 text-right font-medium whitespace-nowrap";
+  const td = "h-10 px-3 text-right text-sm whitespace-nowrap tabular-nums text-foreground/80";
+  return (
+    <div className="-mx-5 overflow-x-auto px-5">
+      <table className="w-full min-w-[30rem] border-collapse">
+        <thead>
+          <tr className="text-xs text-muted">
+            <th className="h-9 pr-3 text-left font-medium whitespace-nowrap">Tháng</th>
+            <th className={th}>Cuộc họp</th>
+            <th className={th}>Phút phòng</th>
+            <th className={th}>Phút người dự</th>
+            <th className={th}>Phút chép lời</th>
+            <th className={th}>Chi phí AI</th>
+            {showLiveKit ? <th className={th}>LiveKit ước tính</th> : null}
+          </tr>
+        </thead>
+        <tbody>
+          {[...months].reverse().map((m) => (
+            <tr key={m.month} className="border-t border-border">
+              <th scope="row" className="h-10 pr-3 text-left text-sm font-medium whitespace-nowrap">
+                {m.month.slice(5)}/{m.month.slice(0, 4)}
+              </th>
+              <td className={td}>{formatNumber(m.meetings)}</td>
+              <td className={td}>{formatNumber(m.roomMinutes)}</td>
+              <td className={td}>{formatNumber(m.participantMinutes)}</td>
+              <td className={td}>{formatNumber(m.sttMinutes)}</td>
+              <td className={td}>{usd(m.aiCostUsd)}</td>
+              {showLiveKit ? <td className={td}>{usd(m.liveKitEstimateUsd)}</td> : null}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function OverviewPage() {
   const stats = useApi(() => api<AdminStats>("/admin/stats"), []);
   const recent = useApi(() => api<Page<AuditItem>>("/admin/audit-logs", { query: { limit: 6 } }), []);
+  const usage = useApi(() => {
+    const range = usageRange();
+    return getMeetingUsage(range.from, range.to);
+  }, []);
   const s = stats.data;
   return (
     <>
@@ -127,6 +180,23 @@ export function OverviewPage() {
             </div>
           </Card>
         </div>
+        <Card>
+          <div className="p-5">
+            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+              <h2 className="text-base font-semibold">Cuộc họp</h2>
+              <p className="text-xs text-muted">6 tháng gần nhất</p>
+            </div>
+            {usage.error ? (
+              <ErrorBanner error={usage.error} what="số liệu cuộc họp" onRetry={usage.reload} />
+            ) : !usage.data ? (
+              <SkeletonRows rows={3} />
+            ) : !usage.data.months.some((m) => m.meetings > 0) ? (
+              <EmptyState text="Chưa có cuộc họp nào trong 6 tháng qua." />
+            ) : (
+              <MeetingsUsage months={usage.data.months} />
+            )}
+          </div>
+        </Card>
       </PageBody>
     </>
   );

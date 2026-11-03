@@ -62,6 +62,8 @@ export async function setup() {
     VIDEO_MASTER_KEY: Buffer.alloc(32, 9).toString('base64'),
     COLLAB_TOKEN_SECRET: 'e2e-collab-token-secret-0123456789abcdef',
     COLLAB_INTERNAL_SECRET: 'e2e-collab-internal-secret-0123456789ab',
+    MEETING_STT_PROVIDER: 'fake',
+    MEETING_LLM_PROVIDER: 'fake',
     LIVEKIT_URL: 'wss://fake.livekit.test',
     LIVEKIT_API_KEY: 'fake-livekit-key',
     LIVEKIT_API_SECRET: 'fake-livekit-secret-0123456789abcdef',

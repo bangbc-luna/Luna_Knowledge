@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { pageSchema, paginationQuery } from '../common/pagination/cursor.js';
 import { userSummarySchema } from '../users/users.schemas.js';
+import { minutesStatusSchema, minutesSummarySchema } from './minutes/minutes.schemas.js';
 
 const SCHEDULE_GRACE_MS = 5 * 60_000;
 
@@ -49,8 +50,12 @@ export const meetingSchema = z.object({
   startedAt: z.date().nullable(),
   endedAt: z.date().nullable(),
   aiNotesEnabled: z.boolean(),
+  aiNotesAvailable: z
+    .boolean()
+    .describe('false khi máy chủ chưa cấu hình AI: không thể bật biên bản AI'),
   createdBy: userSummarySchema,
   attendeeCount: z.number().int(),
+  minutes: z.object({ status: minutesStatusSchema }),
 });
 
 export const meetingDetailSchema = meetingSchema.extend({
@@ -62,6 +67,7 @@ export const meetingDetailSchema = meetingSchema.extend({
     .describe('Giờ phòng mở cho người không quản lý, chỉ khi buổi họp còn SCHEDULED'),
   canHost: z.boolean().describe('Người tạo buổi họp'),
   canManage: z.boolean().describe('Người tạo hoặc quản trị workspace: sửa, huỷ, mời'),
+  minutes: minutesSummarySchema,
 });
 
 export const meetingPageSchema = pageSchema(meetingSchema);

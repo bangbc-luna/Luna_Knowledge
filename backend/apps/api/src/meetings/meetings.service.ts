@@ -1,4 +1,5 @@
 import { type AuditRecord, type Meeting, type Prisma, writeAudit } from '@luna/db';
+import { minutesAiAvailable } from '@luna/meetings';
 import { enqueueMeetingReminder, type JobQueue, QUEUES } from '@luna/shared';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Inject, Injectable, Logger } from '@nestjs/common';
@@ -12,6 +13,8 @@ import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { UsersService } from '../users/users.service.js';
 import { MeetingAccess } from './meeting-access.service.js';
+import type { MinutesSummary } from './minutes/minutes.schemas.js';
+import { MinutesService } from './minutes/minutes.service.js';
 import type {
   CreateMeetingBody,
   InviteBody,
@@ -21,6 +24,9 @@ import type {
 
 const userSummary = { id: true, email: true, name: true, avatarUrl: true } as const;
 const ENDED_MESSAGE = 'This meeting has already ended';
+const AI_NOT_CONFIGURED = 'AI minutes are not configured';
+
+type MinutesStatus = MinutesSummary['status'];
 
 type MeetingRow = Meeting & {
   createdBy: { id: string; email: string; name: string; avatarUrl: string | null };
@@ -34,11 +40,16 @@ export class MeetingsService {
     private readonly prisma: PrismaService,
     private readonly content: ContentAccessService,
     private readonly access: MeetingAccess,
+    private readonly minutes: MinutesService,
     private readonly users: UsersService,
     private readonly notifications: NotificationsService,
     @InjectQueue(QUEUES.MEETINGS) private readonly queue: JobQueue<'meetings'>,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
+
+  private get aiAvailable() {
+    return minutesAiAvailable(this.config);
+  }
 
   private async scheduleReminder(meetingId: string, scheduledAt: Date | null) {
     if (!scheduledAt) return;
@@ -69,7 +80,7 @@ export class MeetingsService {
           workspaceId,
           title: body.title,
           scheduledAt,
-          aiNotesEnabled: body.aiNotesEnabled,
+          aiNotesEnabled: body.aiNotesEnabled && this.aiAvailable,
           createdById: user.id,
           invites: {
             create: invitees.map((u) => ({ userId: u.id, invitedById: user.id })),
@@ -95,7 +106,7 @@ export class MeetingsService {
     });
     await this.notifyInvited(user, meeting, invitees);
     if (body.mode !== 'instant') await this.scheduleReminder(meeting.id, meeting.scheduledAt);
-    return this.toDto(meeting, 0);
+    return this.toDto(meeting, 0, 'NONE');
   }
 
   async list(
@@ -132,18 +143,22 @@ export class MeetingsService {
     });
     const hasMore = rows.length > q.limit;
     const items = hasMore ? rows.slice(0, q.limit) : rows;
-    const counts = await this.attendeeCounts(items.map((m) => m.id));
+    const ids = items.map((m) => m.id);
+    const [counts, minutes] = await Promise.all([
+      this.attendeeCounts(ids),
+      this.minutesStatuses(ids),
+    ]);
     const last = items[items.length - 1];
     const lastAt = last?.[field];
     return {
-      items: items.map((m) => this.toDto(m, counts.get(m.id) ?? 0)),
+      items: items.map((m) => this.toDto(m, counts.get(m.id) ?? 0, minutes.get(m.id) ?? 'NONE')),
       nextCursor: hasMore && last && lastAt ? encodeKeysetCursor(lastAt, last.id) : null,
     };
   }
 
   async get(user: AuthenticatedUser, meetingId: string) {
     const { isHost, canManage } = await this.access.require(user, meetingId);
-    return this.detail(meetingId, isHost, canManage);
+    return this.detail(user.id, meetingId, isHost, canManage);
   }
 
   async update(
@@ -155,6 +170,7 @@ export class MeetingsService {
     const access = await this.access.requireManager(user, meetingId);
     const { meeting } = access;
     this.requireScheduled(meeting);
+    if (body.aiNotesEnabled && !this.aiAvailable) throw AppError.conflict(AI_NOT_CONFIGURED);
     await this.prisma.client.$transaction(async (tx) => {
       const { count } = await tx.meeting.updateMany({
         where: { id: meetingId, status: 'SCHEDULED' },
@@ -179,7 +195,7 @@ export class MeetingsService {
       });
     });
     if (body.scheduledAt) await this.scheduleReminder(meetingId, body.scheduledAt);
-    return this.detail(meetingId, access.isHost, true);
+    return this.detail(user.id, meetingId, access.isHost, true);
   }
 
   async cancel(user: AuthenticatedUser, meetingId: string, ctx: RequestContext) {
@@ -338,6 +354,15 @@ export class MeetingsService {
     );
   }
 
+  private async minutesStatuses(meetingIds: string[]): Promise<Map<string, MinutesStatus>> {
+    if (meetingIds.length === 0) return new Map();
+    const rows = await this.prisma.client.meetingMinutes.findMany({
+      where: { meetingId: { in: meetingIds } },
+      select: { meetingId: true, status: true },
+    });
+    return new Map(rows.map((r) => [r.meetingId, r.status]));
+  }
+
   private async attendeeCounts(meetingIds: string[]): Promise<Map<string, number>> {
     if (meetingIds.length === 0) return new Map();
     const rows = await this.prisma.client.meetingAttendance.groupBy({
@@ -349,7 +374,7 @@ export class MeetingsService {
     return counts;
   }
 
-  private async detail(meetingId: string, canHost: boolean, canManage: boolean) {
+  private async detail(userId: string, meetingId: string, canHost: boolean, canManage: boolean) {
     const meeting = await this.prisma.client.meeting.findUniqueOrThrow({
       where: { id: meetingId },
       include: {
@@ -363,7 +388,7 @@ export class MeetingsService {
     });
     const attendeeCount = new Set(meeting.attendances.map((a) => a.user.id)).size;
     return {
-      ...this.toDto(meeting, attendeeCount),
+      ...this.toDto(meeting, attendeeCount, 'NONE'),
       invitees: meeting.invites.map((i) => i.user),
       attendees: meeting.attendances.map((a) => ({
         ...a.user,
@@ -376,10 +401,11 @@ export class MeetingsService {
           : null,
       canHost,
       canManage,
+      minutes: await this.minutes.summary(userId, meetingId),
     };
   }
 
-  private toDto(m: MeetingRow, attendeeCount: number) {
+  private toDto(m: MeetingRow, attendeeCount: number, minutesStatus: MinutesStatus) {
     return {
       id: m.id,
       workspaceId: m.workspaceId,
@@ -388,9 +414,11 @@ export class MeetingsService {
       scheduledAt: m.scheduledAt,
       startedAt: m.startedAt,
       endedAt: m.endedAt,
-      aiNotesEnabled: m.aiNotesEnabled,
+      aiNotesEnabled: m.aiNotesEnabled && this.aiAvailable,
+      aiNotesAvailable: this.aiAvailable,
       createdBy: m.createdBy,
       attendeeCount,
+      minutes: { status: minutesStatus },
     };
   }
 }

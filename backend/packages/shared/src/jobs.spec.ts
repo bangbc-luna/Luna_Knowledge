@@ -4,6 +4,12 @@ import {
   enqueueFileJob,
   enqueueIndexNode,
   enqueueMeetingReminder,
+  enqueueMinutes,
+  enqueueRecording,
+  RECORDER_BACKOFF_CAP_MS,
+  RECORDER_JOB_OPTS,
+  recorderBackoffMs,
+  promoteMinutes,
   enqueueTranscode,
   type JobName,
   type JobPayloads,
@@ -156,5 +162,93 @@ describe('enqueue helpers', () => {
       await enqueueMeetingReminder(q, 'm1', new Date('2026-11-01T10:00:30.000Z'), 10);
       expect(q.add).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('meeting minutes jobs', () => {
+  it('enqueueMinutes: jobId lần đầu và lần thử lại khác nhau; promoteMinutes đẩy job đang chờ chạy ngay', async () => {
+    const q = fakeQueue();
+    await enqueueMinutes(q, 'm1', { delayMs: 60_000 });
+    await enqueueMinutes(q, 'm1', { attempt: 2 });
+    expect(q.add).toHaveBeenNthCalledWith(
+      1,
+      'process',
+      { meetingId: 'm1' },
+      expect.objectContaining({ jobId: 'minutes-m1', delay: 60_000, attempts: 4 }),
+    );
+    expect(q.add).toHaveBeenNthCalledWith(
+      2,
+      'process',
+      { meetingId: 'm1' },
+      expect.objectContaining({ jobId: 'minutes-m1-retry-2' }),
+    );
+    expect(q.add.mock.calls[1]![2]).not.toHaveProperty('delay');
+
+    const promote = vi.fn().mockResolvedValue(undefined);
+    const delayed = { isDelayed: vi.fn().mockResolvedValue(true), promote };
+    const waiting = { isDelayed: vi.fn().mockResolvedValue(false), promote: vi.fn() };
+    const withJob = (job: unknown) => ({ ...fakeQueue(), getJob: vi.fn().mockResolvedValue(job) });
+    await promoteMinutes(withJob(delayed), 'm1');
+    expect(promote).toHaveBeenCalledTimes(1);
+    await promoteMinutes(withJob(waiting), 'm1');
+    expect(waiting.promote).not.toHaveBeenCalled();
+    const empty = withJob(undefined);
+    await promoteMinutes(empty, 'm1');
+    expect(empty.add).toHaveBeenCalledWith(
+      'process',
+      { meetingId: 'm1' },
+      expect.objectContaining({ jobId: 'minutes-m1' }),
+    );
+  });
+});
+
+describe('meeting recorder jobs', () => {
+  const recorderQueue = (job?: { state: string; remove?: () => Promise<void> }) => {
+    const remove = job?.remove ?? vi.fn().mockResolvedValue(undefined);
+    return {
+      ...fakeQueue(),
+      remove,
+      getJob: vi
+        .fn()
+        .mockResolvedValue(
+          job ? { getState: vi.fn().mockResolvedValue(job.state), remove } : undefined,
+        ),
+    };
+  };
+
+  it('thêm job record-<id> khi chưa có', async () => {
+    const q = recorderQueue();
+    await enqueueRecording(q, 'm1');
+    expect(q.add).toHaveBeenCalledWith(
+      'record',
+      { meetingId: 'm1' },
+      expect.objectContaining({ jobId: 'record-m1', ...RECORDER_JOB_OPTS }),
+    );
+  });
+
+  it.each(['failed', 'completed'])('job %s cũ bị gỡ rồi thêm lại', async (state) => {
+    const q = recorderQueue({ state });
+    await enqueueRecording(q, 'm1');
+    expect(q.remove).toHaveBeenCalledTimes(1);
+    expect(q.add).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['active', 'waiting', 'delayed', 'prioritized'])(
+    'job %s giữ nguyên, không thêm lần hai',
+    async (state) => {
+      const q = recorderQueue({ state });
+      await enqueueRecording(q, 'm1');
+      expect(q.remove).not.toHaveBeenCalled();
+      expect(q.add).not.toHaveBeenCalled();
+    },
+  );
+
+  it('thử lại nhiều lần với backoff tuỳ biến, tăng gấp đôi và chặn ở 10 phút', () => {
+    expect(RECORDER_JOB_OPTS.attempts).toBeGreaterThanOrEqual(10);
+    expect(RECORDER_JOB_OPTS.backoff).toEqual({ type: 'custom' });
+    expect(RECORDER_BACKOFF_CAP_MS).toBe(600_000);
+    expect([1, 2, 3, 4].map(recorderBackoffMs)).toEqual([5000, 10_000, 20_000, 40_000]);
+    expect(recorderBackoffMs(8)).toBe(600_000);
+    expect(recorderBackoffMs(40)).toBe(600_000);
   });
 });

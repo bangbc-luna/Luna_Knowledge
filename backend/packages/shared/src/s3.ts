@@ -8,6 +8,8 @@ import type { z } from 'zod';
 import type { BucketKey } from './constants.js';
 import type { s3EnvSchema } from './env.js';
 
+const AUDIO_EXPIRY_MARGIN_DAYS = 7;
+
 export type S3Env = z.output<typeof s3EnvSchema>;
 
 export function createS3Client(env: S3Env): S3Client {
@@ -31,6 +33,7 @@ export function bucketNames(env: S3Env): Record<BucketKey, string> {
     thumbnails: env.S3_BUCKET_THUMBNAILS,
     assets: env.S3_BUCKET_ASSETS,
     originals: env.S3_BUCKET_ORIGINALS,
+    meetingAudio: env.S3_BUCKET_MEETING_AUDIO,
   };
 }
 
@@ -63,6 +66,22 @@ export async function ensureBuckets(client: S3Client, env: S3Env): Promise<strin
             Status: 'Enabled',
             Filter: { Prefix: '' },
             Expiration: { Days: 2 },
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 2 },
+          },
+        ],
+      },
+    }),
+  );
+  await client.send(
+    new PutBucketLifecycleConfigurationCommand({
+      Bucket: env.S3_BUCKET_MEETING_AUDIO,
+      LifecycleConfiguration: {
+        Rules: [
+          {
+            ID: 'expire-meeting-audio',
+            Status: 'Enabled',
+            Filter: { Prefix: '' },
+            Expiration: { Days: env.MEETING_AUDIO_RETENTION_DAYS + AUDIO_EXPIRY_MARGIN_DAYS },
             AbortIncompleteMultipartUpload: { DaysAfterInitiation: 2 },
           },
         ],

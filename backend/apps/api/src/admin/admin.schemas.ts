@@ -88,6 +88,14 @@ export const meetingUsageSchema = z.object({
       meetings: z.number().int().describe('Số buổi họp đã bắt đầu (đang diễn ra hoặc đã kết thúc)'),
       roomMinutes: z.number().int().describe('Tổng phút phòng họp của các buổi đã kết thúc'),
       participantMinutes: z.number().int().describe('Tổng phút tham dự của các phiên đã đóng'),
+      sttMinutes: z.number().describe('Tổng phút âm thanh đã chép lời (làm tròn 2 chữ số)'),
+      llmInputTokens: z.number().int(),
+      llmOutputTokens: z.number().int(),
+      aiCostMicroUsd: z.number().int().describe('Tổng chi phí AI, đơn vị micro USD'),
+      aiCostUsd: z.number().describe('Tổng chi phí AI, USD'),
+      liveKitEstimateUsd: z
+        .number()
+        .describe('Ước tính chi phí LiveKit theo phút tham dự; gói cố định không tính'),
       byWorkspace: z.array(
         z.object({
           workspaceId: z.uuid(),

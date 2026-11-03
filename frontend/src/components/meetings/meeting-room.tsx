@@ -207,7 +207,7 @@ function RoomView({ meeting, join, onEnded, onMedia }: { meeting: MeetingDetail;
           <RoomSidePanel open={panelOpen} tab={tab} onTab={changeTab} onClose={() => setPanelOpen(false)} chat={chat} meetingId={meeting.id} meId={me?.id ?? ""} isHost={join.isHost} />
         </div>
       </ReactionsContext.Provider>
-      <RoomControls isHost={join.isHost} aiOn={aiOn} onToggleAi={toggleAi} onEnd={end} onReact={reactions.send} handRaised={handRaised} onToggleHand={toggleHand} panelWrapRef={toggleWrap} panel={{ open: panelOpen, unread: chat.unread, onToggle: togglePanel }} />
+      <RoomControls isHost={join.isHost} aiOn={aiOn} aiAvailable={meeting.aiNotesAvailable} onToggleAi={toggleAi} onEnd={end} onReact={reactions.send} handRaised={handRaised} onToggleHand={toggleHand} panelWrapRef={toggleWrap} panel={{ open: panelOpen, unread: chat.unread, onToggle: togglePanel }} />
       <RoomAudioRenderer />
     </div>
   );

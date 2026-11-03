@@ -139,7 +139,7 @@ export function PreJoin({ meeting, onJoin, joining = false }: { meeting: Meeting
             ) : null}
           </div>
         </div>
-        {meeting.aiNotesEnabled ? (
+        {meeting.aiNotesEnabled && meeting.aiNotesAvailable ? (
           <div className="flex gap-3 rounded-xl bg-warn-bg p-3 text-sm text-warn">
             <Sparkles className="mt-0.5 size-4 shrink-0" aria-hidden />
             <p className="min-w-0 text-pretty">{AI_NOTICE}</p>

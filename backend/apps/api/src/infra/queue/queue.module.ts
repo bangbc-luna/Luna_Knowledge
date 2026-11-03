@@ -20,6 +20,8 @@ import { SearchQueueService } from './search-queue.service.js';
       { name: QUEUES.VIDEO_TRANSCODE },
       { name: QUEUES.SEARCH_INDEX },
       { name: QUEUES.MEETINGS },
+      { name: QUEUES.MEETING_RECORDER },
+      { name: QUEUES.MEETING_MINUTES },
     ),
   ],
   providers: [SearchQueueService],

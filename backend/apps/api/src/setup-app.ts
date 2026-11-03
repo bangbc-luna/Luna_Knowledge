@@ -1,10 +1,11 @@
+import { createRequire } from 'node:module';
 import type { Server } from 'node:http';
 import { type INestApplication, RequestMethod } from '@nestjs/common';
 import { SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { MetricsService } from './infra/metrics/metrics.service.js';
-import type { Express } from 'express';
+import type { Express, json as ExpressJson } from 'express';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import type { AppConfig } from './config/app-config.js';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter.js';
@@ -12,6 +13,14 @@ import { buildOpenApiDocument } from './common/swagger/openapi-document.js';
 import { corsOrigins } from './config/cors-origins.js';
 
 export const API_PREFIX = 'api/v1';
+const MINUTES_DRAFT_BODY_LIMIT = '2.5mb';
+
+function expressJson(): typeof ExpressJson {
+  const fromNest = createRequire(
+    createRequire(import.meta.url).resolve('@nestjs/platform-express'),
+  );
+  return (fromNest('express') as { json: typeof ExpressJson }).json;
+}
 
 export function applyGlobalPrefix(app: INestApplication) {
   app.setGlobalPrefix(API_PREFIX, {
@@ -40,6 +49,10 @@ export function setupApp(app: INestApplication, config: AppConfig) {
     type: 'application/webhook+json',
     limit: '64kb',
   });
+  app.use(
+    `/${API_PREFIX}/meetings/:id/minutes/draft`,
+    expressJson()({ limit: MINUTES_DRAFT_BODY_LIMIT }),
+  );
   (app as NestExpressApplication).useBodyParser('json', { limit: config.BODY_LIMIT });
   (app as NestExpressApplication).useBodyParser('urlencoded', {
     limit: config.BODY_LIMIT,

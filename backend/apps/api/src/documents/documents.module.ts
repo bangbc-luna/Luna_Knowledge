@@ -12,5 +12,6 @@ import { VersionsService } from './versions.service.js';
   imports: [ContentModule],
   controllers: [DocumentsController, CommentsController],
   providers: [DocumentsService, DocumentAssets, VersionsService, CommentsService, CollabClient],
+  exports: [DocumentsService],
 })
 export class DocumentsModule {}

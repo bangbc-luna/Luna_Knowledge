@@ -24,6 +24,12 @@ scrape_configs:
     static_configs:
       - targets: ['worker:9464']
 
+  - job_name: recorder
+    authorization:
+      credentials_file: /prometheus/metrics_token
+    static_configs:
+      - targets: ['recorder:9465']
+
   - job_name: node
     file_sd_configs:
       - files: ['/prometheus/node_targets.json']

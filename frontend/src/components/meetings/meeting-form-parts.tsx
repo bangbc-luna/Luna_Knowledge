@@ -17,7 +17,9 @@ export function ScheduleField({ value, onChange }: { value: string; onChange: (v
   );
 }
 
-export function AiNotesSwitch({ checked, onChange }: { checked: boolean; onChange: (value: boolean) => void }) {
+export const AI_UNAVAILABLE_HINT = "Chưa cấu hình dịch vụ AI";
+
+export function AiNotesSwitch({ checked, onChange, unavailable }: { checked: boolean; onChange: (value: boolean) => void; unavailable?: boolean }) {
   const labelId = useId();
   return (
     <div className="flex items-center gap-3">
@@ -25,17 +27,18 @@ export function AiNotesSwitch({ checked, onChange }: { checked: boolean; onChang
         <p id={labelId} className="text-sm font-medium">
           Ghi biên bản AI
         </p>
-        <p className="text-xs text-muted text-pretty">Ghi âm lời thoại và tự tóm tắt sau cuộc họp.</p>
+        <p className="text-xs text-muted text-pretty">{unavailable ? AI_UNAVAILABLE_HINT : "Ghi âm lời thoại và tự tóm tắt sau cuộc họp."}</p>
       </div>
       <button
         type="button"
         role="switch"
-        aria-checked={checked}
+        aria-checked={checked && !unavailable}
         aria-labelledby={labelId}
+        disabled={unavailable}
         onClick={() => onChange(!checked)}
-        className={cn("relative h-6 w-10 shrink-0 cursor-pointer rounded-full transition-colors", focusRing, checked ? "bg-primary" : "bg-border-strong")}
+        className={cn("relative h-6 w-10 shrink-0 cursor-pointer rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50", focusRing, checked && !unavailable ? "bg-primary" : "bg-border-strong")}
       >
-        <span className={cn("absolute top-0.5 left-0.5 size-5 rounded-full bg-surface transition-transform motion-reduce:transition-none", checked && "translate-x-4")} />
+        <span className={cn("absolute top-0.5 left-0.5 size-5 rounded-full bg-surface transition-transform motion-reduce:transition-none", checked && !unavailable && "translate-x-4")} />
       </button>
     </div>
   );

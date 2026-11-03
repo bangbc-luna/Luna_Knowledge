@@ -7,6 +7,7 @@ const BY_MESSAGE: Record<string, string> = {
   "This meeting has already started": "Buổi họp đã bắt đầu nên không thể sửa hay huỷ.",
   "You are not in the meeting room": "Bạn chưa ở trong phòng họp.",
   "Chat is only open while the meeting is live": "Chat chỉ mở khi buổi họp đang diễn ra.",
+  "AI minutes are not configured": "Chưa cấu hình dịch vụ AI nên chưa ghi biên bản được.",
   "Meeting not found": "Không tìm thấy buổi họp.",
   "Invite not found": "Không tìm thấy lời mời này.",
   "Only the meeting host can do this": "Chỉ chủ trì mới làm được việc này.",
@@ -20,7 +21,8 @@ const BY_STATUS: Record<number, string> = {
   403: "Bạn không có quyền làm việc này.",
   404: "Không tìm thấy buổi họp.",
   409: "Trạng thái buổi họp đã thay đổi, thử lại sau khi tải lại.",
-  429: "Bạn thao tác quá nhanh, chờ một chút rồi thử lại.",
+  413: "Biên bản quá lớn để lưu. Rút gọn bớt nội dung rồi lưu lại.",
+  429: "Bạn gửi hoặc thử lại biên bản quá nhiều lần, chờ một phút rồi thử lại.",
   503: "Dịch vụ họp đang tạm thời không dùng được, thử lại sau ít phút.",
 };
 

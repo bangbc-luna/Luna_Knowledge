@@ -6,11 +6,21 @@ export const QUEUES = {
   SEARCH_INDEX: 'search-index',
   MAINTENANCE: 'maintenance',
   MEETINGS: 'meetings',
+  MEETING_RECORDER: 'meeting-recorder',
+  MEETING_MINUTES: 'meeting-minutes',
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
 
-export const BUCKET_KEYS = ['tmp', 'hls', 'previews', 'thumbnails', 'assets', 'originals'] as const;
+export const BUCKET_KEYS = [
+  'tmp',
+  'hls',
+  'previews',
+  'thumbnails',
+  'assets',
+  'originals',
+  'meetingAudio',
+] as const;
 export type BucketKey = (typeof BUCKET_KEYS)[number];
 
 export const nodeEventsChannel = (nodeId: string) => `node-events:${nodeId}`;
@@ -26,6 +36,9 @@ export const JOBS = {
   TRANSCODE: 'transcode',
   MEETING_REMIND: 'remind',
   MEETING_RECONCILE: 'reconcile',
+  MEETING_RECORD: 'record',
+  MINUTES_PROCESS: 'process',
+  MINUTES_PURGE_AUDIO: 'purge-audio',
 } as const;
 
 export interface NodeEvent {

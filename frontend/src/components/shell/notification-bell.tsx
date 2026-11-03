@@ -41,6 +41,14 @@ function describe(n: AppNotification): { actor: string | null; text: React.React
       return { actor: null, text: <>Cuộc họp {meeting} sắp bắt đầu</>, snippet: when };
     case "meeting.cancelled":
       return { actor: by, text: <>Cuộc họp {meeting} đã bị huỷ</>, snippet: when };
+    case "meeting.minutes_review":
+      return { actor: null, text: <>Biên bản cuộc họp {meeting} đã sẵn sàng để bạn duyệt</> };
+    case "meeting.minutes_failed":
+      return { actor: null, text: <>Không tạo được biên bản cuộc họp {meeting}</> };
+    case "meeting.minutes_published":
+      return { actor: null, text: <>Biên bản cuộc họp {meeting} đã được gửi</> };
+    case "meeting.minutes_assigned":
+      return { actor: null, text: <>Bạn được giao việc trong biên bản cuộc họp {meeting}</>, snippet: p.tasks?.filter(Boolean).join("; ") || undefined };
     default:
       return { actor: by, text: name };
   }
@@ -48,6 +56,7 @@ function describe(n: AppNotification): { actor: string | null; text: React.React
 
 function hrefOf(n: AppNotification): string | null {
   const p = n.payload;
+  if ((n.type === "meeting.minutes_published" || n.type === "meeting.minutes_assigned") && p.nodeId && p.workspaceId) return docHref(p.workspaceId, p.nodeId);
   if (n.type.startsWith("meeting.")) return p.meetingId && p.workspaceId ? meetingHref(p.workspaceId, p.meetingId) : null;
   if (!p.nodeId || !p.workspaceId) return null;
   if (n.type.startsWith("comment.")) return `${docHref(p.workspaceId, p.nodeId)}${p.threadId ? `?thread=${p.threadId}` : ""}`;

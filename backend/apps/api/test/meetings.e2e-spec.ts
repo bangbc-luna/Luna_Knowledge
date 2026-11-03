@@ -57,6 +57,7 @@ describe('Meetings (e2e)', () => {
       startedAt: null,
       endedAt: null,
       aiNotesEnabled: true,
+      aiNotesAvailable: true,
       attendeeCount: 0,
       createdBy: { id: bob.userId },
     });
@@ -282,6 +283,12 @@ describe('Meetings (e2e)', () => {
         },
       });
     }
+    await ctx.prisma.meetingMinutes.createMany({
+      data: [
+        { meetingId: p2, status: 'AWAITING_REVIEW' },
+        { meetingId: p3, status: 'FAILED' },
+      ],
+    });
     const list = (scope: string, extra: Record<string, unknown> = {}) =>
       http()
         .get(`/api/v1/workspaces/${ws}/meetings`)
@@ -301,8 +308,14 @@ describe('Meetings (e2e)', () => {
     const first = await list('past', { limit: 2 }).expect(200);
     expect(first.body.items.map((m: { id: string }) => m.id)).toEqual([p2, p3]);
     expect(first.body.nextCursor).toBeTruthy();
+    expect(first.body.items.map((m: { minutes: unknown }) => m.minutes)).toEqual([
+      { status: 'AWAITING_REVIEW' },
+      { status: 'FAILED' },
+    ]);
     const second = await list('past', { limit: 2, cursor: first.body.nextCursor }).expect(200);
     expect(second.body.items.map((m: { id: string }) => m.id)).toEqual([p1]);
+    expect(second.body.items[0].minutes).toEqual({ status: 'NONE' });
+    expect(upcoming.body.items[0].minutes).toEqual({ status: 'NONE' });
     expect(second.body.nextCursor).toBeNull();
 
     await list('nonsense').expect(400);

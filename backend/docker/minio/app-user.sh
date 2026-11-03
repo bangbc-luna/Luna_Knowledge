@@ -8,7 +8,7 @@ if [ "$S3_ACCESS_KEY" = "$MINIO_ROOT_USER" ]; then
 fi
 
 resources=''
-for bucket in "$S3_BUCKET_TMP" "$S3_BUCKET_HLS" "$S3_BUCKET_PREVIEWS" "$S3_BUCKET_THUMBNAILS" "$S3_BUCKET_ASSETS" "$S3_BUCKET_ORIGINALS"; do
+for bucket in "$S3_BUCKET_TMP" "$S3_BUCKET_HLS" "$S3_BUCKET_PREVIEWS" "$S3_BUCKET_THUMBNAILS" "$S3_BUCKET_ASSETS" "$S3_BUCKET_ORIGINALS" "${S3_BUCKET_MEETING_AUDIO:-luna-meeting-audio}"; do
   resources="${resources:+$resources,}\"arn:aws:s3:::$bucket\",\"arn:aws:s3:::$bucket/*\""
 done
 

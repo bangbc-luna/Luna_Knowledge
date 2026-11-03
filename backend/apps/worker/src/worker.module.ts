@@ -1,6 +1,14 @@
-import { LiveKitMeetingMedia, MEETING_ENDED_HOOK, MEETING_MEDIA } from '@luna/meetings';
-import { ObjectStore, QUEUES } from '@luna/shared';
-import { BullModule } from '@nestjs/bullmq';
+import {
+  createMinutesWriter,
+  createSpeechToText,
+  LiveKitMeetingMedia,
+  MEETING_ENDED_HOOK,
+  MEETING_MEDIA,
+  meetingEndedHook,
+  minutesAiAvailable,
+} from '@luna/meetings';
+import { type JobQueue, ObjectStore, QUEUES } from '@luna/shared';
+import { BullModule, getQueueToken } from '@nestjs/bullmq';
 import { Global, Module, type OnModuleDestroy } from '@nestjs/common';
 import { LoggerModule } from 'nestjs-pino';
 import {
@@ -14,6 +22,11 @@ import { PrismaService } from './infra/prisma.provider.js';
 import { NodeEventsPublisher } from './infra/redis.provider.js';
 import { FileProcessProcessor } from './processors/file-process.processor.js';
 import { VideoTranscodeProcessor } from './processors/video-transcode.processor.js';
+import {
+  MeetingMinutesProcessor,
+  MINUTES_WRITER,
+  SPEECH_TO_TEXT,
+} from './processors/meeting-minutes.processor.js';
 import { MeetingsProcessor } from './processors/meetings.processor.js';
 import { MaintenanceProcessor } from './processors/maintenance.processor.js';
 import { SearchIndexProcessor } from './processors/search-index.processor.js';
@@ -58,6 +71,8 @@ class WorkerConfigModule {}
       { name: QUEUES.VIDEO_TRANSCODE },
       { name: QUEUES.SEARCH_INDEX },
       { name: QUEUES.MEETINGS },
+      { name: QUEUES.MEETING_RECORDER },
+      { name: QUEUES.MEETING_MINUTES },
     ),
   ],
   providers: [
@@ -68,13 +83,29 @@ class WorkerConfigModule {}
       useFactory: (c: WorkerConfig) => new ObjectStore(c),
     },
     NodeEventsPublisher,
-    { provide: MEETING_ENDED_HOOK, useValue: async () => undefined },
+    {
+      provide: MEETING_ENDED_HOOK,
+      inject: [PrismaService, getQueueToken(QUEUES.MEETING_MINUTES), WORKER_CONFIG],
+      useFactory: (prisma: PrismaService, queue: JobQueue<'meeting-minutes'>, c: WorkerConfig) =>
+        meetingEndedHook({ db: prisma.client, queue, audioWaitSec: c.MEETING_AUDIO_WAIT_SEC }),
+    },
+    {
+      provide: SPEECH_TO_TEXT,
+      inject: [WORKER_CONFIG],
+      useFactory: (c: WorkerConfig) => (minutesAiAvailable(c) ? createSpeechToText(c) : null),
+    },
+    {
+      provide: MINUTES_WRITER,
+      inject: [WORKER_CONFIG],
+      useFactory: (c: WorkerConfig) => (minutesAiAvailable(c) ? createMinutesWriter(c) : null),
+    },
     {
       provide: MEETING_MEDIA,
       inject: [WORKER_CONFIG],
       useFactory: (c: WorkerConfig) => new LiveKitMeetingMedia(c),
     },
     MeetingsProcessor,
+    MeetingMinutesProcessor,
     SystemProcessor,
     MaintenanceProcessor,
     FileProcessProcessor,

@@ -11,12 +11,12 @@ Trình duyệt ──https──> Traefik :443 ──> frontend (Next.js)       
                               └────────> minio :9000                   media.knowledge.lunatech.vn
                                          (tải file, xem video bằng URL ký sẵn)
 
-Mạng nội bộ Docker (không mở ra ngoài): postgres, redis, meilisearch, worker
+Mạng nội bộ Docker (không mở ra ngoài): postgres, redis, meilisearch, worker, recorder
 Mạng `luna_processing` (internal, không ra internet): tika, gotenberg; chỉ worker nối vào được cả hai mạng. Redis đặt mật khẩu qua `REDIS_PASSWORD` và `REDIS_URL=redis://:<mật khẩu>@redis:6379` (mật khẩu chỉ dùng ký tự an toàn trong URL)
 Truy cập từ xa (tuỳ chọn): cloudflared ──tunnel──> Traefik
 ```
 
-- `migrate` chạy một lần mỗi khi khởi động: áp migration DB và tạo bucket còn thiếu, xong thì api/worker/collab mới chạy.
+- `migrate` chạy một lần mỗi khi khởi động: áp migration DB và tạo bucket còn thiếu, xong thì api, worker, recorder, collab mới chạy.
 - Postgres và MinIO chỉ mở trên `127.0.0.1` của server để script backup đọc được; máy khác trong LAN không vào thẳng được.
 
 ## 2. Chuẩn bị server
@@ -47,6 +47,7 @@ Giới hạn tài nguyên trong `docker-compose.prod.yml` (giả định server 
 | gotenberg | 1 | 1 GB | |
 | meilisearch | 1 | 2 GB | lập chỉ mục tối đa 1 GB RAM, 1 luồng |
 | redis | 0,5 | 1 GB | `maxmemory 768mb`, giữ `noeviction` vì hàng đợi BullMQ cần |
+| recorder | 1 | 1 GB | tmpfs 512 MB cho âm thanh tạm, dừng êm tối đa 60 giây (mục 11) |
 | api, collab, frontend | không giới hạn | không giới hạn | api, collab dừng êm tối đa 30 giây |
 
 Mạng: card mạng của server từ 2,5 GbE trở lên (200 người xem 1080p cùng lúc trong LAN khoảng 1 Gbps); switch LAN tối thiểu 1 GbE tới từng máy.
@@ -80,7 +81,7 @@ openssl rand -base64 32   # VIDEO_MASTER_KEY (đúng 32 byte)
 - `S3_ACCESS_KEY`/`S3_SECRET_KEY` là key của user MinIO riêng cho app (`luna_app`), sinh mới bằng `openssl rand -base64 48`, khác hẳn `MINIO_ROOT_PASSWORD`.
 - Thay `<APP_DB_PASSWORD>` trong `DATABASE_URL` bằng một mật khẩu riêng, khác `POSTGRES_PASSWORD`.
 - Hai user Postgres: `DATABASE_MIGRATE_URL` là user chủ DB (`POSTGRES_USER`), chỉ dùng cho `migrate` và script backup, restore chạy trên server; compose xoá trắng `DATABASE_MIGRATE_URL`, `POSTGRES_PASSWORD`, `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`, `BACKUP_PASSWORD` và các token Cloudflare, Grafana trong container api, worker, collab. `DATABASE_URL` là login riêng của app (`luna_app_user`, thuộc role `luna_app`): đọc ghi dữ liệu được nhưng không tạo hay sửa bảng, không sửa, xoá hay TRUNCATE được `audit_logs`. Bước `migrate` tự tạo login này, và mỗi lần khởi động lại đặt lại mật khẩu theo `DATABASE_URL`, nên đổi mật khẩu chỉ cần sửa `DATABASE_URL` rồi `luna up -d`.
-- MinIO: root (`MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD`) chỉ dùng cho `infra:init` (trong `migrate`: tạo bucket, lifecycle) và `minio-init`. `minio-init` chạy mỗi lần `luna up`, tạo user `S3_ACCESS_KEY` với policy `luna-app` (đọc, ghi, xoá object, multipart, liệt kê, chỉ trong sáu bucket `S3_BUCKET_*`). api, worker, collab chỉ có key này: không tạo được bucket, không dùng được lệnh quản trị MinIO.
+- MinIO: root (`MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD`) chỉ dùng cho `infra:init` (trong `migrate`: tạo bucket, lifecycle) và `minio-init`. `minio-init` chạy mỗi lần `luna up`, tạo user `S3_ACCESS_KEY` với policy `luna-app` (đọc, ghi, xoá object, multipart, liệt kê, chỉ trong bảy bucket `S3_BUCKET_*`, kể cả `S3_BUCKET_MEETING_AUDIO`). api, worker, collab chỉ có key này: không tạo được bucket, không dùng được lệnh quản trị MinIO.
 - Xoay key app MinIO: sinh `S3_SECRET_KEY` mới, sửa `.env.prod`, chạy `luna up -d` (minio-init đặt lại secret của user, rồi api, worker, collab khởi động lại với key mới). Script backup đọc `S3_*` trong `.env.prod` nên dùng luôn key mới. Đổi `S3_ACCESS_KEY` sang tên khác thì user cũ vẫn còn: xoá bằng `docker compose exec minio mc admin user remove` sau khi đặt alias bằng root.
 - Host media (`MEDIA_HOST`) chỉ nhận GET, HEAD, PUT, OPTIONS (OPTIONS cho CORS preflight); phương thức khác (POST, DELETE) bị Traefik trả 404.
 - Mọi bảng phải do user chủ DB tạo (qua migration): quyền mặc định cấp cho `luna_app` gắn với user đó, bảng do user khác tạo thì app không đọc ghi được.
@@ -316,7 +317,7 @@ Lưu ý sau đợt 2:
 | Việc | Lệnh |
 |---|---|
 | Trạng thái dịch vụ | `luna ps` |
-| Log một dịch vụ | `luna logs -f --tail 200 api` (thay `api` bằng `worker`, `collab`, `traefik`…) |
+| Log một dịch vụ | `luna logs -f --tail 200 api` (thay `api` bằng `worker`, `recorder`, `collab`, `traefik`…) |
 | Log truy cập Traefik | `luna logs traefik` ra JSON, cố ý không có đường dẫn (`RequestPath`, `RequestLine`) vì token phiên xem video nằm trong query string `?s=` mà Traefik không có tuỳ chọn chỉ bỏ query. Vẫn còn `RouterName`, `RequestMethod`, `RequestHost`, `DownstreamStatus`, `Duration`, `ClientHost` để gỡ lỗi; xem đường dẫn trong log của `api` (đã bỏ query) |
 | Sức khoẻ API, collab | `luna ps` (có `healthy`), chi tiết: `luna exec api node -e "fetch('http://127.0.0.1:4000/health').then(r=>r.text()).then(console.log)"` |
 | Metrics Prometheus | Chỉ đọc được trong mạng Docker `luna_internal`: `http://api:4000/metrics`, `http://collab:4001/metrics`, `http://worker:9464/metrics`, kèm header `Authorization: Bearer <METRICS_TOKEN>`. `METRICS_TOKEN` bắt buộc ở production (sinh bằng `openssl rand -base64 32`, collab không khởi động nếu thiếu). Traefik không chuyển tiếp `/collab/metrics` và `/collab/internal/*` ra ngoài |
@@ -476,3 +477,94 @@ Dùng profile `meetings` đã có (xem "Chạy LiveKit cục bộ" ở trên): `
 ### Đo thử với nhóm thật
 
 Chưa thực hiện (cần 8-10 người thật trên project LiveKit Cloud thử). Khi đo, ghi băng thông lên/xuống của máy văn phòng (`chrome://webrtc-internals`), CPU trình duyệt và chất lượng chữ khi chia sẻ màn hình vào đây.
+
+## 11. Biên bản AI
+
+Buổi họp có bật "Biên bản AI" được thu âm từng người, chép lời, rồi AI soạn bản nháp biên bản. Chủ trì hoặc quản trị workspace xem, sửa và gửi bản nháp thành một tài liệu trong thư mục "Biên bản họp". Tính năng chỉ gửi âm thanh và chữ cho nhà cung cấp AI; không gửi video.
+
+### 11.1. Biến môi trường và chọn nhà cung cấp
+
+Toàn bộ nằm trong khối "Biên bản AI" của `.env.prod.example`. Hai biến quyết định:
+
+| Biến | Giá trị | Ghi chú |
+|---|---|---|
+| `MEETING_STT_PROVIDER` | `deepgram`, `gemini`, `omniroute`, `none` | chép lời |
+| `MEETING_LLM_PROVIDER` | `anthropic`, `omniroute`, `none` | soạn biên bản |
+
+- Mặc định là `none` cho cả hai: tắt hẳn biên bản AI. Production không cho dùng `fake` (chỉ để dev và test).
+- Chỉ khi **cả hai** khác `none` thì tính năng mới bật. Khi tắt, API trả `aiNotesAvailable: false`, buổi họp mới luôn tạo với `aiNotesEnabled: false`, bật lên trả 409 "AI minutes are not configured", recorder không được gọi. Nếu vẫn có job biên bản chạy (ví dụ vừa tắt cấu hình), worker đánh dấu `FAILED` ở bước `config` và không gọi nhà cung cấp nào.
+- Khoá cần điền theo lựa chọn: `deepgram` cần `DEEPGRAM_API_KEY` (và `DEEPGRAM_LANGUAGE`, mặc định `vi`); `gemini` cần `GEMINI_API_KEY`; `anthropic` cần `ANTHROPIC_API_KEY` (cùng `MEETING_LLM_MODEL`, `MEETING_LLM_EFFORT`); `omniroute` cần `OMNIROUTE_BASE_URL`, `OMNIROUTE_API_KEY` (model qua `MEETING_OMNIROUTE_STT_MODEL`, `MEETING_OMNIROUTE_LLM_MODEL`). Thiếu khoá thì worker từ chối khởi động và nêu tên biến.
+- Giá dùng để ước tính chi phí hiển thị cho admin: `MEETING_STT_USD_PER_MIN`, `MEETING_LLM_USD_PER_MTOK_IN`, `MEETING_LLM_USD_PER_MTOK_OUT`, `MEETING_LIVEKIT_USD_PER_PARTICIPANT_MIN` (đặt 0 khi tự cài LiveKit). Chi phí qua OmniRoute chỉ là ước lượng gần đúng.
+- `MEETING_KEYTERMS`: thuật ngữ chuyên ngành cách nhau bằng dấu phẩy, giúp chép lời đúng hơn.
+
+### 11.2. Khoá chỉ nằm ở worker
+
+Chỉ worker gọi nhà cung cấp AI nên chỉ worker nhận khoá. Compose xoá trắng `DEEPGRAM_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OMNIROUTE_API_KEY` trong container api, collab và recorder dù chúng có trong `.env.prod`. api chỉ đọc hai biến chọn provider để biết tính năng có bật không. Recorder chỉ ghi âm thanh lên MinIO, không có khoá AI.
+
+### 11.3. Nâng cấp lên bản có biên bản AI
+
+```bash
+git pull
+luna build
+luna up -d            # migrate chạy trước: áp migration, rồi infra:init tạo bucket và vòng đời
+luna ps               # migrate: Exited (0); recorder: healthy
+```
+
+- Migration thêm bảng biên bản, đoạn âm thanh, lời nói và chi phí AI. Không cần thao tác tay.
+- `infra:init` (nằm trong `migrate`) tạo bucket `S3_BUCKET_MEETING_AUDIO` (mặc định `luna-meeting-audio`) và đặt vòng đời cho nó: object tự hết hạn sau `MEETING_AUDIO_RETENTION_DAYS` + 7 ngày, phòng khi job xoá bị lỗi. Chạy riêng khi cần: `luna run --rm migrate pnpm --filter @luna/scripts infra:init`.
+- `minio-init` tự thêm bucket vào policy của user app. Bản cài cũ vẫn chạy bình thường khi để `none`, chưa cần khoá AI.
+- Đặt `MEETING_AUDIO_WAIT_SEC` giống nhau ở api và worker (mục 11.7).
+
+### 11.4. Dịch vụ recorder
+
+Recorder vào phòng LiveKit như một người dự ẩn tên "Luna AI", chỉ nhận âm thanh micro của từng người, cắt theo lời nói, mã hoá Opus và đưa lên bucket âm thanh. Nó không ghi hình, không ghi màn hình, không ghi khi chủ trì tắt "Biên bản AI".
+
+- Giới hạn: 1 CPU, 1 GB RAM, `stop_grace_period` 60 giây (đủ để lưu đoạn đang mở khi tắt). `MEETING_RECORDER_CONCURRENCY` (mặc định 3) là số buổi họp ghi cùng lúc.
+- Âm thanh tạm nằm trên tmpfs 512 MB gắn ở `/var/tmp/luna-recorder` (`RECORDER_TMP_DIR`), không ghi xuống ổ đĩa; mất container thì mất đoạn chưa tải lên.
+- Cổng metrics `RECORDER_METRICS_PORT` = 9465 (`/health` không cần token, `/metrics` cần `METRICS_TOKEN`); Prometheus profile `monitoring` đã có job `recorder`. Cổng này không mở ra ngoài.
+- Hàng đợi `meeting-recorder`, `meeting-minutes` và `meetings` có trong chỉ số `queue_jobs` của worker.
+- Chạy ghi lại khi lỗi: job tự thử lại tối đa 12 lần với thời gian chờ tăng gấp đôi, tối đa 10 phút. Mất kết nối LiveKit quá 6 giờ tính từ lần mất đầu tiên thì dừng hẳn.
+
+### 11.5. Recorder phải tới được LIVEKIT_URL từ mạng nội bộ
+
+Recorder chạy trong mạng `internal` của Docker và tự kết nối tới `LIVEKIT_URL` (qua WebSocket, rồi WebRTC). Với LiveKit Cloud thì đi thẳng ra Internet là xong. Với LiveKit tự cài (`wss://livekit.<APP_HOST>`), tên miền thường trỏ về IP LAN của chính server (split DNS, mục 3), và container có thể không tới được IP của máy chủ nó đang chạy (hairpin NAT) hoặc phân giải sai tên. Kiểm tra sau khi bật:
+
+```bash
+luna exec recorder node -e "fetch(process.env.LIVEKIT_URL.replace(/^ws/, 'http')).then(r=>console.log(r.status)).catch(e=>{console.error(e.cause||e);process.exit(1)})"
+```
+
+Ra mã HTTP (kể cả 404) là thông. Nếu lỗi, thêm vào service `recorder` trong `docker-compose.prod.yml` dòng `extra_hosts: ['livekit.<APP_HOST>:host-gateway']` để trỏ tên miền về cổng của host, và bảo đảm các cổng WebRTC của LiveKit (mục "Tự cài LiveKit") nhận được kết nối từ gateway Docker. Chỉ phát hiện lỗi này khi chạy thử một buổi họp thật; log recorder báo "Could not connect the recorder to the LiveKit room".
+
+### 11.6. Giữ và xoá âm thanh
+
+- Âm thanh giữ `MEETING_AUDIO_RETENTION_DAYS` ngày (mặc định 7) kể từ khi buổi họp kết thúc, để có thể chạy lại khi chép lời lỗi.
+- Ngay khi chép lời xong một đoạn và soạn được bản nháp, worker xoá đoạn đó. Đoạn chưa chép được thì giữ đến hạn.
+- Job `purge-audio` của worker chạy 4 giờ sáng (giờ Việt Nam) mỗi ngày, xoá mọi âm thanh quá hạn. Vòng đời bucket (mục 11.3) là lớp dự phòng.
+- Quá hạn mà chép lời vẫn lỗi thì không chạy lại được nữa (`canRetry: false`). Lời nói đã chép được giữ trong DB cùng bản nháp.
+
+### 11.7. MEETING_AUDIO_WAIT_SEC
+
+Sau khi buổi họp kết thúc, biên bản đợi tối đa `MEETING_AUDIO_WAIT_SEC` giây (mặc định 900) để recorder tải nốt âm thanh rồi mới xử lý. Biến này **phải giống nhau ở api và worker** (cùng đọc từ `.env.prod`; đừng ghi đè riêng trong compose): cả hai dùng nó để đặt độ trễ job và để quét các buổi họp bị sót job.
+
+### 11.8. Luồng biên bản, trạng thái, chi phí và thử lại
+
+1. Chủ trì bật "Biên bản AI" (mặc định bật khi tính năng khả dụng). Có người vào phòng thì api xếp job `record-<id>`; recorder ghi.
+2. Buổi họp kết thúc: biên bản `RECORDING`, đợi âm thanh đủ hoặc quá `MEETING_AUDIO_WAIT_SEC`.
+3. `PROCESSING`: worker chép lời từng đoạn, ghép với chat theo mốc thời gian, rồi nhờ AI soạn bản nháp. Mỗi lần gọi nhà cung cấp ghi một dòng chi phí; admin xem tổng theo tháng ở `GET /api/v1/admin/meetings/usage` (STT, token LLM, USD ước tính, ước tính LiveKit).
+4. `AWAITING_REVIEW`: bản nháp chờ chủ trì hoặc quản trị workspace sửa. Người được gợi ý (vắng mặt) chỉ được gắn @mention khi chủ trì tích xác nhận. Chủ trì nhận thông báo.
+5. `PUBLISHING` rồi `PUBLISHED`: tạo tài liệu trong thư mục "Biên bản họp", chia sẻ chỉ xem cho người được mời ngoài workspace, gửi thông báo và giao việc cho người được gắn. Nếu kẹt ở `PUBLISHING` quá 5 phút thì worker tự xoá tài liệu mồ côi và trả về `AWAITING_REVIEW` (quét mỗi phút), hoặc chủ trì bấm gửi lại.
+6. `FAILED`: API trả `failureReason` (một dòng tiếng Việt theo bước lỗi) và `canRetry`. Chủ trì bấm "Thử lại" (`POST /api/v1/meetings/{id}/minutes/retry`, 10 lần mỗi phút) khi `canRetry` là true. Không thử lại được khi: âm thanh đã bị xoá, không còn đoạn nào để chép lời, hoặc thiếu cấu hình AI (`failedStage` = `config`). Nếu mọi đoạn đều không chép được nhưng có chat thì vẫn ra bản nháp chỉ có chat kèm cảnh báo.
+
+Lỗi nhà cung cấp tự thử lại tới 4 lần; lỗi khoá, hạn mức hoặc thanh toán (401, 402, 403) dừng ngay ở bước chép lời, giữ âm thanh: sửa khoá hoặc nạp tiền rồi bấm "Thử lại".
+
+### 11.9. Chạy thử đầu cuối do chủ hệ thống thực hiện
+
+Kiểm tra cả chuỗi bằng một buổi họp giả lập, chủ hệ thống tự đọc kịch bản:
+
+1. Bật LiveKit cục bộ (mục 10 "Chạy LiveKit cục bộ") và hạ tầng dev: `pnpm infra:up && pnpm infra:init && pnpm db:migrate`.
+2. Trong `backend/.env` đặt `MEETING_STT_PROVIDER` và `MEETING_LLM_PROVIDER` thành `omniroute` (cùng `OMNIROUTE_BASE_URL`, `OMNIROUTE_API_KEY`), hoặc `deepgram` và `anthropic` nếu đã có khoá. Dùng `fake` chỉ kiểm được luồng, không kiểm được chất lượng chép lời.
+3. Chạy `pnpm --filter @luna/api dev`, `pnpm --filter @luna/worker dev`, `pnpm --filter @luna/recorder dev` và frontend.
+4. Đăng nhập, tạo buổi "Họp ngay" với "Biên bản AI" bật, vào phòng bằng micro thật. Đọc to một kịch bản 2 đến 3 phút có ít nhất hai việc được giao ("anh Hùng gửi báo giá trước thứ Sáu", "em An cập nhật tài liệu") và một quyết định, gõ vài dòng chat, rồi kết thúc buổi họp.
+5. Đặt `MEETING_AUDIO_WAIT_SEC=60` khi thử để khỏi đợi 15 phút. Theo dõi `pnpm --filter @luna/worker dev` thấy các bước chép lời và soạn bản nháp; trạng thái chuyển `PROCESSING` rồi `AWAITING_REVIEW` (thông báo "biên bản chờ duyệt").
+6. Mở biên bản, sửa, gửi. Kiểm tra: tài liệu nằm trong "Biên bản họp", việc giao đúng người, bucket `luna-meeting-audio` không còn object (`docker compose -f docker/docker-compose.dev.yml exec minio mc ls`), trang admin hiện chi phí của buổi họp.
+7. Thử lỗi: đặt khoá sai, kết thúc một buổi họp khác, thấy `FAILED` kèm `failureReason`; sửa khoá rồi "Thử lại".

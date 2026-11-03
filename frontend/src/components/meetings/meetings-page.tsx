@@ -9,11 +9,12 @@ import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import { formatNumber } from "@/lib/format";
 import { listMeetings, meetingHref } from "@/lib/meetings";
-import type { MeetingList, MeetingSummary } from "@/lib/meetings";
+import type { MeetingList, MeetingSummary, MinutesStatus } from "@/lib/meetings";
 import { useApi } from "@/lib/use-api";
 import { PageBody, TopBar } from "../shell/shell";
 import { Button } from "../ui/button";
 import { focusRing } from "../ui/focus";
+import type { BadgeTone } from "../ui/misc";
 import { Badge, EmptyState, ErrorBanner, SkeletonRows } from "../ui/misc";
 import { useToast } from "../ui/toast";
 import { CreateMeetingDialog } from "./create-meeting-dialog";
@@ -22,11 +23,21 @@ import { dateOf, groupByDay, timeOf } from "./meeting-time";
 
 const PAGE = 20;
 
+const MINUTES_BADGE: Partial<Record<MinutesStatus, { label: string; tone: BadgeTone }>> = {
+  RECORDING: { label: "Đang xử lý", tone: "neutral" },
+  PROCESSING: { label: "Đang xử lý", tone: "neutral" },
+  PUBLISHING: { label: "Đang xử lý", tone: "neutral" },
+  AWAITING_REVIEW: { label: "Chờ duyệt", tone: "warn" },
+  PUBLISHED: { label: "Đã có biên bản", tone: "ok" },
+  FAILED: { label: "Lỗi biên bản", tone: "err" },
+};
+
 const anchorOf = (m: MeetingSummary) => (m.status === "ENDED" ? (m.endedAt ?? m.scheduledAt) : m.scheduledAt);
 
 function MeetingRow({ wsId, m, live }: { wsId: string; m: MeetingSummary; live?: boolean }) {
   const href = meetingHref(wsId, m.id);
   const at = anchorOf(m);
+  const minutesBadge = m.status === "ENDED" ? MINUTES_BADGE[m.minutes.status] : undefined;
   return (
     <li className="relative flex items-center gap-3 border-t border-border px-1 py-2.5 first:border-t-0 hover:bg-surface-hover sm:px-3">
       <div className="w-16 shrink-0 text-sm tabular-nums text-muted sm:w-24">
@@ -58,6 +69,11 @@ function MeetingRow({ wsId, m, live }: { wsId: string; m: MeetingSummary; live?:
           ) : null}
         </p>
       </div>
+      {minutesBadge ? (
+        <Badge tone={minutesBadge.tone} small className="relative">
+          {minutesBadge.label}
+        </Badge>
+      ) : null}
       {live ? (
         <Link
           href={href}
@@ -122,6 +138,8 @@ export function MeetingsPage() {
 
   const loading = [live, upcoming, past].some((q) => q.loading && !q.data);
   const failed = [live, upcoming, past].find((q) => q.error && !q.data);
+  const allItems = [...(live.data?.items ?? []), ...(upcoming.data?.items ?? []), ...pastItems];
+  const aiAvailable = allItems.length === 0 || allItems.some((m) => m.aiNotesAvailable);
   const total = (live.data?.items.length ?? 0) + (upcoming.data?.items.length ?? 0) + pastItems.length;
 
   const create = canCreate ? (
@@ -203,6 +221,7 @@ export function MeetingsPage() {
         wsId={wsId}
         open={dialog !== null}
         initialMode={dialog ?? "instant"}
+        aiAvailable={aiAvailable}
         onClose={() => setDialog(null)}
         onCreated={reloadAll}
       />
