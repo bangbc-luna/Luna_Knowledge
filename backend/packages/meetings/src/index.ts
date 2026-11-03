@@ -22,6 +22,12 @@ export {
   type EndedMeeting,
   type MeetingEndedHook,
 } from './lifecycle.js';
+export {
+  TIMELINE_TRUNCATION_MARKER,
+  limitTimeline,
+  type LimitedTimeline,
+} from './minutes/limit.js';
+export { meetingEndedHook, type MeetingEndedHookDeps } from './minutes/hook.js';
 export { minutesDraftSchema, type MinutesDraft } from './minutes/schema.js';
 export {
   buildTimeline,

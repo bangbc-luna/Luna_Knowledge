@@ -7,7 +7,14 @@ import {
   roomNameFor,
 } from '@luna/meetings';
 import { writeAudit, writeNotifications } from '@luna/db';
-import { JOBS, QUEUES, type QueueJob, unknownJob } from '@luna/shared';
+import {
+  enqueueMinutes,
+  JOBS,
+  type JobQueue,
+  QUEUES,
+  type QueueJob,
+  unknownJob,
+} from '@luna/shared';
 import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import type { Job, Queue } from 'bullmq';
@@ -22,6 +29,15 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_LIVE_MS = 12 * 3_600_000;
 const STALE_SCHEDULED_MS = 24 * 3_600_000;
 const EMPTY_MARKER_TTL_FACTOR = 3;
+const MINUTES_SWEEP_SLACK_MS = 5 * 60_000;
+const MINUTES_SWEEP_ATTEMPT = 900;
+const LIVE_JOB_STATES = new Set([
+  'waiting',
+  'delayed',
+  'active',
+  'prioritized',
+  'waiting-children',
+]);
 const emptyMarkerKey = (meetingId: string) => `meeting-empty-since:${meetingId}`;
 
 export interface ReconcileResult {
@@ -29,6 +45,7 @@ export interface ReconcileResult {
   ended: number;
   failed: number;
   cancelled: number;
+  minutesRecovered: number;
 }
 
 async function forEachLimited<T>(
@@ -53,6 +70,7 @@ export class MeetingsProcessor extends WorkerHost implements OnApplicationBootst
     @Inject(MEETING_MEDIA) private readonly media: MeetingMedia,
     @Inject(MEETING_ENDED_HOOK) private readonly onEnded: MeetingEndedHook,
     @InjectQueue(QUEUES.MEETINGS) private readonly queue: Queue,
+    @InjectQueue(QUEUES.MEETING_MINUTES) private readonly minutesQueue: Queue,
     @Inject(WORKER_CONFIG) private readonly config: WorkerConfig,
   ) {
     super();
@@ -128,7 +146,13 @@ export class MeetingsProcessor extends WorkerHost implements OnApplicationBootst
   }
 
   async reconcile(): Promise<ReconcileResult> {
-    const result: ReconcileResult = { checked: 0, ended: 0, failed: 0, cancelled: 0 };
+    const result: ReconcileResult = {
+      checked: 0,
+      ended: 0,
+      failed: 0,
+      cancelled: 0,
+      minutesRecovered: 0,
+    };
     let after: string | undefined;
     for (;;) {
       const page = await this.prisma.client.meeting.findMany({
@@ -155,12 +179,50 @@ export class MeetingsProcessor extends WorkerHost implements OnApplicationBootst
     } catch (err) {
       this.logger.error({ err }, 'Stale scheduled meeting cleanup failed');
     }
-    if (result.ended || result.failed || result.cancelled) {
+    try {
+      result.minutesRecovered = await this.recoverLostMinutes();
+    } catch (err) {
+      this.logger.error({ err }, 'Minutes recovery sweep failed');
+    }
+    if (result.ended || result.failed || result.cancelled || result.minutesRecovered) {
       this.logger.log(
-        `Reconciled ${result.checked} live meeting(s): ${result.ended} ended, ${result.failed} failed, ${result.cancelled} stale cancelled`,
+        `Reconciled ${result.checked} live meeting(s): ${result.ended} ended, ${result.failed} failed, ${result.cancelled} stale cancelled, ${result.minutesRecovered} minutes job(s) recovered`,
       );
     }
     return result;
+  }
+
+  private async recoverLostMinutes(): Promise<number> {
+    const cutoff = new Date(
+      Date.now() - this.config.MEETING_AUDIO_WAIT_SEC * 1000 - MINUTES_SWEEP_SLACK_MS,
+    );
+    let recovered = 0;
+    let after: string | undefined;
+    for (;;) {
+      const page = await this.prisma.client.meeting.findMany({
+        where: {
+          status: 'ENDED',
+          endedAt: { lt: cutoff },
+          minutes: { is: { status: { in: ['RECORDING', 'PROCESSING'] } } },
+          ...(after ? { id: { gt: after } } : {}),
+        },
+        orderBy: { id: 'asc' },
+        take: RECONCILE_PAGE,
+        select: { id: true },
+      });
+      if (page.length === 0) break;
+      after = page[page.length - 1]!.id;
+      for (const m of page) {
+        const existing = await this.minutesQueue.getJob(`minutes-${m.id}`);
+        if (existing && LIVE_JOB_STATES.has(await existing.getState())) continue;
+        await enqueueMinutes(this.minutesQueue as JobQueue<'meeting-minutes'>, m.id, {
+          attempt: MINUTES_SWEEP_ATTEMPT,
+        });
+        recovered++;
+      }
+      if (page.length < RECONCILE_PAGE) break;
+    }
+    return recovered;
   }
 
   private async cancelStaleScheduled(): Promise<number> {

@@ -1,4 +1,4 @@
-import { meetingsEnvSchema } from '@luna/meetings';
+import { type MinutesAiEnv, meetingsEnvSchema, minutesAiEnvSchema } from '@luna/meetings';
 import {
   baseEnvSchema,
   databaseEnvSchema,
@@ -30,14 +30,16 @@ export const workerEnvSchema = baseEnvSchema
     WORKER_METRICS_PORT: z.coerce.number().int().min(0).default(9464),
     WORKSPACE_PURGE_DAYS: z.coerce.number().int().min(1).default(30),
     AUTO_VERSION_THIN_DAYS: z.coerce.number().int().min(1).default(30),
+    MEETING_MINUTES_CONCURRENCY: z.coerce.number().int().min(1).max(4).default(1),
+    MEETING_AUDIO_WAIT_SEC: z.coerce.number().int().min(0).default(900),
   });
 
-export type WorkerConfig = z.output<typeof workerEnvSchema>;
+export type WorkerConfig = z.output<typeof workerEnvSchema> & MinutesAiEnv;
 
 export const WORKER_CONFIG = Symbol('WORKER_CONFIG');
 
 export function loadWorkerConfig(source?: NodeJS.ProcessEnv): WorkerConfig {
-  return loadEnv(workerEnvSchema, source);
+  return { ...loadEnv(workerEnvSchema, source), ...loadEnv(minutesAiEnvSchema, source) };
 }
 
 export { redisConnection } from '@luna/shared';
