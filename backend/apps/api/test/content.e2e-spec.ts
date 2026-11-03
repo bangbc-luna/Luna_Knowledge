@@ -888,6 +888,36 @@ describe('Content tree, sharing, trash (e2e)', () => {
       expect(rows.map((r) => r.metadata)).toEqual([{ deletedRoots: 3 }]);
     });
 
+    it('dọn thùng rác: đợt không xoá được mục nào vẫn có audit nên số đợt không bị nhảy', async () => {
+      await http().delete(`/api/v1/workspaces/${wsId}/trash`).set(alice.auth).expect(200);
+      const ids = await seedTrash(250);
+      const kept = [...ids].sort().slice(200);
+      const list = kept.map((id) => `'${id}'::uuid`).join(',');
+      await ctx.prisma.$executeRawUnsafe(
+        `CREATE OR REPLACE FUNCTION keep_node() RETURNS trigger AS $$ BEGIN RETURN NULL; END $$ LANGUAGE plpgsql`,
+      );
+      await ctx.prisma.$executeRawUnsafe(
+        `CREATE TRIGGER keep_node_trg BEFORE DELETE ON nodes FOR EACH ROW WHEN (OLD.id = ANY(ARRAY[${list}])) EXECUTE FUNCTION keep_node()`,
+      );
+      try {
+        const lastId = (
+          await ctx.prisma.auditLog.findFirst({ orderBy: { id: 'desc' }, select: { id: true } })
+        )?.id;
+        await http().delete(`/api/v1/workspaces/${wsId}/trash`).set(alice.auth).expect(200);
+        const rows = await ctx.prisma.auditLog.findMany({
+          where: { action: 'trash.empty', workspaceId: wsId, id: { gt: lastId ?? 0n } },
+          orderBy: { id: 'asc' },
+        });
+        expect(rows.map((r) => r.metadata)).toEqual([
+          { deletedRoots: 200, batch: 1, batches: 2 },
+          { deletedRoots: 0, batch: 2, batches: 2 },
+        ]);
+      } finally {
+        await ctx.prisma.$executeRawUnsafe('DROP TRIGGER IF EXISTS keep_node_trg ON nodes');
+        await ctx.prisma.node.deleteMany({ where: { id: { in: kept } } });
+      }
+    });
+
     it('dọn thùng rác lỗi ở đợt sau vẫn yêu cầu dọn rác blob khi đã xoá được đợt trước', async () => {
       await http().delete(`/api/v1/workspaces/${wsId}/trash`).set(alice.auth).expect(200);
       const ids = await seedTrash(250);
