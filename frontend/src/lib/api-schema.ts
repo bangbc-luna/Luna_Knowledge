@@ -9141,6 +9141,7 @@ export interface operations {
                             startedAt: string | null;
                             endedAt: string | null;
                             aiNotesEnabled: boolean;
+                            aiNotesAvailable: boolean;
                             createdBy: {
                                 id: string;
                                 email: string;
@@ -9148,6 +9149,9 @@ export interface operations {
                                 avatarUrl: string | null;
                             };
                             attendeeCount: number;
+                            minutes: {
+                                status: "NONE" | "RECORDING" | "PROCESSING" | "AWAITING_REVIEW" | "PUBLISHING" | "PUBLISHED" | "FAILED";
+                            };
                         }[];
                         nextCursor: string | null;
                     };
@@ -9230,6 +9234,7 @@ export interface operations {
                         startedAt: string | null;
                         endedAt: string | null;
                         aiNotesEnabled: boolean;
+                        aiNotesAvailable: boolean;
                         createdBy: {
                             id: string;
                             email: string;
@@ -9237,6 +9242,9 @@ export interface operations {
                             avatarUrl: string | null;
                         };
                         attendeeCount: number;
+                        minutes: {
+                            status: "NONE" | "RECORDING" | "PROCESSING" | "AWAITING_REVIEW" | "PUBLISHING" | "PUBLISHED" | "FAILED";
+                        };
                     };
                 };
             };
@@ -9307,6 +9315,7 @@ export interface operations {
                         startedAt: string | null;
                         endedAt: string | null;
                         aiNotesEnabled: boolean;
+                        aiNotesAvailable: boolean;
                         createdBy: {
                             id: string;
                             email: string;
@@ -9314,6 +9323,10 @@ export interface operations {
                             avatarUrl: string | null;
                         };
                         attendeeCount: number;
+                        minutes: {
+                            status: "NONE" | "RECORDING" | "PROCESSING" | "AWAITING_REVIEW" | "PUBLISHING" | "PUBLISHED" | "FAILED";
+                            documentNodeId: string | null;
+                        };
                         invitees: {
                             id: string;
                             email: string;
@@ -9331,10 +9344,6 @@ export interface operations {
                         opensAt: string | null;
                         canHost: boolean;
                         canManage: boolean;
-                        minutes: {
-                            status: "NONE" | "RECORDING" | "PROCESSING" | "AWAITING_REVIEW" | "PUBLISHING" | "PUBLISHED" | "FAILED";
-                            documentNodeId: string | null;
-                        };
                     };
                 };
             };
@@ -9405,6 +9414,7 @@ export interface operations {
                         startedAt: string | null;
                         endedAt: string | null;
                         aiNotesEnabled: boolean;
+                        aiNotesAvailable: boolean;
                         createdBy: {
                             id: string;
                             email: string;
@@ -9412,6 +9422,10 @@ export interface operations {
                             avatarUrl: string | null;
                         };
                         attendeeCount: number;
+                        minutes: {
+                            status: "NONE" | "RECORDING" | "PROCESSING" | "AWAITING_REVIEW" | "PUBLISHING" | "PUBLISHED" | "FAILED";
+                            documentNodeId: string | null;
+                        };
                         invitees: {
                             id: string;
                             email: string;
@@ -9429,10 +9443,6 @@ export interface operations {
                         opensAt: string | null;
                         canHost: boolean;
                         canManage: boolean;
-                        minutes: {
-                            status: "NONE" | "RECORDING" | "PROCESSING" | "AWAITING_REVIEW" | "PUBLISHING" | "PUBLISHED" | "FAILED";
-                            documentNodeId: string | null;
-                        };
                     };
                 };
             };
@@ -10138,6 +10148,8 @@ export interface operations {
                         error: string | null;
                         warning: string | null;
                         failedStage: string | null;
+                        failureReason: string | null;
+                        canRetry: boolean;
                         droppedItemCount: number;
                         draft: {
                             doc: {
