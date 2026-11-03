@@ -84,6 +84,7 @@ export const joinMeetingSchema = z.object({
   roomName: z.string(),
   identity: z.string(),
   aiNotesEnabled: z.boolean(),
+  aiNotesVersion: z.number().int(),
   isHost: z.boolean(),
   expiresInSec: z.number().int(),
 });
@@ -94,7 +95,10 @@ export const handBody = z.object({ raised: z.boolean() });
 export const handResultSchema = z.object({ raised: z.boolean() });
 
 export const aiNotesBody = z.object({ enabled: z.boolean() });
-export const aiNotesResultSchema = z.object({ aiNotesEnabled: z.boolean() });
+export const aiNotesResultSchema = z.object({
+  aiNotesEnabled: z.boolean(),
+  aiNotesVersion: z.number().int(),
+});
 
 export type HandBody = z.output<typeof handBody>;
 export type AiNotesBody = z.output<typeof aiNotesBody>;

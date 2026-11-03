@@ -1,0 +1,1 @@
+ALTER TABLE "meetings" ADD COLUMN "ai_notes_version" INTEGER NOT NULL DEFAULT 0;
