@@ -12,6 +12,8 @@ import { endMeeting, getMeeting, joinMeeting, setAiNotes, setHandRaised } from "
 import type { MeetingDetail, MeetingJoin } from "@/lib/meetings";
 import { useToast } from "../ui/toast";
 import { useAuth } from "@/lib/auth";
+import { acceptAiNotes, aiNotesFromMetadata, aiNotesFromPacket } from "@/lib/ai-notes-state";
+import type { AiNotesState, AiNotesUpdate } from "@/lib/ai-notes-state";
 import { dedupeParticipants } from "./participants";
 import { ReactionsContext, useReactions } from "./reactions";
 import { RoomControls } from "./room-controls";
@@ -37,29 +39,19 @@ const MAX_TOTAL_REJOINS = 8;
 const STABLE_MS = 10_000;
 const MEETING_TOPIC = "luna.meeting";
 
-function parseJson(raw: string | Uint8Array | undefined): Record<string, unknown> | null {
-  if (!raw) return null;
-  try {
-    const text = typeof raw === "string" ? raw : new TextDecoder().decode(raw);
-    const value: unknown = JSON.parse(text);
-    return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
-  } catch {
-    return null;
-  }
-}
-
-function useAiNotes(initial: boolean) {
+function useAiNotes(initial: AiNotesState) {
   const room = useRoomContext();
-  const [on, setOn] = useState(initial);
+  const [state, setState] = useState(initial);
+  const apply = useCallback((incoming: AiNotesUpdate) => setState((current) => acceptAiNotes(current, incoming)), []);
   useEffect(() => {
     const fromMetadata = (raw?: string) => {
-      const meta = parseJson(raw);
-      if (typeof meta?.aiNotesEnabled === "boolean") setOn(meta.aiNotesEnabled);
+      const incoming = aiNotesFromMetadata(raw);
+      if (incoming) apply(incoming);
     };
     const fromData = (payload: Uint8Array, participant?: unknown, _kind?: unknown, topic?: string) => {
       if (topic !== MEETING_TOPIC || participant) return;
-      const msg = parseJson(payload);
-      if (msg?.type === "ai_notes" && typeof msg.enabled === "boolean") setOn(msg.enabled);
+      const incoming = aiNotesFromPacket(payload);
+      if (incoming) apply(incoming);
     };
     const fromRoom = () => fromMetadata(room.metadata);
     fromRoom();
@@ -73,8 +65,8 @@ function useAiNotes(initial: boolean) {
       room.off(RoomEvent.Reconnected, fromRoom);
       room.off(RoomEvent.DataReceived, fromData);
     };
-  }, [room]);
-  return [on, setOn] as const;
+  }, [room, apply]);
+  return [state.enabled, apply] as const;
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -124,7 +116,7 @@ function RoomView({ meeting, join, onEnded, onMedia }: { meeting: MeetingDetail;
   useEffect(() => {
     if (state === ConnectionState.Connected) onMedia(isMicrophoneEnabled);
   }, [state, isMicrophoneEnabled, onMedia]);
-  const [aiOn, setAiOn] = useAiNotes(join.aiNotesEnabled);
+  const [aiOn, setAiOn] = useAiNotes({ enabled: join.aiNotesEnabled, version: join.aiNotesVersion });
   const { me } = useAuth();
   const { localParticipant } = useLocalParticipant();
   const { attributes } = useParticipantAttributes({ participant: localParticipant });
@@ -167,15 +159,12 @@ function RoomView({ meeting, join, onEnded, onMedia }: { meeting: MeetingDetail;
   const toggleAi = async () => {
     try {
       const result = await setAiNotes(meeting.id, !aiOn);
-      setAiOn(result.aiNotesEnabled);
+      setAiOn({ enabled: result.aiNotesEnabled, version: result.aiNotesVersion });
     } catch (err) {
       if (err instanceof ApiError && err.status === 503) {
-        try {
-          const fresh = await getMeeting(meeting.id);
-          setAiOn(fresh.aiNotesEnabled);
-        } catch {
-          setAiOn((v) => v);
-        }
+        await getMeeting(meeting.id)
+          .then((fresh) => setAiOn({ enabled: fresh.aiNotesEnabled }))
+          .catch(() => undefined);
         toast("error", "Chưa cập nhật được ghi biên bản AI cho phòng họp. Bấm lại công tắc để thử lại.");
       } else toast("error", meetingErrorText(err));
     }
