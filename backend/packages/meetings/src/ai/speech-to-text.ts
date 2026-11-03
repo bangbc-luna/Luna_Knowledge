@@ -23,6 +23,7 @@ export class SttError extends Error {
     message: string,
     readonly retryable: boolean,
     readonly status?: number,
+    readonly kind?: 'blocked',
   ) {
     super(message.slice(0, 500));
     this.name = 'SttError';
@@ -77,11 +78,18 @@ export function stripJsonFence(text: string): string {
   return m ? m[1]! : t;
 }
 
+const BLOCKED_TEXT = /blocked|filter|safety|refus/i;
+
+export function sttBlockedError(detail: string): SttError {
+  return new SttError(`Nhà cung cấp chặn đoạn âm thanh: ${detail}`, true, undefined, 'blocked');
+}
+
 export function parseSttSegments(text: string): SttSegment[] {
   let raw: unknown;
   try {
     raw = JSON.parse(stripJsonFence(text));
   } catch {
+    if (BLOCKED_TEXT.test(text)) throw sttBlockedError(text.replace(/\s+/g, ' ').slice(0, 200));
     throw new SttError('Phản hồi chép lời không phải JSON hợp lệ', false);
   }
   const parsed = sttSegmentsSchema.safeParse(raw);

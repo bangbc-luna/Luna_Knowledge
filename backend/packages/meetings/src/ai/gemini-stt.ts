@@ -9,20 +9,26 @@ import {
   isTimeoutError,
   parseSttSegments,
   readErrorSnippet,
+  sttBlockedError,
   type FetchLike,
   type SpeechToText,
   type SttAudio,
   type SttSegment,
 } from './speech-to-text.js';
 
+const BLOCKING_FINISH_REASONS = new Set(['SAFETY', 'PROHIBITED_CONTENT', 'BLOCKLIST', 'SPII']);
+
 const geminiResponseSchema = z.object({
+  promptFeedback: z.object({ blockReason: z.string().optional() }).optional(),
   candidates: z
     .array(
       z.object({
-        content: z.object({ parts: z.array(z.object({ text: z.string().optional() })) }),
+        finishReason: z.string().optional(),
+        content: z.object({ parts: z.array(z.object({ text: z.string().optional() })) }).optional(),
       }),
     )
-    .min(1),
+    .min(1)
+    .optional(),
 });
 
 export interface GeminiSttOptions {
@@ -93,7 +99,14 @@ export class GeminiSpeechToText implements SpeechToText {
     }
     const parsed = geminiResponseSchema.safeParse(json);
     if (!parsed.success) throw new SttError('Phản hồi Gemini sai cấu trúc', false);
-    const text = parsed.data.candidates[0]!.content.parts.map((p) => p.text ?? '').join('');
+    const blockReason = parsed.data.promptFeedback?.blockReason;
+    if (blockReason) throw sttBlockedError(blockReason);
+    const candidate = parsed.data.candidates?.[0];
+    if (!candidate) throw new SttError('Phản hồi Gemini sai cấu trúc', false);
+    if (candidate.finishReason && BLOCKING_FINISH_REASONS.has(candidate.finishReason)) {
+      throw sttBlockedError(candidate.finishReason);
+    }
+    const text = (candidate.content?.parts ?? []).map((p) => p.text ?? '').join('');
     return normalizeSegments(parseSttSegments(text), audio.durationMs);
   }
 }

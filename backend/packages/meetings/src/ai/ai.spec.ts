@@ -89,6 +89,29 @@ describe('Gemini', () => {
     });
   });
 
+  it('bị bộ lọc chặn (promptFeedback, finishReason SAFETY, chữ chặn) → lỗi blocked, thử lại được', async () => {
+    const make = (body: unknown) =>
+      new GeminiSpeechToText({
+        apiKey: 'k',
+        model: 'gemini-2.5-flash',
+        fetchImpl: vi.fn().mockResolvedValue(json(body)),
+      });
+    for (const body of [
+      { promptFeedback: { blockReason: 'SAFETY' } },
+      { candidates: [{ finishReason: 'SAFETY', content: { parts: [] } }] },
+      {
+        candidates: [
+          { content: { parts: [{ text: "This request was blocked by Gemini's filters." }] } },
+        ],
+      },
+    ]) {
+      await expect(make(body).transcribe(audio, { keyterms: [] })).rejects.toMatchObject({
+        kind: 'blocked',
+        retryable: true,
+      });
+    }
+  });
+
   it('đọc segments hợp lệ và đổi giây thành ms', async () => {
     const ok = vi.fn().mockResolvedValue(
       json({
@@ -162,6 +185,33 @@ describe('OmniRoute chép lời', () => {
       expect((err as SttError).message.length).toBeLessThanOrEqual(500);
       expect((err as SttError).message).not.toContain('secret-key');
     }
+  });
+
+  it('HTTP 200 với chữ bị bộ lọc chặn hoặc finish_reason content_filter → lỗi blocked, thử lại được', async () => {
+    const blocked = await make(
+      vi
+        .fn()
+        .mockResolvedValue(
+          chat("This request was blocked by Gemini's filters for safety reasons."),
+        ),
+    )
+      .transcribe(audio, { keyterms: [] })
+      .catch((e: unknown) => e);
+    expect(blocked).toBeInstanceOf(SttError);
+    expect(blocked).toMatchObject({ kind: 'blocked', retryable: true });
+    const filtered = await make(
+      vi.fn().mockResolvedValue(
+        json({
+          choices: [{ finish_reason: 'content_filter', message: { content: '{"segments":[]}' } }],
+        }),
+      ),
+    )
+      .transcribe(audio, { keyterms: [] })
+      .catch((e: unknown) => e);
+    expect(filtered).toMatchObject({ kind: 'blocked', retryable: true });
+    await expect(
+      make(vi.fn().mockResolvedValue(chat('không phải json'))).transcribe(audio, { keyterms: [] }),
+    ).rejects.toMatchObject({ retryable: false, kind: undefined });
   });
 
   it('nội dung rỗng và lỗi mạng đều thử lại được', async () => {

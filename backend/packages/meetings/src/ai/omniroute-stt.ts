@@ -5,6 +5,7 @@ import {
   buildSttPrompt,
   normalizeSegments,
   parseSttSegments,
+  sttBlockedError,
   type FetchLike,
   type SpeechToText,
   type SttAudio,
@@ -47,8 +48,10 @@ export class OmniRouteSpeechToText implements SpeechToText {
           },
         ],
       });
+      if (out.finishReason === 'content_filter') throw sttBlockedError('content_filter');
       content = out.content;
     } catch (err) {
+      if (err instanceof SttError) throw err;
       if (err instanceof OmniRouteHttpError)
         throw new SttError(err.message, err.retryable, err.status);
       throw err;
