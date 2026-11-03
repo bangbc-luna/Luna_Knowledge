@@ -455,6 +455,56 @@ describe('Meeting minutes worker (e2e)', () => {
     expect(row.status).toBe('RECORDING');
   });
 
+  it('buổi họp còn LIVE: job hoãn 30 giây và ném DelayedError, không hoàn tất, không đổi trạng thái', async () => {
+    const { host, meeting } = await setup();
+    await chunk(meeting.id, host.id, 0);
+    await prisma.meeting.update({
+      where: { id: meeting.id },
+      data: { status: 'LIVE', endedAt: null },
+    });
+    const job = makeJob('process', { meetingId: meeting.id });
+
+    await expect(processor.process(job as never, 'token')).rejects.toBeInstanceOf(DelayedError);
+
+    expect(job.moveToDelayed).toHaveBeenCalledTimes(1);
+    const [until, token] = job.moveToDelayed.mock.calls[0] as unknown as [number, string];
+    expect(until - Date.now()).toBeGreaterThan(20_000);
+    expect(until - Date.now()).toBeLessThanOrEqual(30_000);
+    expect(token).toBe('token');
+    const row = await prisma.meetingMinutes.findUniqueOrThrow({ where: { meetingId: meeting.id } });
+    expect(row.status).toBe('RECORDING');
+    expect(stt.calls).toHaveLength(0);
+  });
+
+  it('buổi họp bị huỷ: bỏ qua, không hoãn', async () => {
+    const { meeting } = await setup();
+    await prisma.meeting.update({ where: { id: meeting.id }, data: { status: 'CANCELLED' } });
+    const job = makeJob('process', { meetingId: meeting.id });
+    await expect(processor.process(job as never, 'token')).resolves.toEqual({
+      skipped: 'not_ended',
+    });
+    expect(job.moveToDelayed).not.toHaveBeenCalled();
+  });
+
+  it('hàng đã FAILED không bị worker nhận lại: chỉ API retry mới đưa về PROCESSING', async () => {
+    const { host, meeting } = await setup();
+    await chunk(meeting.id, host.id, 0);
+    await prisma.meetingMinutes.update({
+      where: { meetingId: meeting.id },
+      data: { status: 'FAILED', failedStage: 'draft', error: 'lỗi cũ' },
+    });
+
+    await expect(run('process', { meetingId: meeting.id })).resolves.toEqual({
+      skipped: 'claimed_elsewhere',
+    });
+
+    expect(stt.calls).toHaveLength(0);
+    const row = await prisma.meetingMinutes.findUniqueOrThrow({ where: { meetingId: meeting.id } });
+    expect(row.status).toBe('FAILED');
+    expect(row.error).toBe('lỗi cũ');
+    store.objects.clear();
+  });
+
   it('âm thanh chưa báo xong nhưng đã quá thời gian chờ: vẫn xử lý phần đã có', async () => {
     const { host, meeting } = await setup({ audioCompleted: false, endedMinutesAgo: 30 });
     await chunk(meeting.id, host.id, 0);

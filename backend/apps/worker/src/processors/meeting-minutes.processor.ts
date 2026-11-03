@@ -165,7 +165,14 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
     const minutes = meeting?.minutes;
     if (!meeting || !minutes) return { skipped: 'no_minutes' };
     if (DONE_STATUSES.has(minutes.status)) return { skipped: minutes.status };
-    if (meeting.status !== 'ENDED') return { skipped: 'not_ended' };
+    if (meeting.status !== 'ENDED') {
+      if (meeting.status !== 'LIVE' && meeting.status !== 'SCHEDULED') {
+        return { skipped: 'not_ended' };
+      }
+      if (!token) throw new Error('The meeting has not ended yet');
+      await job.moveToDelayed(Date.now() + AUDIO_WAIT_RECHECK_MS, token);
+      throw new DelayedError();
+    }
 
     const { stt, writer } = this;
     if (!stt || !writer || !minutesAiAvailable(this.config)) {
@@ -189,7 +196,7 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
       where: {
         meetingId,
         OR: [
-          { status: { in: ['RECORDING', 'FAILED'] } },
+          { status: 'RECORDING' },
           {
             status: 'PROCESSING',
             OR: [
