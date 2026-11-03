@@ -238,18 +238,22 @@ export class NodesService {
             where: { id: nodeId },
             select: { description: true },
           });
-    await this.tree.rename(user, node, { name, description });
-    await this.audit.log({
-      actorId: user.id,
-      action: before ? 'video.update_info' : 'node.rename',
-      targetType: 'node',
-      targetId: nodeId,
-      workspaceId: node.workspaceId,
-      metadata: before
-        ? { from: node.name, to: name, descriptionChanged: before.description !== description }
-        : { from: node.name, to: name },
-      ctx,
-    });
+    await this.tree.rename(
+      user,
+      node,
+      { name, description },
+      {
+        actorId: user.id,
+        action: before ? 'video.update_info' : 'node.rename',
+        targetType: 'node',
+        targetId: nodeId,
+        workspaceId: node.workspaceId,
+        metadata: before
+          ? { from: node.name, to: name, descriptionChanged: before.description !== description }
+          : { from: node.name, to: name },
+        ctx,
+      },
+    );
     await this.search.node(nodeId);
     return this.dto.one(user.id, nodeId);
   }
@@ -266,8 +270,7 @@ export class NodesService {
 
   async trash(user: AuthenticatedUser, nodeId: string, ctx: RequestContext): Promise<void> {
     const node = await this.access.requireNode(user, nodeId, 'EDITOR');
-    const count = await this.tree.trash(user, node);
-    await this.audit.log({
+    await this.tree.trash(user, node, (count) => ({
       actorId: user.id,
       action: 'node.trash',
       targetType: 'node',
@@ -275,7 +278,7 @@ export class NodesService {
       workspaceId: node.workspaceId,
       metadata: { name: node.name, itemCount: count },
       ctx,
-    });
+    }));
     await this.search.tree(nodeId);
     await this.collab.accessChanged({ workspaceId: node.workspaceId });
   }

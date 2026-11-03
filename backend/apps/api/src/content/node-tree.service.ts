@@ -5,9 +5,10 @@ import {
   type NodeStatus,
   type NodeType,
   type Prisma,
+  writeAudit,
 } from '@luna/db';
 import { Inject, Injectable } from '@nestjs/common';
-import { AuditService } from '../audit/audit.service.js';
+import { type AuditEntry, AuditService } from '../audit/audit.service.js';
 import type { AuthenticatedUser } from '../auth/auth.service.js';
 import { AppError } from '../common/errors/app-error.js';
 import type { RequestContext } from '../common/http/request-context.js';
@@ -277,15 +278,17 @@ export class NodeTree {
     user: AuthenticatedUser,
     node: { id: string; workspaceId: string; parentId: string | null; section: NodeSection },
     details: { name: string; description?: string },
+    audit: AuditEntry,
   ): Promise<void> {
     const { name, description } = details;
     try {
-      await this.withLock(node.workspaceId, (tx) =>
-        tx.node.update({
+      await this.withLock(node.workspaceId, async (tx) => {
+        await tx.node.update({
           where: { id: node.id },
           data: { name, nameNormalized: nameKey(name), description, updatedById: user.id },
-        }),
-      );
+        });
+        await this.writeAudit(tx, audit);
+      });
     } catch (err) {
       throw await this.mapConflict(err, {
         workspaceId: node.workspaceId,
@@ -297,45 +300,70 @@ export class NodeTree {
     }
   }
 
-  trash(user: AuthenticatedUser, node: { id: string; workspaceId: string }): Promise<number> {
-    return this.withLock(
-      node.workspaceId,
-      (tx) => tx.$executeRaw`
+  trash(
+    user: AuthenticatedUser,
+    node: { id: string; workspaceId: string },
+    audit: (count: number) => AuditEntry,
+  ): Promise<number> {
+    return this.withLock(node.workspaceId, async (tx) => {
+      const count = await tx.$executeRaw`
         UPDATE nodes
            SET deleted_at = now(), deleted_by = ${user.id}::uuid, deleted_root_id = ${node.id}::uuid
          WHERE path <@ (SELECT path FROM nodes WHERE id = ${node.id}::uuid)
-           AND deleted_at IS NULL`,
-    );
+           AND deleted_at IS NULL`;
+      await this.writeAudit(tx, audit(count));
+      return count;
+    });
   }
 
-  async purge(node: { id: string; workspaceId: string }): Promise<void> {
+  async purge(node: { id: string; workspaceId: string }, audit: AuditEntry): Promise<void> {
     await this.withLock(node.workspaceId, async (tx) => {
       const { count } = await tx.node.deleteMany({
         where: { id: node.id, deletedRootId: node.id },
       });
-      if (count > 0) return;
+      if (count > 0) {
+        await this.writeAudit(tx, audit);
+        return;
+      }
       const current = await tx.node.findUnique({ where: { id: node.id }, select: { id: true } });
       if (!current) throw AppError.notFound('Item not found');
       throw AppError.validation('Item is not in the trash');
     });
   }
 
-  async purgeAll(workspaceId: string): Promise<number> {
+  async purgeAll(workspaceId: string, audit: (count: number) => AuditEntry): Promise<number> {
     const roots = await this.prisma.client.$queryRaw<{ id: string }[]>`
       SELECT id FROM nodes WHERE workspace_id = ${workspaceId}::uuid AND deleted_root_id = id`;
     let deleted = 0;
     for (let i = 0; i < roots.length; i += PURGE_BATCH_SIZE) {
       const ids = roots.slice(i, i + PURGE_BATCH_SIZE).map((r) => r.id);
-      deleted += await this.withLock(
-        workspaceId,
-        (tx) => tx.$executeRaw`
+      deleted += await this.withLock(workspaceId, async (tx) => {
+        const count = await tx.$executeRaw`
           DELETE FROM nodes
           WHERE workspace_id = ${workspaceId}::uuid
             AND deleted_root_id = id
-            AND id = ANY(${ids}::uuid[])`,
-      );
+            AND id = ANY(${ids}::uuid[])`;
+        await this.writeAudit(tx, audit(count));
+        return count;
+      });
+    }
+    if (roots.length === 0) {
+      await this.prisma.client.$transaction((tx) => this.writeAudit(tx, audit(0)));
     }
     return deleted;
+  }
+
+  private writeAudit(tx: Prisma.TransactionClient, entry: AuditEntry): Promise<void> {
+    return writeAudit(tx, {
+      actorId: entry.actorId,
+      action: entry.action,
+      targetType: entry.targetType,
+      targetId: entry.targetId,
+      workspaceId: entry.workspaceId,
+      metadata: entry.metadata,
+      ip: entry.ctx?.ip,
+      userAgent: entry.ctx?.userAgent,
+    });
   }
 
   private async withLock<T>(
