@@ -1,4 +1,7 @@
-const LOOPBACK_ALIASES: Record<string, string> = { localhost: '127.0.0.1', '127.0.0.1': 'localhost' };
+const LOOPBACK_ALIASES: Record<string, string> = {
+  localhost: '127.0.0.1',
+  '127.0.0.1': 'localhost',
+};
 
 export function corsOrigins(origins: string[], nodeEnv: string): string[] {
   if (nodeEnv !== 'development') return origins;

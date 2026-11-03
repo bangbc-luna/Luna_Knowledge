@@ -13,7 +13,9 @@ describe('corsOrigins', () => {
   });
 
   it('development: giữ nguyên origin không phải loopback', () => {
-    expect(corsOrigins(['https://kb.lunatech.vn'], 'development')).toEqual(['https://kb.lunatech.vn']);
+    expect(corsOrigins(['https://kb.lunatech.vn'], 'development')).toEqual([
+      'https://kb.lunatech.vn',
+    ]);
   });
 
   it('production: không thêm origin nào', () => {
