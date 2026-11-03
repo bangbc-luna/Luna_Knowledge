@@ -59,6 +59,7 @@ export const meetingSchema = z.object({
 });
 
 export const meetingDetailSchema = meetingSchema.extend({
+  aiNotesVersion: z.number().int(),
   invitees: z.array(userSummarySchema),
   attendees: z.array(userSummarySchema.extend({ joinedAt: z.date(), leftAt: z.date().nullable() })),
   opensAt: z

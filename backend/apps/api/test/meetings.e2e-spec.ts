@@ -98,6 +98,19 @@ describe('Meetings (e2e)', () => {
     await create(alice, { title: '', mode: 'instant' }).expect(400);
   });
 
+  it('chi tiết buổi họp trả về aiNotesVersion hiện tại', async () => {
+    const res = await create(alice, {
+      title: 'Có phiên bản',
+      mode: 'scheduled',
+      scheduledAt: inHours(3),
+    }).expect(201);
+    const before = await http().get(`/api/v1/meetings/${res.body.id}`).set(alice.auth).expect(200);
+    expect(before.body.aiNotesVersion).toBe(0);
+    await ctx.prisma.meeting.update({ where: { id: res.body.id }, data: { aiNotesVersion: 5 } });
+    const after = await http().get(`/api/v1/meetings/${res.body.id}`).set(alice.auth).expect(200);
+    expect(after.body.aiNotesVersion).toBe(5);
+  });
+
   it('mời người ngoài workspace: tạo tài khoản như share, gửi thông báo meeting.invited, người được mời xem được buổi họp nhưng không thấy trong danh sách workspace', async () => {
     const res = await create(alice, {
       title: 'Có khách',

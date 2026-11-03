@@ -389,6 +389,7 @@ export class MeetingsService {
     const attendeeCount = new Set(meeting.attendances.map((a) => a.user.id)).size;
     return {
       ...this.toDto(meeting, attendeeCount, 'NONE'),
+      aiNotesVersion: meeting.aiNotesVersion,
       invitees: meeting.invites.map((i) => i.user),
       attendees: meeting.attendances.map((a) => ({
         ...a.user,

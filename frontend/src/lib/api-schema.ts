@@ -9328,6 +9328,7 @@ export interface operations {
                             status: "NONE" | "RECORDING" | "PROCESSING" | "AWAITING_REVIEW" | "PUBLISHING" | "PUBLISHED" | "FAILED";
                             documentNodeId: string | null;
                         };
+                        aiNotesVersion: number;
                         invitees: {
                             id: string;
                             email: string;
@@ -9427,6 +9428,7 @@ export interface operations {
                             status: "NONE" | "RECORDING" | "PROCESSING" | "AWAITING_REVIEW" | "PUBLISHING" | "PUBLISHED" | "FAILED";
                             documentNodeId: string | null;
                         };
+                        aiNotesVersion: number;
                         invitees: {
                             id: string;
                             email: string;
