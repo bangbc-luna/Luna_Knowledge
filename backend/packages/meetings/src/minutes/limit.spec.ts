@@ -35,4 +35,14 @@ describe('limitTimeline', () => {
     expect(out.text).toContain('[U1 ');
     expect(out.text).not.toContain('[U50 ');
   });
+
+  it('dòng đầu hoặc cuối quá lớn thì cắt cứng thay vì bỏ hẳn', () => {
+    const entries = [entry(1, 'a'.repeat(5000)), entry(2, 'b'.repeat(5000))];
+    const out = limitTimeline({ speakers, entries }, 2000);
+    expect(out.truncated).toBe(true);
+    expect(out.text.length).toBeLessThanOrEqual(2000);
+    expect(out.text).toContain('[U1 ');
+    expect(out.text).toContain('[U2 ');
+    expect(out.entries.map((e) => e.refId)).toEqual(['U1', 'U2']);
+  });
 });

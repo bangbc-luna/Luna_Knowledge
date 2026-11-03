@@ -698,6 +698,8 @@ model MeetingMinutes {
   suggestions           Json?
   droppedItemCount      Int           @default(0) @map("dropped_item_count")
   failedStage           String?       @map("failed_stage")
+  claimedBy             String?       @map("claimed_by")
+  claimExpiresAt        DateTime?     @map("claim_expires_at") @db.Timestamptz(3)
   error                 String?
   documentNodeId        String?       @map("document_node_id") @db.Uuid
   publishedAt           DateTime?     @map("published_at") @db.Timestamptz(3)

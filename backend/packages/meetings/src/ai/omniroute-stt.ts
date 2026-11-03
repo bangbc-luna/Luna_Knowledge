@@ -49,7 +49,8 @@ export class OmniRouteSpeechToText implements SpeechToText {
       });
       content = out.content;
     } catch (err) {
-      if (err instanceof OmniRouteHttpError) throw new SttError(err.message, err.retryable);
+      if (err instanceof OmniRouteHttpError)
+        throw new SttError(err.message, err.retryable, err.status);
       throw err;
     }
     return normalizeSegments(parseSttSegments(content), audio.durationMs);

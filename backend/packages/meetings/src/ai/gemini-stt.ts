@@ -79,7 +79,11 @@ export class GeminiSpeechToText implements SpeechToText {
     }
     if (!res.ok) {
       const snippet = await readErrorSnippet(res, this.apiKey);
-      throw new SttError(`Gemini trả về ${res.status}: ${snippet}`, isRetryableStatus(res.status));
+      throw new SttError(
+        `Gemini trả về ${res.status}: ${snippet}`,
+        isRetryableStatus(res.status),
+        res.status,
+      );
     }
     let json: unknown;
     try {

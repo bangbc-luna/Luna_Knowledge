@@ -22,6 +22,7 @@ export class SttError extends Error {
   constructor(
     message: string,
     readonly retryable: boolean,
+    readonly status?: number,
   ) {
     super(message.slice(0, 500));
     this.name = 'SttError';

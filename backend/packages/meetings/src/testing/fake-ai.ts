@@ -16,21 +16,21 @@ export class FakeSpeechToText implements SpeechToText {
   readonly model = 'fake-stt';
   readonly segments = new Map<string, SttSegment[]>();
   readonly calls: Array<{ key: string; durationMs: number; keyterms: string[] }> = [];
-  private failures: Array<{ retryable: boolean }> = [];
+  private failures: Array<{ retryable: boolean; status?: number }> = [];
 
   setSegments(key: string, segments: SttSegment[]): void {
     this.segments.set(key, segments);
   }
 
-  failTimes(n: number, retryable: boolean): void {
-    this.failures = Array.from({ length: n }, () => ({ retryable }));
+  failTimes(n: number, retryable: boolean, status?: number): void {
+    this.failures = Array.from({ length: n }, () => ({ retryable, status }));
   }
 
   async transcribe(audio: SttAudio, opts: { keyterms: string[] }): Promise<SttSegment[]> {
     const key = audio.body.toString('utf8');
     this.calls.push({ key, durationMs: audio.durationMs, keyterms: opts.keyterms });
     const failure = this.failures.shift();
-    if (failure) throw new SttError('Lỗi chép lời giả lập', failure.retryable);
+    if (failure) throw new SttError('Lỗi chép lời giả lập', failure.retryable, failure.status);
     return this.segments.get(key) ?? [{ startMs: 0, endMs: audio.durationMs, text: 'lời nói thử' }];
   }
 }

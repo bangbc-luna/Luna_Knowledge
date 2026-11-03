@@ -72,6 +72,7 @@ export class DeepgramSpeechToText implements SpeechToText {
       throw new SttError(
         `Deepgram trả về ${res.status}: ${snippet}`,
         isRetryableStatus(res.status),
+        res.status,
       );
     }
     let json: unknown;

@@ -35,6 +35,12 @@ const PURGE_BATCH = 100;
 const MAX_ERROR_CHARS = 500;
 const WARNING_PREFIX = 'Cảnh báo: ';
 const TIME_ZONE = 'Asia/Ho_Chi_Minh';
+const CLAIM_LEASE_MS = 15 * 60_000;
+const MAX_TRANSCRIBE_ROUNDS = 5;
+const SKIP_WARNING_PREFIX = 'bỏ qua ';
+const BILLING_ERROR =
+  /quota|billing|payment|insufficient|balance|credit|unauthori[sz]ed|forbidden|api key/i;
+const CONTENT_STATUSES = new Set([400, 413, 415, 422]);
 const DONE_STATUSES = new Set(['AWAITING_REVIEW', 'PUBLISHING', 'PUBLISHED']);
 
 type Stage = 'transcribe' | 'draft';
@@ -64,7 +70,19 @@ async function readAll(body: AsyncIterable<unknown>): Promise<Buffer> {
   return Buffer.concat(parts);
 }
 
+class ClaimLost extends Error {}
+
+class StageFailure extends Error {}
+
+function isSkippable(err: unknown): boolean {
+  if (isMissingObject(err)) return true;
+  if (!(err instanceof SttError) || err.retryable) return false;
+  if (BILLING_ERROR.test(err.message)) return false;
+  return err.status === undefined || CONTENT_STATUSES.has(err.status);
+}
+
 function isRetryable(err: unknown): boolean {
+  if (err instanceof StageFailure) return false;
   if (err instanceof SttError || err instanceof MinutesWriterError) return err.retryable;
   return true;
 }
@@ -157,29 +175,76 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
       throw new DelayedError();
     }
 
-    const warnings = new Set(warningLines(minutes.error));
-    await db.meetingMinutes.update({
-      where: { meetingId },
+    const jobId = String(job.id ?? `${meetingId}:${token ?? 'local'}`);
+    const now = Date.now();
+    const claim = await db.meetingMinutes.updateMany({
+      where: {
+        meetingId,
+        OR: [
+          { status: { in: ['RECORDING', 'FAILED'] } },
+          {
+            status: 'PROCESSING',
+            OR: [
+              { claimedBy: jobId },
+              { claimedBy: null },
+              { claimExpiresAt: null },
+              { claimExpiresAt: { lt: new Date(now) } },
+            ],
+          },
+        ],
+      },
       data: {
         status: 'PROCESSING',
+        claimedBy: jobId,
+        claimExpiresAt: new Date(now + CLAIM_LEASE_MS),
         failedStage: null,
         ...(minutes.error?.startsWith(WARNING_PREFIX) ? {} : { error: null }),
       },
     });
+    if (claim.count === 0) return { skipped: 'claimed_elsewhere' };
 
+    const warnings = new Set(
+      warningLines(minutes.error).filter((line) => !line.startsWith(SKIP_WARNING_PREFIX)),
+    );
     let stage: Stage = 'transcribe';
     try {
-      await this.transcribeChunks(meeting.id, meeting.workspaceId, warnings);
-      await db.meetingMinutes.update({
-        where: { meetingId },
+      await this.transcribeChunks(meeting.id, meeting.workspaceId, jobId);
+      const skipped = await this.skippedChunkCount(meeting.id);
+      if (skipped.skipped > 0) {
+        if (skipped.succeeded === 0) {
+          throw new StageFailure('Mọi đoạn âm thanh đều không chép lời được');
+        }
+        warnings.add(`${SKIP_WARNING_PREFIX}${skipped.skipped} đoạn âm thanh không chép lời được`);
+      }
+      await db.meetingMinutes.updateMany({
+        where: { meetingId, transcriptCompletedAt: null },
         data: { transcriptCompletedAt: new Date() },
       });
-      await this.purgeChunks(meeting.id, { markMinutes: true });
+      await this.purgeChunks(meeting.id, { onlyTranscribed: true });
       stage = 'draft';
-      return await this.buildDraft(meeting, warnings);
+      await this.renewClaim(meetingId, jobId);
+      return await this.buildDraft(meeting, warnings, jobId);
     } catch (err) {
-      return this.fail(job, meeting, stage, err);
+      if (err instanceof ClaimLost) return { skipped: 'claim_lost' };
+      return this.fail(job, meeting, stage, err, jobId);
     }
+  }
+
+  private async renewClaim(meetingId: string, jobId: string): Promise<void> {
+    const { count } = await this.prisma.client.meetingMinutes.updateMany({
+      where: { meetingId, status: 'PROCESSING', claimedBy: jobId },
+      data: { claimExpiresAt: new Date(Date.now() + CLAIM_LEASE_MS) },
+    });
+    if (count === 0) throw new ClaimLost();
+  }
+
+  private async skippedChunkCount(meetingId: string) {
+    const db = this.prisma.client;
+    const [transcribed, succeeded] = await Promise.all([
+      db.meetingAudioChunk.count({ where: { meetingId, transcribedAt: { not: null } } }),
+      db.meetingAiUsage.count({ where: { meetingId, kind: 'stt' } }),
+    ]);
+    return { skipped: Math.max(0, transcribed - succeeded), succeeded };
   }
 
   private async fail(
@@ -187,117 +252,167 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
     meeting: { id: string; workspaceId: string; title: string; createdById: string },
     stage: Stage,
     err: unknown,
+    jobId: string,
   ): Promise<never> {
     const retryable = isRetryable(err);
     const lastAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
     const message = this.redact(err instanceof Error ? err.message : String(err));
+    const db = this.prisma.client;
     if (retryable && !lastAttempt) {
       this.logger.warn(`Minutes ${meeting.id} stage ${stage} failed, will retry: ${message}`);
+      await db.meetingMinutes.updateMany({
+        where: { meetingId: meeting.id, status: 'PROCESSING', claimedBy: jobId },
+        data: { claimedBy: null, claimExpiresAt: null },
+      });
       throw err;
     }
-    await this.prisma.client.meetingMinutes.update({
-      where: { meetingId: meeting.id },
-      data: { status: 'FAILED', failedStage: stage, error: message },
+    const { count } = await db.meetingMinutes.updateMany({
+      where: { meetingId: meeting.id, status: 'PROCESSING', claimedBy: jobId },
+      data: {
+        status: 'FAILED',
+        failedStage: stage,
+        error: message,
+        claimedBy: null,
+        claimExpiresAt: null,
+      },
     });
-    await writeNotifications(
-      this.prisma.client,
-      (channel, payload) => this.publisher.publishRaw(channel, payload),
-      [meeting.createdById],
-      'meeting.minutes_failed',
-      {
+    if (count === 1) {
+      await this.notify([meeting.createdById], 'meeting.minutes_failed', {
         meetingId: meeting.id,
         workspaceId: meeting.workspaceId,
         title: meeting.title,
         stage,
-      },
-    );
+      });
+    }
     this.logger.error(`Minutes ${meeting.id} failed at ${stage}: ${message}`);
     if (!retryable) throw new UnrecoverableError(message);
     throw err;
   }
 
+  private async notify(userIds: string[], type: string, payload: Prisma.InputJsonObject) {
+    try {
+      await writeNotifications(
+        this.prisma.client,
+        (channel, message) => this.publisher.publishRaw(channel, message),
+        userIds,
+        type,
+        payload,
+      );
+    } catch (err) {
+      this.logger.error({ err, type }, 'Sending a minutes notification failed');
+    }
+  }
+
   private async transcribeChunks(
     meetingId: string,
     workspaceId: string,
-    warnings: Set<string>,
+    jobId: string,
   ): Promise<void> {
     const db = this.prisma.client;
-    const chunks = await db.meetingAudioChunk.findMany({
-      where: { meetingId, transcribedAt: null, deletedAt: null },
-      orderBy: { startOffsetMs: 'asc' },
-    });
-    let firstError: unknown;
-    let skipped = 0;
-    await forEachLimited(chunks, TRANSCRIBE_CONCURRENCY, async (chunk) => {
-      try {
-        const { body } = await this.store.getStream({
-          container: chunk.container,
-          key: chunk.key,
-        });
-        const audio = await readAll(body);
-        const segments = await this.stt.transcribe(
-          { body: audio, mime: 'audio/ogg', durationMs: chunk.durationMs },
-          { keyterms: this.config.MEETING_KEYTERMS },
-        );
-        await db.$transaction(async (tx) => {
-          const { count } = await tx.meetingAudioChunk.updateMany({
-            where: { id: chunk.id, transcribedAt: null },
-            data: { transcribedAt: new Date() },
-          });
-          if (count === 0) return;
-          if (segments.length > 0) {
-            await tx.meetingUtterance.createMany({
-              data: segments.map((s) => ({
-                meetingId,
-                chunkId: chunk.id,
-                userId: chunk.userId,
-                startMs: chunk.startOffsetMs + s.startMs,
-                endMs: chunk.startOffsetMs + s.endMs,
-                text: s.text,
-              })),
-            });
-          }
-          await tx.meetingAiUsage.create({
-            data: {
-              meetingId,
-              workspaceId,
-              kind: 'stt',
-              provider: this.stt.provider,
-              model: this.stt.model,
-              audioMs: chunk.durationMs,
-              costMicroUsd: sttCostMicroUsd(chunk.durationMs, this.config.MEETING_STT_USD_PER_MIN),
-            },
-          });
-        });
-      } catch (err) {
-        if (isMissingObject(err) || (err instanceof SttError && !err.retryable)) {
-          skipped++;
-          await db.meetingAudioChunk.updateMany({
-            where: { id: chunk.id, transcribedAt: null },
-            data: { transcribedAt: new Date() },
-          });
-          this.logger.warn(
-            `Skipped audio chunk ${chunk.id} of meeting ${meetingId}: ${this.redact(err instanceof Error ? err.message : String(err))}`,
-          );
+    for (let round = 0; round < MAX_TRANSCRIBE_ROUNDS; round++) {
+      const chunks = await db.meetingAudioChunk.findMany({
+        where: { meetingId, transcribedAt: null, deletedAt: null },
+        orderBy: { startOffsetMs: 'asc' },
+      });
+      if (chunks.length === 0) return;
+      let firstError: unknown;
+      let lost: ClaimLost | undefined;
+      await forEachLimited(chunks, TRANSCRIBE_CONCURRENCY, async (chunk) => {
+        if (lost) return;
+        try {
+          await this.renewClaim(meetingId, jobId);
+        } catch (err) {
+          if (err instanceof ClaimLost) lost = err;
+          else firstError ??= err;
           return;
         }
-        firstError ??= err;
-      }
-    });
-    if (skipped > 0) {
-      warnings.add(`bỏ qua ${skipped} đoạn âm thanh không chép lời được`);
-      await db.meetingMinutes.update({
-        where: { meetingId },
-        data: { error: joinWarnings(warnings) },
+        try {
+          await this.transcribeChunk(meetingId, workspaceId, chunk);
+        } catch (err) {
+          if (isSkippable(err)) {
+            await db.meetingAudioChunk.updateMany({
+              where: { id: chunk.id, transcribedAt: null },
+              data: { transcribedAt: new Date() },
+            });
+            this.logger.warn(
+              `Skipped audio chunk ${chunk.id} of meeting ${meetingId}: ${this.redact(err instanceof Error ? err.message : String(err))}`,
+            );
+            return;
+          }
+          firstError ??= err;
+        }
       });
+      if (lost) throw lost;
+      if (firstError) throw firstError;
     }
-    if (firstError) throw firstError;
+    const remaining = await db.meetingAudioChunk.count({
+      where: { meetingId, transcribedAt: null, deletedAt: null },
+    });
+    if (remaining > 0) throw new Error('Vẫn còn đoạn âm thanh chưa chép lời');
   }
 
-  private async purgeChunks(meetingId: string, opts: { markMinutes: boolean }): Promise<number> {
+  private async transcribeChunk(
+    meetingId: string,
+    workspaceId: string,
+    chunk: {
+      id: string;
+      userId: string;
+      container: string;
+      key: string;
+      startOffsetMs: number;
+      durationMs: number;
+    },
+  ): Promise<void> {
+    const db = this.prisma.client;
+    const { body } = await this.store.getStream({ container: chunk.container, key: chunk.key });
+    const audio = await readAll(body);
+    const segments = await this.stt.transcribe(
+      { body: audio, mime: 'audio/ogg', durationMs: chunk.durationMs },
+      { keyterms: this.config.MEETING_KEYTERMS },
+    );
+    await db.$transaction(async (tx) => {
+      const { count } = await tx.meetingAudioChunk.updateMany({
+        where: { id: chunk.id, transcribedAt: null },
+        data: { transcribedAt: new Date() },
+      });
+      if (count === 0) return;
+      if (segments.length > 0) {
+        await tx.meetingUtterance.createMany({
+          data: segments.map((seg) => ({
+            meetingId,
+            chunkId: chunk.id,
+            userId: chunk.userId,
+            startMs: chunk.startOffsetMs + seg.startMs,
+            endMs: chunk.startOffsetMs + seg.endMs,
+            text: seg.text,
+          })),
+        });
+      }
+      await tx.meetingAiUsage.create({
+        data: {
+          meetingId,
+          workspaceId,
+          kind: 'stt',
+          provider: this.stt.provider,
+          model: this.stt.model,
+          audioMs: chunk.durationMs,
+          costMicroUsd: sttCostMicroUsd(chunk.durationMs, this.config.MEETING_STT_USD_PER_MIN),
+        },
+      });
+    });
+  }
+
+  private async purgeChunks(
+    meetingId: string,
+    opts: { onlyTranscribed: boolean },
+  ): Promise<number> {
     const db = this.prisma.client;
     const chunks = await db.meetingAudioChunk.findMany({
-      where: { meetingId, deletedAt: null },
+      where: {
+        meetingId,
+        deletedAt: null,
+        ...(opts.onlyTranscribed ? { transcribedAt: { not: null } } : {}),
+      },
       select: { id: true, container: true, key: true },
     });
     let failed = 0;
@@ -313,9 +428,10 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
         this.logger.error({ err, chunkId: chunk.id }, 'Deleting a meeting audio object failed');
       }
     }
-    if (opts.markMinutes && failed === 0) {
-      await db.meetingMinutes.update({
-        where: { meetingId },
+    const left = await db.meetingAudioChunk.count({ where: { meetingId, deletedAt: null } });
+    if (left === 0) {
+      await db.meetingMinutes.updateMany({
+        where: { meetingId, audioPurgedAt: null },
         data: { audioPurgedAt: new Date() },
       });
     }
@@ -334,6 +450,7 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
       createdBy: { id: string; name: string };
     },
     warnings: Set<string>,
+    jobId: string,
   ) {
     const db = this.prisma.client;
     const [utterances, chat, attendances, invites, workspace, members] = await Promise.all([
@@ -371,12 +488,17 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
       ...utterances.map((u) => u.userId),
       ...chat.map((c) => c.userId),
       ...attendeeIds,
-      ...absentIds,
     ]);
-    const users = await db.user.findMany({
-      where: { id: { in: [...involved] } },
-      select: { id: true, name: true },
-    });
+    const [users, absentUsers] = await Promise.all([
+      db.user.findMany({
+        where: { id: { in: [...involved] } },
+        select: { id: true, name: true },
+      }),
+      db.user.findMany({
+        where: { id: { in: [...absentIds] }, status: 'ACTIVE' },
+        select: { id: true, name: true },
+      }),
+    ]);
     const names = new Map(users.map((u) => [u.id, u.name]));
 
     const startedAt = meeting.startedAt ?? meeting.createdAt;
@@ -384,8 +506,9 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
     const timeline = buildTimeline({ utterances, chat, meetingStartedAt: startedAt, names });
     const hasSpeech = timeline.entries.some((e) => e.kind === 'speech');
 
-    let rawDraft = EMPTY_DRAFT;
-    let promptRefs = new Set<string>();
+    const chatRefs = timeline.entries.filter((e) => e.kind === 'chat').map((e) => e.refId);
+    let rawDraft: MinutesDraft = { ...EMPTY_DRAFT, notableChat: chatRefs.slice(0, 100) };
+    let promptRefs = new Set<string>(chatRefs.slice(0, 100));
     if (hasSpeech) {
       const limited = limitTimeline(timeline, MAX_TIMELINE_CHARS);
       if (limited.truncated) {
@@ -424,10 +547,11 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
     const { draft, droppedItemCount } = validateDraft(rawDraft, promptRefs, timeline.speakers);
 
     const candidates = members.map((m) => m.user);
+    const speakerIds = new Set(timeline.speakers.map((sp) => sp.userId));
     const suggestions: MentionSuggestion[] = [];
     draft.actionItems.forEach((item, actionIndex) => {
       if (item.ambiguous || item.ownerSpeakerId !== null || !item.ownerName) return;
-      const userId = matchPerson(item.ownerName, candidates, attendeeSet);
+      const userId = matchPerson(item.ownerName, candidates, speakerIds);
       const person = userId ? candidates.find((c) => c.id === userId) : undefined;
       if (userId && person) {
         suggestions.push({ actionIndex, name: item.ownerName, userId, userName: person.name });
@@ -441,7 +565,7 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
       hostName: meeting.createdBy.name,
       attendeeCount: attendeeIds.length,
       attendeeIds,
-      absentees: [...absentIds].map((id) => names.get(id) ?? id),
+      absentees: absentUsers.map((u) => u.name),
       droppedItemCount,
       draft,
       speakers: timeline.speakers,
@@ -450,9 +574,9 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
       timeZone: TIME_ZONE,
     });
 
-    await db.$transaction(async (tx) => {
-      await tx.meetingMinutes.update({
-        where: { meetingId: meeting.id },
+    const committed = await db.$transaction(async (tx) => {
+      const { count } = await tx.meetingMinutes.updateMany({
+        where: { meetingId: meeting.id, status: 'PROCESSING', claimedBy: jobId },
         data: {
           status: 'AWAITING_REVIEW',
           draft: draft as unknown as Prisma.InputJsonValue,
@@ -464,6 +588,7 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
           error: joinWarnings(warnings),
         },
       });
+      if (count === 0) return false;
       await writeAudit(tx, {
         actorId: null,
         action: 'meeting.minutes_draft',
@@ -478,14 +603,14 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
           model: this.writer.model,
         },
       });
+      return true;
     });
-    await writeNotifications(
-      db,
-      (channel, payload) => this.publisher.publishRaw(channel, payload),
-      [meeting.createdById],
-      'meeting.minutes_review',
-      { meetingId: meeting.id, workspaceId: meeting.workspaceId, title: meeting.title },
-    );
+    if (!committed) throw new ClaimLost();
+    await this.notify([meeting.createdById], 'meeting.minutes_review', {
+      meetingId: meeting.id,
+      workspaceId: meeting.workspaceId,
+      title: meeting.title,
+    });
     return { status: 'AWAITING_REVIEW', actionItems: draft.actionItems.length };
   }
 
@@ -508,7 +633,7 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
       if (due.length === 0) break;
       after = due[due.length - 1]!.meetingId;
       for (const m of due) {
-        const bad = await this.purgeChunks(m.meetingId, { markMinutes: true });
+        const bad = await this.purgeChunks(m.meetingId, { onlyTranscribed: false });
         meetings++;
         failed += bad;
       }

@@ -196,26 +196,31 @@ export class MeetingsProcessor extends WorkerHost implements OnApplicationBootst
     const cutoff = new Date(
       Date.now() - this.config.MEETING_AUDIO_WAIT_SEC * 1000 - MINUTES_SWEEP_SLACK_MS,
     );
+    const sweepJobId = `minutes-%s-retry-${MINUTES_SWEEP_ATTEMPT}`;
     let recovered = 0;
     let after: string | undefined;
     for (;;) {
-      const page = await this.prisma.client.meeting.findMany({
+      const page = await this.prisma.client.meetingMinutes.findMany({
         where: {
-          status: 'ENDED',
-          endedAt: { lt: cutoff },
-          minutes: { is: { status: { in: ['RECORDING', 'PROCESSING'] } } },
-          ...(after ? { id: { gt: after } } : {}),
+          status: { in: ['RECORDING', 'PROCESSING'] },
+          meeting: { is: { status: 'ENDED', endedAt: { lt: cutoff } } },
+          ...(after ? { meetingId: { gt: after } } : {}),
         },
-        orderBy: { id: 'asc' },
+        orderBy: { meetingId: 'asc' },
         take: RECONCILE_PAGE,
-        select: { id: true },
+        select: { meetingId: true },
       });
       if (page.length === 0) break;
-      after = page[page.length - 1]!.id;
-      for (const m of page) {
-        const existing = await this.minutesQueue.getJob(`minutes-${m.id}`);
-        if (existing && LIVE_JOB_STATES.has(await existing.getState())) continue;
-        await enqueueMinutes(this.minutesQueue as JobQueue<'meeting-minutes'>, m.id, {
+      after = page[page.length - 1]!.meetingId;
+      for (const { meetingId } of page) {
+        const original = await this.minutesQueue.getJob(`minutes-${meetingId}`);
+        if (original && LIVE_JOB_STATES.has(await original.getState())) continue;
+        const sweep = await this.minutesQueue.getJob(sweepJobId.replace('%s', meetingId));
+        if (sweep) {
+          if (LIVE_JOB_STATES.has(await sweep.getState())) continue;
+          await sweep.remove();
+        }
+        await enqueueMinutes(this.minutesQueue as JobQueue<'meeting-minutes'>, meetingId, {
           attempt: MINUTES_SWEEP_ATTEMPT,
         });
         recovered++;

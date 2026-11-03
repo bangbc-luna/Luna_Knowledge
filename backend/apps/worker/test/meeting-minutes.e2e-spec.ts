@@ -391,7 +391,8 @@ describe('Meeting minutes worker (e2e)', () => {
     expect(row.status).toBe('AWAITING_REVIEW');
     const doc = JSON.stringify(row.draftDoc);
     expect(doc).toContain('Không có lời nói được ghi lại');
-    expect(doc).toContain('1 tin nhắn chat');
+    expect(doc).toContain('link tài liệu');
+    expect(doc).toContain('4. Tin nhắn chat đáng chú ý');
     const usage = await prisma.meetingAiUsage.findMany({ where: { meetingId: meeting.id } });
     expect(usage.map((u) => u.kind)).toEqual(['stt']);
   });
@@ -494,6 +495,175 @@ describe('Meeting minutes worker (e2e)', () => {
       { actionIndex: 0, name: 'anh Hùng', userId: hung.id, userName: 'Hùng' },
     ]);
     expect(JSON.stringify(row.draftDoc)).toContain('"suggested":true');
+  });
+
+  it('hai job process song song: chỉ một job chạy, một lần gọi LLM, một dòng audit, một thông báo, không cảnh báo giả', async () => {
+    const { host, ws, meeting } = await setup();
+    const a = await member(ws.id, 'An');
+    await chunk(meeting.id, host.id, 0);
+    await chunk(meeting.id, a.id, 30_000);
+    await chunk(meeting.id, a.id, 60_000);
+
+    await Promise.all([
+      processor.process(makeJob('process', { meetingId: meeting.id }, 0) as never, 't1'),
+      processor.process(makeJob('process', { meetingId: meeting.id }, 0) as never, 't2'),
+    ]);
+
+    expect(writer.calls).toHaveLength(1);
+    expect(stt.calls).toHaveLength(3);
+    expect(
+      await prisma.auditLog.count({
+        where: { action: 'meeting.minutes_draft', targetId: meeting.id },
+      }),
+    ).toBe(1);
+    expect(await notifications('meeting.minutes_review', meeting.id)).toHaveLength(1);
+    const row = await prisma.meetingMinutes.findUniqueOrThrow({ where: { meetingId: meeting.id } });
+    expect(row.status).toBe('AWAITING_REVIEW');
+    expect(row.error).toBeNull();
+    expect(row.claimedBy).not.toBeNull();
+  });
+
+  it('job khác đang giữ claim còn hạn: không làm gì; claim hết hạn: tiếp quản', async () => {
+    const { host, meeting } = await setup();
+    await chunk(meeting.id, host.id, 0);
+    await prisma.meetingMinutes.update({
+      where: { meetingId: meeting.id },
+      data: {
+        status: 'PROCESSING',
+        claimedBy: 'other-job',
+        claimExpiresAt: new Date(Date.now() + 600_000),
+      },
+    });
+
+    await run('process', { meetingId: meeting.id });
+    expect(stt.calls).toHaveLength(0);
+    expect(writer.calls).toHaveLength(0);
+
+    await prisma.meetingMinutes.update({
+      where: { meetingId: meeting.id },
+      data: { claimExpiresAt: minutesAgo(1) },
+    });
+    await run('process', { meetingId: meeting.id });
+    const row = await prisma.meetingMinutes.findUniqueOrThrow({ where: { meetingId: meeting.id } });
+    expect(row.status).toBe('AWAITING_REVIEW');
+    expect(writer.calls).toHaveLength(1);
+  });
+
+  it('đoạn âm thanh thêm vào sau khi đã liệt kê: vẫn được chép lời trước khi xoá', async () => {
+    const { host, ws, meeting } = await setup();
+    const a = await member(ws.id, 'An');
+    await chunk(meeting.id, host.id, 0);
+    const original = stt.transcribe.bind(stt);
+    let injected = false;
+    const spy = vi.spyOn(stt, 'transcribe').mockImplementation(async (audio, opts) => {
+      if (!injected) {
+        injected = true;
+        await chunk(meeting.id, a.id, 30_000);
+      }
+      return original(audio, opts);
+    });
+
+    await run('process', { meetingId: meeting.id });
+    spy.mockRestore();
+
+    expect(await prisma.meetingUtterance.count({ where: { meetingId: meeting.id } })).toBe(2);
+    expect(stt.calls).toHaveLength(2);
+    const chunks = await prisma.meetingAudioChunk.findMany({ where: { meetingId: meeting.id } });
+    expect(chunks.every((c) => c.transcribedAt !== null && c.deletedAt !== null)).toBe(true);
+    expect(store.objects.size).toBe(0);
+  });
+
+  it.each([401, 402, 403])(
+    'STT trả %i (khoá, hạn mức, thanh toán): FAILED ở bước transcribe, giữ âm thanh, không bỏ qua đoạn',
+    async (status) => {
+      const { host, ws, meeting } = await setup();
+      const a = await member(ws.id, 'An');
+      await chunk(meeting.id, host.id, 0);
+      await chunk(meeting.id, a.id, 30_000);
+      stt.failTimes(1, false, status);
+
+      await expect(run('process', { meetingId: meeting.id }, 0)).rejects.toMatchObject({
+        name: 'UnrecoverableError',
+      });
+
+      const row = await prisma.meetingMinutes.findUniqueOrThrow({
+        where: { meetingId: meeting.id },
+      });
+      expect(row.status).toBe('FAILED');
+      expect(row.failedStage).toBe('transcribe');
+      expect(row.audioPurgedAt).toBeNull();
+      const chunks = await prisma.meetingAudioChunk.findMany({ where: { meetingId: meeting.id } });
+      expect(chunks.filter((c) => c.transcribedAt !== null)).toHaveLength(1);
+      expect(chunks.every((c) => c.deletedAt === null)).toBe(true);
+      expect(writer.calls).toHaveLength(0);
+      store.objects.clear();
+    },
+  );
+
+  it('STT trả 422 cho một đoạn: bỏ qua đoạn đó; mọi đoạn đều bị bỏ qua thì FAILED ở transcribe', async () => {
+    const { host, meeting } = await setup();
+    await chunk(meeting.id, host.id, 0);
+    stt.failTimes(1, false, 422);
+
+    await expect(run('process', { meetingId: meeting.id }, 0)).rejects.toMatchObject({
+      name: 'UnrecoverableError',
+    });
+
+    const row = await prisma.meetingMinutes.findUniqueOrThrow({ where: { meetingId: meeting.id } });
+    expect(row.status).toBe('FAILED');
+    expect(row.failedStage).toBe('transcribe');
+    expect(row.audioPurgedAt).toBeNull();
+    expect(writer.calls).toHaveLength(0);
+    store.objects.clear();
+  });
+
+  it('người dự im lặng nhưng khớp tên: được gắn như người dự, không phải gợi ý người vắng', async () => {
+    const { host, ws, meeting } = await setup();
+    const hung = await member(ws.id, 'Hùng');
+    await chunk(meeting.id, host.id, 0, [{ startMs: 0, endMs: 3000, text: 'anh Hùng sẽ làm' }]);
+    await attend(meeting.id, host.id);
+    await attend(meeting.id, hung.id);
+    writer.draft = {
+      overview: { summary: 'tóm tắt', decisions: [], deferred: [], openQuestions: [] },
+      actionItems: [
+        {
+          task: 'Làm phần A',
+          ownerSpeakerId: null,
+          ownerName: 'anh Hùng',
+          dueText: null,
+          dueDate: null,
+          ambiguous: false,
+          evidence: ['U1'],
+        },
+      ],
+      topics: [],
+      notableChat: [],
+    };
+
+    await run('process', { meetingId: meeting.id });
+
+    const row = await prisma.meetingMinutes.findUniqueOrThrow({ where: { meetingId: meeting.id } });
+    expect(row.suggestions).toEqual([
+      { actionIndex: 0, name: 'anh Hùng', userId: hung.id, userName: 'Hùng' },
+    ]);
+    const doc = JSON.stringify(row.draftDoc);
+    expect(doc).toContain(`"id":"${hung.id}"`);
+    expect(doc).toContain('"suggested":false');
+    expect(doc).not.toContain('"suggested":true');
+  });
+
+  it('người được mời nhưng đã bị khoá không có trong danh sách vắng', async () => {
+    const { host, meeting } = await setup();
+    await chunk(meeting.id, host.id, 0);
+    const gone = await prisma.user.create({
+      data: { email: `gone${++seq}@lunatech.vn`, name: 'Người Đã Nghỉ', status: 'DISABLED' },
+    });
+    await prisma.meetingInvite.create({ data: { meetingId: meeting.id, userId: gone.id } });
+
+    await run('process', { meetingId: meeting.id });
+
+    const row = await prisma.meetingMinutes.findUniqueOrThrow({ where: { meetingId: meeting.id } });
+    expect(JSON.stringify(row.draftDoc)).not.toContain('Người Đã Nghỉ');
   });
 
   it('hook kết thúc chỉ enqueue khi có dòng meeting_minutes, kèm độ trễ chờ âm thanh', async () => {

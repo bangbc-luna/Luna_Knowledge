@@ -35,6 +35,7 @@ export class OmniRouteHttpError extends Error {
   constructor(
     message: string,
     readonly retryable: boolean,
+    readonly status?: number,
   ) {
     super(message.slice(0, 500));
     this.name = 'OmniRouteHttpError';
@@ -70,6 +71,7 @@ export async function omniRouteChat(
     throw new OmniRouteHttpError(
       `OmniRoute trả về ${res.status}: ${snippet}`,
       isRetryableStatus(res.status),
+      res.status,
     );
   }
   let json: unknown;

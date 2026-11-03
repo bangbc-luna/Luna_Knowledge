@@ -11,6 +11,8 @@ CREATE TABLE "meeting_minutes" (
     "suggestions" JSONB,
     "dropped_item_count" INTEGER NOT NULL DEFAULT 0,
     "failed_stage" TEXT,
+    "claimed_by" TEXT,
+    "claim_expires_at" TIMESTAMPTZ(3),
     "error" TEXT,
     "document_node_id" UUID,
     "published_at" TIMESTAMPTZ(3),

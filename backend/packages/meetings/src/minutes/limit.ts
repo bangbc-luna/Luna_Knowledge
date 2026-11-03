@@ -26,6 +26,13 @@ export function limitTimeline(
     head++;
   }
 
+  let headLine: string | null = null;
+  if (head === 0 && lines.length > 0) {
+    headLine = lines[0]!.slice(0, Math.max(0, headBudget - 1));
+    head = 1;
+    headUsed = headLine.length + 1;
+  }
+
   const tailBudget = budget - headUsed;
   let tail = 0;
   let tailUsed = 0;
@@ -37,14 +44,20 @@ export function limitTimeline(
     tail++;
   }
 
+  let tailLine: string | null = null;
+  if (tail === 0 && lines.length - head > 0) {
+    tailLine = lines[lines.length - 1]!.slice(0, Math.max(0, tailBudget - 1));
+    tail = 1;
+  }
+
   const kept = [
     ...timeline.entries.slice(0, head),
     ...timeline.entries.slice(timeline.entries.length - tail),
   ];
-  const text = [
-    ...lines.slice(0, head),
-    TIMELINE_TRUNCATION_MARKER,
-    ...lines.slice(lines.length - tail),
-  ].join('\n');
+  const headLines = lines.slice(0, head);
+  if (headLine !== null) headLines[0] = headLine;
+  const tailLines = lines.slice(lines.length - tail);
+  if (tailLine !== null) tailLines[tailLines.length - 1] = tailLine;
+  const text = [...headLines, TIMELINE_TRUNCATION_MARKER, ...tailLines].join('\n');
   return { text, entries: kept, truncated: true };
 }
