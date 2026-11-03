@@ -805,6 +805,40 @@ describe('Content tree, sharing, trash (e2e)', () => {
       ).toBe(before + 1);
     });
 
+    it('di chuyển: ghi audit lỗi thì không di chuyển; thành công thì có đúng một audit', async () => {
+      const target = (await createFolder(alice, 'Đích audit').expect(201)).body.id;
+      const f = (await createFolder(alice, 'Cần chuyển').expect(201)).body.id;
+      await blockAudit('node.move');
+      await http()
+        .post(`/api/v1/nodes/${f}/move`)
+        .set(alice.auth)
+        .send({ targetParentId: target })
+        .expect(500);
+      await unblockAudit();
+      expect((await ctx.prisma.node.findUniqueOrThrow({ where: { id: f } })).parentId).toBeNull();
+      expect(await auditCount('node.move', f)).toBe(0);
+      await http()
+        .post(`/api/v1/nodes/${f}/move`)
+        .set(alice.auth)
+        .send({ targetParentId: target })
+        .expect(200);
+      expect(await auditCount('node.move', f)).toBe(1);
+    });
+
+    it('khôi phục: ghi audit lỗi thì mục vẫn nằm trong thùng rác; thành công thì có đúng một audit', async () => {
+      const f = (await createFolder(alice, 'Cần khôi phục').expect(201)).body.id;
+      await http().delete(`/api/v1/nodes/${f}`).set(alice.auth).expect(204);
+      await blockAudit('node.restore');
+      await http().post(`/api/v1/nodes/${f}/restore`).set(alice.auth).expect(500);
+      await unblockAudit();
+      expect(
+        (await ctx.prisma.node.findUniqueOrThrow({ where: { id: f } })).deletedAt,
+      ).not.toBeNull();
+      expect(await auditCount('node.restore', f)).toBe(0);
+      await http().post(`/api/v1/nodes/${f}/restore`).set(alice.auth).expect(200);
+      expect(await auditCount('node.restore', f)).toBe(1);
+    });
+
     const seedTrash = async (total: number) => {
       const ids = Array.from({ length: total }, () => randomUUID());
       await ctx.prisma.node.createMany({

@@ -208,6 +208,15 @@ export class NodeTree {
             throw AppError.validation('Cannot move a folder into its own subfolder');
         }
         await this.placeAt(tx, node, targetParentId, { autoRename: false, userId: user.id });
+        await this.writeAudit(tx, {
+          actorId: user.id,
+          action: 'node.move',
+          targetType: 'node',
+          targetId: nodeId,
+          workspaceId: node.workspaceId,
+          metadata: { from: node.parentId, to: targetParentId },
+          ctx,
+        });
       });
     } catch (err) {
       throw await this.mapConflict(err, {
@@ -219,15 +228,6 @@ export class NodeTree {
       });
     }
 
-    await this.audit.log({
-      actorId: user.id,
-      action: 'node.move',
-      targetType: 'node',
-      targetId: nodeId,
-      workspaceId: node.workspaceId,
-      metadata: { from: node.parentId, to: targetParentId },
-      ctx,
-    });
     await this.search.tree(nodeId);
     await this.collab.accessChanged({ workspaceId: node.workspaceId });
   }
@@ -254,22 +254,22 @@ export class NodeTree {
         where: { deletedRootId: root.id },
         data: { deletedAt: null, deletedById: null, deletedRootId: null },
       });
+      await this.writeAudit(tx, {
+        actorId: user.id,
+        action: 'node.restore',
+        targetType: 'node',
+        targetId: root.id,
+        workspaceId: root.workspaceId,
+        metadata: {
+          restoredTo: parentId,
+          movedToRoot: parentId !== root.parentId,
+          renamedTo: name !== root.name ? name : undefined,
+        },
+        ctx,
+      });
       return { parentId, name };
     });
 
-    await this.audit.log({
-      actorId: user.id,
-      action: 'node.restore',
-      targetType: 'node',
-      targetId: root.id,
-      workspaceId: root.workspaceId,
-      metadata: {
-        restoredTo: result.parentId,
-        movedToRoot: result.parentId !== root.parentId,
-        renamedTo: result.name !== root.name ? result.name : undefined,
-      },
-      ctx,
-    });
     await this.search.tree(root.id);
     return result;
   }
