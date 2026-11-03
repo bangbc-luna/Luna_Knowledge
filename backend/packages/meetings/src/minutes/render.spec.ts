@@ -174,6 +174,38 @@ describe('renderMinutesDoc', () => {
     expect(text).not.toContain('Ghi chú cho chủ trì');
   });
 
+  it('đánh số mục liên tục theo các mục có mặt', () => {
+    const base = {
+      overview: { summary: 'S', decisions: [], deferred: [], openQuestions: [] },
+      actionItems: [],
+      topics: [{ title: 'Phân quyền', points: ['Ý một'] }],
+      notableChat: ['C1'],
+    };
+    const titles = (draft: Partial<typeof base>) =>
+      headings(build({ draft: { ...base, ...draft }, suggestions: [] })).map(([, t]) => t);
+    expect(titles({ notableChat: [] })).toEqual([
+      'Biên bản: Họp sprint 13',
+      '1. Tổng quan',
+      '2. Phân việc',
+      '3. Chi tiết theo chủ đề',
+      '3.1 Phân quyền',
+      '4. Bản ghi lời nói',
+    ]);
+    expect(titles({ topics: [] })).toEqual([
+      'Biên bản: Họp sprint 13',
+      '1. Tổng quan',
+      '2. Phân việc',
+      '3. Tin nhắn chat đáng chú ý',
+      '4. Bản ghi lời nói',
+    ]);
+    expect(titles({ topics: [], notableChat: [] })).toEqual([
+      'Biên bản: Họp sprint 13',
+      '1. Tổng quan',
+      '2. Phân việc',
+      '3. Bản ghi lời nói',
+    ]);
+  });
+
   it('ghi chú nhắc việc bị bỏ', () => {
     const doc = build({ droppedItemCount: 2, suggestions: [] });
     expect(flat(doc)).toContain('AI bỏ 2 việc không có căn cứ');

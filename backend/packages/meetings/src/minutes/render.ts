@@ -102,6 +102,7 @@ export function renderMinutesDoc(input: RenderInput): DocJSON {
   const speechEntries = input.entries.filter((e) => e.kind === 'speech');
   const chatEntries = input.entries.filter((e) => e.kind === 'chat');
 
+  let section = 0;
   const content: DocJSON[] = [
     heading(1, `Biên bản: ${input.title}`),
     textPara(
@@ -119,7 +120,7 @@ export function renderMinutesDoc(input: RenderInput): DocJSON {
         `chép lời âm thanh riêng từng người + ${chatEntries.length} tin nhắn chat trong phòng. Mỗi việc dưới đây có mốc thời gian dẫn về câu nói gốc ở mục "Bản ghi lời nói".`,
       ),
     ),
-    heading(2, '1. Tổng quan'),
+    heading(2, `${++section}. Tổng quan`),
   ];
 
   if (speechEntries.length === 0) {
@@ -138,7 +139,7 @@ export function renderMinutesDoc(input: RenderInput): DocJSON {
   }
 
   if (draft.actionItems.length > 0) {
-    content.push(heading(2, '2. Phân việc'));
+    content.push(heading(2, `${++section}. Phân việc`));
     const header = ['#', 'Việc', 'Người phụ trách', 'Hạn', 'Căn cứ'];
     const rows: DocJSON[] = [
       { type: 'tableRow', content: header.map((h) => cell('tableHeader', text(h, bold))) },
@@ -205,7 +206,7 @@ export function renderMinutesDoc(input: RenderInput): DocJSON {
       );
     }
   } else {
-    content.push(heading(2, '2. Phân việc'));
+    content.push(heading(2, `${++section}. Phân việc`));
     if (input.droppedItemCount > 0) {
       content.push(
         textPara(
@@ -218,9 +219,10 @@ export function renderMinutesDoc(input: RenderInput): DocJSON {
   }
 
   if (draft.topics.length > 0) {
-    content.push(heading(2, '3. Chi tiết theo chủ đề'));
+    const topicSection = ++section;
+    content.push(heading(2, `${topicSection}. Chi tiết theo chủ đề`));
     draft.topics.forEach((topic, index) => {
-      content.push(heading(3, `3.${index + 1} ${topic.title}`));
+      content.push(heading(3, `${topicSection}.${index + 1} ${topic.title}`));
       for (const point of topic.points) content.push(textPara(point));
     });
   }
@@ -229,11 +231,11 @@ export function renderMinutesDoc(input: RenderInput): DocJSON {
     .map((ref) => entryByRef.get(ref))
     .filter((e): e is TimelineEntry => e !== undefined && e.kind === 'chat');
   if (chosenChat.length > 0) {
-    content.push(heading(2, '4. Tin nhắn chat đáng chú ý'));
+    content.push(heading(2, `${++section}. Tin nhắn chat đáng chú ý`));
     for (const e of chosenChat) content.push(textPara(`[${clock(e)}] ${nameOf(e)}: ${e.text}`));
   }
 
-  content.push(heading(2, '5. Bản ghi lời nói'));
+  content.push(heading(2, `${++section}. Bản ghi lời nói`));
   if (speechEntries.length === 0) {
     content.push(textPara('Không có lời nói được ghi lại.'));
   }
