@@ -109,3 +109,14 @@ function normalize(json: DocJSON): DocJSON {
   node.check();
   return node.toJSON() as DocJSON;
 }
+
+export function isValidDocJSON(json: unknown): json is DocJSON {
+  if (typeof json !== 'object' || json === null || (json as DocJSON).type !== 'doc') return false;
+  if (isLatexJSON(json as DocJSON)) return false;
+  try {
+    PMNode.fromJSON(editorSchema, json as DocJSON).check();
+    return true;
+  } catch {
+    return false;
+  }
+}

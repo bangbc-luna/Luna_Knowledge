@@ -15,6 +15,7 @@ import type { RequestContext } from '../common/http/request-context.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { MeetingAccess } from './meeting-access.service.js';
+import { MinutesQueueService } from './minutes/minutes-queue.service.js';
 
 const ENDED_MESSAGE = 'This meeting has already ended';
 const NOT_STARTED_YET_MESSAGE = 'This meeting has not started yet';
@@ -28,6 +29,7 @@ export class MeetingRoomService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: MeetingAccess,
+    private readonly minutesQueue: MinutesQueueService,
     @Inject(MEETING_MEDIA) private readonly media: MeetingMedia,
     @Inject(MEETING_ENDED_HOOK) private readonly onEnded: MeetingEndedHook,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
@@ -46,7 +48,7 @@ export class MeetingRoomService {
     ) {
       throw AppError.conflict(NOT_STARTED_YET_MESSAGE);
     }
-    await this.prisma.client.$transaction(async (tx) => {
+    const wentLive = await this.prisma.client.$transaction(async (tx) => {
       const started = await tx.$queryRaw<{ id: string }[]>`UPDATE meetings
            SET status = 'LIVE', started_at = now(), updated_at = now()
          WHERE id = ${meetingId}::uuid AND status = 'SCHEDULED'
@@ -67,7 +69,9 @@ export class MeetingRoomService {
           userAgent: ctx.userAgent,
         });
       }
+      return started.length > 0 ? current : null;
     });
+    if (wentLive && wentLive.aiNotesEnabled) await this.minutesQueue.startRecording(meetingId);
     const roomName = roomNameFor(meetingId);
     let token: string;
     let aiNotesEnabled: boolean;
@@ -196,6 +200,7 @@ export class MeetingRoomService {
         if (enabled) await this.revertAiNotes(meetingId, meeting.workspaceId, user.id, ctx);
         throw AppError.unavailable(MEDIA_UNAVAILABLE);
       }
+      if (enabled && fresh.aiNotesEnabled) await this.minutesQueue.startRecording(meetingId);
     }
     return { aiNotesEnabled: fresh.aiNotesEnabled };
   }

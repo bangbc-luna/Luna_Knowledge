@@ -27,7 +27,7 @@ import {
   AS_FILE_ONLY,
 } from '../content/content-access.service.js';
 import { NodeDtoService } from '../content/node-dto.service.js';
-import { NodeTree } from '../content/node-tree.service.js';
+import { type Announce, type CreatedNode, NodeTree } from '../content/node-tree.service.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import {
   DOCX_MIME,
@@ -95,6 +95,34 @@ export class DocumentsService {
       },
     );
     return this.detail(user, node.id);
+  }
+
+  createWithContent(
+    user: AuthenticatedUser,
+    input: {
+      workspaceId: string;
+      parentId: string | null;
+      name: string;
+      json: DocJSON;
+      autoRename: boolean;
+    },
+    ctx: RequestContext,
+    announce: Announce,
+  ): Promise<CreatedNode> {
+    return this.tree.create(
+      user,
+      {
+        workspaceId: input.workspaceId,
+        parentId: input.parentId,
+        section: 'DOCS',
+        type: 'DOCUMENT',
+        name: input.name,
+        autoRename: input.autoRename,
+        extra: { document: this.documentFields(input.json) },
+      },
+      ctx,
+      { announce },
+    );
   }
 
   async copy(user: AuthenticatedUser, nodeId: string, body: CopyDocumentBody, ctx: RequestContext) {

@@ -12,6 +12,7 @@ import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { UsersService } from '../users/users.service.js';
 import { MeetingAccess } from './meeting-access.service.js';
+import { MinutesService } from './minutes/minutes.service.js';
 import type {
   CreateMeetingBody,
   InviteBody,
@@ -34,6 +35,7 @@ export class MeetingsService {
     private readonly prisma: PrismaService,
     private readonly content: ContentAccessService,
     private readonly access: MeetingAccess,
+    private readonly minutes: MinutesService,
     private readonly users: UsersService,
     private readonly notifications: NotificationsService,
     @InjectQueue(QUEUES.MEETINGS) private readonly queue: JobQueue<'meetings'>,
@@ -143,7 +145,7 @@ export class MeetingsService {
 
   async get(user: AuthenticatedUser, meetingId: string) {
     const { isHost, canManage } = await this.access.require(user, meetingId);
-    return this.detail(meetingId, isHost, canManage);
+    return this.detail(user.id, meetingId, isHost, canManage);
   }
 
   async update(
@@ -179,7 +181,7 @@ export class MeetingsService {
       });
     });
     if (body.scheduledAt) await this.scheduleReminder(meetingId, body.scheduledAt);
-    return this.detail(meetingId, access.isHost, true);
+    return this.detail(user.id, meetingId, access.isHost, true);
   }
 
   async cancel(user: AuthenticatedUser, meetingId: string, ctx: RequestContext) {
@@ -349,7 +351,7 @@ export class MeetingsService {
     return counts;
   }
 
-  private async detail(meetingId: string, canHost: boolean, canManage: boolean) {
+  private async detail(userId: string, meetingId: string, canHost: boolean, canManage: boolean) {
     const meeting = await this.prisma.client.meeting.findUniqueOrThrow({
       where: { id: meetingId },
       include: {
@@ -376,6 +378,7 @@ export class MeetingsService {
           : null,
       canHost,
       canManage,
+      minutes: await this.minutes.summary(userId, meetingId),
     };
   }
 
