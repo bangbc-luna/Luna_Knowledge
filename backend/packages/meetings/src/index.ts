@@ -79,6 +79,8 @@ export { llmCostMicroUsd, sttCostMicroUsd } from './ai/cost.js';
 export {
   createMinutesWriter,
   createSpeechToText,
+  minutesAiAvailable,
   minutesAiEnvSchema,
+  minutesProviderEnvSchema,
   type MinutesAiEnv,
 } from './ai/ai-env.js';

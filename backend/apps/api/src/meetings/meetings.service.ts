@@ -1,4 +1,5 @@
 import { type AuditRecord, type Meeting, type Prisma, writeAudit } from '@luna/db';
+import { minutesAiAvailable } from '@luna/meetings';
 import { enqueueMeetingReminder, type JobQueue, QUEUES } from '@luna/shared';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Inject, Injectable, Logger } from '@nestjs/common';
@@ -22,6 +23,7 @@ import type {
 
 const userSummary = { id: true, email: true, name: true, avatarUrl: true } as const;
 const ENDED_MESSAGE = 'This meeting has already ended';
+const AI_NOT_CONFIGURED = 'AI minutes are not configured';
 
 type MeetingRow = Meeting & {
   createdBy: { id: string; email: string; name: string; avatarUrl: string | null };
@@ -41,6 +43,10 @@ export class MeetingsService {
     @InjectQueue(QUEUES.MEETINGS) private readonly queue: JobQueue<'meetings'>,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
+
+  private get aiAvailable() {
+    return minutesAiAvailable(this.config);
+  }
 
   private async scheduleReminder(meetingId: string, scheduledAt: Date | null) {
     if (!scheduledAt) return;
@@ -71,7 +77,7 @@ export class MeetingsService {
           workspaceId,
           title: body.title,
           scheduledAt,
-          aiNotesEnabled: body.aiNotesEnabled,
+          aiNotesEnabled: body.aiNotesEnabled && this.aiAvailable,
           createdById: user.id,
           invites: {
             create: invitees.map((u) => ({ userId: u.id, invitedById: user.id })),
@@ -157,6 +163,7 @@ export class MeetingsService {
     const access = await this.access.requireManager(user, meetingId);
     const { meeting } = access;
     this.requireScheduled(meeting);
+    if (body.aiNotesEnabled && !this.aiAvailable) throw AppError.conflict(AI_NOT_CONFIGURED);
     await this.prisma.client.$transaction(async (tx) => {
       const { count } = await tx.meeting.updateMany({
         where: { id: meetingId, status: 'SCHEDULED' },
@@ -391,7 +398,8 @@ export class MeetingsService {
       scheduledAt: m.scheduledAt,
       startedAt: m.startedAt,
       endedAt: m.endedAt,
-      aiNotesEnabled: m.aiNotesEnabled,
+      aiNotesEnabled: m.aiNotesEnabled && this.aiAvailable,
+      aiNotesAvailable: this.aiAvailable,
       createdBy: m.createdBy,
       attendeeCount,
     };

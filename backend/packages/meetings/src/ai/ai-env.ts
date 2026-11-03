@@ -19,14 +19,27 @@ const csv = z
       .filter((s) => s.length > 0),
   );
 
+export const minutesProviderEnvSchema = z.object({
+  MEETING_STT_PROVIDER: z.enum(['deepgram', 'gemini', 'omniroute', 'fake', 'none']).default('none'),
+  MEETING_LLM_PROVIDER: z.enum(['anthropic', 'omniroute', 'fake', 'none']).default('none'),
+});
+
+export function minutesAiAvailable(env: {
+  MEETING_STT_PROVIDER: string;
+  MEETING_LLM_PROVIDER: string;
+}): boolean {
+  return env.MEETING_STT_PROVIDER !== 'none' && env.MEETING_LLM_PROVIDER !== 'none';
+}
+
+const NOT_CONFIGURED = 'AI minutes are not configured';
+
 export const minutesAiEnvSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-    MEETING_STT_PROVIDER: z.enum(['deepgram', 'gemini', 'omniroute', 'fake']).default('fake'),
+    ...minutesProviderEnvSchema.shape,
     DEEPGRAM_API_KEY: optionalEnv(z.string()),
     DEEPGRAM_LANGUAGE: z.enum(['vi', 'multi']).default('vi'),
     GEMINI_API_KEY: optionalEnv(z.string()),
-    MEETING_LLM_PROVIDER: z.enum(['anthropic', 'omniroute', 'fake']).default('fake'),
     ANTHROPIC_API_KEY: optionalEnv(z.string()),
     MEETING_LLM_MODEL: z.string().default('claude-opus-5-5'),
     MEETING_LLM_EFFORT: z.enum(['low', 'medium', 'high']).default('medium'),
@@ -106,6 +119,8 @@ export function createSpeechToText(env: MinutesAiEnv): SpeechToText {
       });
     case 'fake':
       return new FakeSpeechToText();
+    case 'none':
+      throw new Error(NOT_CONFIGURED);
   }
 }
 
@@ -125,5 +140,7 @@ export function createMinutesWriter(env: MinutesAiEnv): MinutesWriter {
       });
     case 'fake':
       return new FakeMinutesWriter();
+    case 'none':
+      throw new Error(NOT_CONFIGURED);
   }
 }

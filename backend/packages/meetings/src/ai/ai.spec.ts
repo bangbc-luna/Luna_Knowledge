@@ -1,7 +1,13 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { describe, expect, it, vi } from 'vitest';
 import { FakeMinutesWriter, FakeSpeechToText } from '../testing/fake-ai.js';
-import { minutesAiEnvSchema, createMinutesWriter, createSpeechToText } from './ai-env.js';
+import {
+  createMinutesWriter,
+  createSpeechToText,
+  minutesAiAvailable,
+  minutesAiEnvSchema,
+  minutesProviderEnvSchema,
+} from './ai-env.js';
 import { ClaudeMinutesWriter } from './claude-minutes-writer.js';
 import { llmCostMicroUsd, sttCostMicroUsd } from './cost.js';
 import { DeepgramSpeechToText } from './deepgram-stt.js';
@@ -302,7 +308,14 @@ describe('env', () => {
       minutesAiEnvSchema.safeParse({ MEETING_STT_PROVIDER: 'deepgram', DEEPGRAM_API_KEY: 'k' })
         .success,
     ).toBe(true);
-    expect(minutesAiEnvSchema.safeParse({ NODE_ENV: 'production' }).success).toBe(false);
+    expect(
+      minutesAiEnvSchema.safeParse({ NODE_ENV: 'production', MEETING_STT_PROVIDER: 'fake' })
+        .success,
+    ).toBe(false);
+    expect(
+      minutesAiEnvSchema.safeParse({ NODE_ENV: 'production', MEETING_LLM_PROVIDER: 'fake' })
+        .success,
+    ).toBe(false);
     expect(minutesAiEnvSchema.safeParse({ MEETING_LLM_PROVIDER: 'anthropic' }).success).toBe(false);
   });
 
@@ -326,11 +339,31 @@ describe('env', () => {
     expect(createMinutesWriter(parsed).provider).toBe('omniroute');
   });
 
-  it('chuỗi rỗng coi như chưa đặt khoá; mặc định là fake', () => {
+  it('chuỗi rỗng coi như chưa đặt khoá; mặc định là none và biên bản AI không khả dụng', () => {
     const parsed = minutesAiEnvSchema.parse({ OMNIROUTE_API_KEY: '' });
     expect(parsed.OMNIROUTE_API_KEY).toBeUndefined();
-    expect(createSpeechToText(parsed).provider).toBe('fake');
-    expect(createMinutesWriter(parsed).provider).toBe('fake');
+    expect(parsed.MEETING_STT_PROVIDER).toBe('none');
+    expect(parsed.MEETING_LLM_PROVIDER).toBe('none');
+    expect(minutesAiAvailable(parsed)).toBe(false);
+    expect(() => createSpeechToText(parsed)).toThrow('AI minutes are not configured');
+    expect(() => createMinutesWriter(parsed)).toThrow('AI minutes are not configured');
+  });
+
+  it('none được phép ở production; chỉ khả dụng khi cả hai provider đều được đặt', () => {
+    const prod = minutesAiEnvSchema.parse({ NODE_ENV: 'production' });
+    expect(minutesAiAvailable(prod)).toBe(false);
+    const sttOnly = minutesAiEnvSchema.parse({ MEETING_STT_PROVIDER: 'fake' });
+    expect(minutesAiAvailable(sttOnly)).toBe(false);
+    const both = minutesAiEnvSchema.parse({
+      MEETING_STT_PROVIDER: 'fake',
+      MEETING_LLM_PROVIDER: 'fake',
+    });
+    expect(minutesAiAvailable(both)).toBe(true);
+  });
+
+  it('nhóm provider tách riêng không cần khoá nhà cung cấp', () => {
+    const parsed = minutesProviderEnvSchema.parse({});
+    expect(parsed).toEqual({ MEETING_STT_PROVIDER: 'none', MEETING_LLM_PROVIDER: 'none' });
   });
 });
 

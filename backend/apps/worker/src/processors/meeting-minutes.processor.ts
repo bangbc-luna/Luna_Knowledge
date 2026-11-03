@@ -5,6 +5,7 @@ import {
   limitTimeline,
   llmCostMicroUsd,
   matchPerson,
+  minutesAiAvailable,
   MAX_TIMELINE_CHARS,
   MINUTES_OUTPUT_RULES,
   MINUTES_SYSTEM_PROMPT,
@@ -44,6 +45,8 @@ const CONTENT_STATUSES = new Set([400, 413, 415, 422]);
 const DONE_STATUSES = new Set(['AWAITING_REVIEW', 'PUBLISHING', 'PUBLISHED']);
 
 type Stage = 'transcribe' | 'draft';
+
+const NOT_CONFIGURED = 'AI minutes are not configured';
 
 const EMPTY_DRAFT: MinutesDraft = {
   overview: { summary: '', decisions: [], deferred: [], openQuestions: [] },
@@ -111,8 +114,8 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
     private readonly prisma: PrismaService,
     private readonly store: ObjectStore,
     private readonly publisher: NodeEventsPublisher,
-    @Inject(SPEECH_TO_TEXT) private readonly stt: SpeechToText,
-    @Inject(MINUTES_WRITER) private readonly writer: MinutesWriter,
+    @Inject(SPEECH_TO_TEXT) private readonly stt: SpeechToText | null,
+    @Inject(MINUTES_WRITER) private readonly writer: MinutesWriter | null,
     @InjectQueue(QUEUES.MEETING_MINUTES) private readonly queue: Queue,
     @Inject(WORKER_CONFIG) private readonly config: WorkerConfig,
   ) {
@@ -164,6 +167,11 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
     if (DONE_STATUSES.has(minutes.status)) return { skipped: minutes.status };
     if (meeting.status !== 'ENDED') return { skipped: 'not_ended' };
 
+    const { stt, writer } = this;
+    if (!stt || !writer || !minutesAiAvailable(this.config)) {
+      return this.failNotConfigured(meeting);
+    }
+
     const waitMs = this.config.MEETING_AUDIO_WAIT_SEC * 1000;
     if (
       !minutes.audioCompletedAt &&
@@ -208,7 +216,7 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
     );
     let stage: Stage = 'transcribe';
     try {
-      await this.transcribeChunks(meeting.id, meeting.workspaceId, jobId);
+      await this.transcribeChunks(meeting.id, meeting.workspaceId, jobId, stt);
       const skipped = await this.skippedChunkCount(meeting.id);
       if (skipped.skipped > 0) {
         if (skipped.succeeded === 0) {
@@ -223,11 +231,39 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
       await this.purgeChunks(meeting.id, { onlyTranscribed: true });
       stage = 'draft';
       await this.renewClaim(meetingId, jobId);
-      return await this.buildDraft(meeting, warnings, jobId);
+      return await this.buildDraft(meeting, warnings, jobId, writer);
     } catch (err) {
       if (err instanceof ClaimLost) return { skipped: 'claim_lost' };
       return this.fail(job, meeting, stage, err, jobId);
     }
+  }
+
+  private async failNotConfigured(meeting: {
+    id: string;
+    workspaceId: string;
+    title: string;
+    createdById: string;
+  }) {
+    const { count } = await this.prisma.client.meetingMinutes.updateMany({
+      where: { meetingId: meeting.id, status: { in: ['RECORDING', 'PROCESSING'] } },
+      data: {
+        status: 'FAILED',
+        failedStage: 'config',
+        error: NOT_CONFIGURED,
+        claimedBy: null,
+        claimExpiresAt: null,
+      },
+    });
+    if (count === 1) {
+      await this.notify([meeting.createdById], 'meeting.minutes_failed', {
+        meetingId: meeting.id,
+        workspaceId: meeting.workspaceId,
+        title: meeting.title,
+        stage: 'config',
+      });
+    }
+    this.logger.error(`Minutes ${meeting.id} cannot run: ${NOT_CONFIGURED}`);
+    return { skipped: 'config' };
   }
 
   private async renewClaim(meetingId: string, jobId: string): Promise<void> {
@@ -307,6 +343,7 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
     meetingId: string,
     workspaceId: string,
     jobId: string,
+    stt: SpeechToText,
   ): Promise<void> {
     const db = this.prisma.client;
     for (let round = 0; round < MAX_TRANSCRIBE_ROUNDS; round++) {
@@ -327,7 +364,7 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
           return;
         }
         try {
-          await this.transcribeChunk(meetingId, workspaceId, chunk);
+          await this.transcribeChunk(meetingId, workspaceId, chunk, stt);
         } catch (err) {
           if (isSkippable(err)) {
             await db.meetingAudioChunk.updateMany({
@@ -362,11 +399,12 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
       startOffsetMs: number;
       durationMs: number;
     },
+    stt: SpeechToText,
   ): Promise<void> {
     const db = this.prisma.client;
     const { body } = await this.store.getStream({ container: chunk.container, key: chunk.key });
     const audio = await readAll(body);
-    const segments = await this.stt.transcribe(
+    const segments = await stt.transcribe(
       { body: audio, mime: 'audio/ogg', durationMs: chunk.durationMs },
       { keyterms: this.config.MEETING_KEYTERMS },
     );
@@ -393,8 +431,8 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
           meetingId,
           workspaceId,
           kind: 'stt',
-          provider: this.stt.provider,
-          model: this.stt.model,
+          provider: stt.provider,
+          model: stt.model,
           audioMs: chunk.durationMs,
           costMicroUsd: sttCostMicroUsd(chunk.durationMs, this.config.MEETING_STT_USD_PER_MIN),
         },
@@ -451,6 +489,7 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
     },
     warnings: Set<string>,
     jobId: string,
+    writer: MinutesWriter,
   ) {
     const db = this.prisma.client;
     const [utterances, chat, attendances, invites, workspace, members] = await Promise.all([
@@ -515,7 +554,7 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
         warnings.add('bản ghi quá dài nên AI chỉ đọc phần đầu và phần cuối');
       }
       promptRefs = new Set(limited.entries.map((e) => e.refId));
-      const result = await this.writer.write({
+      const result = await writer.write({
         system: `${MINUTES_SYSTEM_PROMPT}\n${MINUTES_OUTPUT_RULES}`,
         user: buildMinutesUserMessage({
           title: meeting.title,
@@ -530,8 +569,8 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
           meetingId: meeting.id,
           workspaceId: meeting.workspaceId,
           kind: 'llm',
-          provider: this.writer.provider,
-          model: this.writer.model,
+          provider: writer.provider,
+          model: writer.model,
           inputTokens: result.inputTokens,
           outputTokens: result.outputTokens,
           costMicroUsd: llmCostMicroUsd(
@@ -599,8 +638,8 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
           meetingId: meeting.id,
           actionItems: draft.actionItems.length,
           dropped: droppedItemCount,
-          provider: this.writer.provider,
-          model: this.writer.model,
+          provider: writer.provider,
+          model: writer.model,
         },
       });
       return true;

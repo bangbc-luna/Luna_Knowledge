@@ -48,6 +48,7 @@ describe('Meeting minutes worker (e2e)', () => {
   let stt: FakeSpeechToText;
   let writer: FakeMinutesWriter;
   let seq = 0;
+  let config: { MEETING_STT_PROVIDER: string; MEETING_LLM_PROVIDER: string };
 
   const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000);
   const makeJob = (name: string, data: object, attemptsMade = 0, attempts = 4) => ({
@@ -184,6 +185,7 @@ describe('Meeting minutes worker (e2e)', () => {
       await import('../src/processors/meeting-minutes.processor.js');
     const { MeetingsProcessor } = await import('../src/processors/meetings.processor.js');
     const { PrismaService } = await import('../src/infra/prisma.provider.js');
+    const { WORKER_CONFIG } = await import('../src/config/worker-config.js');
     app = await (
       await Test.createTestingModule({ imports: [WorkerModule] })
         .overrideProvider(ObjectStore)
@@ -193,6 +195,7 @@ describe('Meeting minutes worker (e2e)', () => {
     processor = app.get(MeetingMinutesProcessor);
     meetings = app.get(MeetingsProcessor);
     prisma = app.get(PrismaService).client;
+    config = app.get(WORKER_CONFIG);
     stt = app.get(SPEECH_TO_TEXT);
     writer = app.get(MINUTES_WRITER);
     endedHook = app.get(MEETING_ENDED_HOOK);
@@ -323,6 +326,27 @@ describe('Meeting minutes worker (e2e)', () => {
     expect(stt.calls).toHaveLength(1);
     const failed = await notifications('meeting.minutes_failed', meeting.id);
     expect(failed.map((n) => n.userId)).toEqual([host.id]);
+  });
+
+  it('provider none: FAILED ở bước config, không gọi nhà cung cấp, không thử lại', async () => {
+    const { host, meeting } = await setup();
+    await chunk(meeting.id, host.id, 0);
+    config.MEETING_STT_PROVIDER = 'none';
+    try {
+      await run('process', { meetingId: meeting.id });
+    } finally {
+      config.MEETING_STT_PROVIDER = 'fake';
+    }
+
+    const row = await prisma.meetingMinutes.findUniqueOrThrow({ where: { meetingId: meeting.id } });
+    expect(row.status).toBe('FAILED');
+    expect(row.failedStage).toBe('config');
+    expect(row.error).toBe('AI minutes are not configured');
+    expect(stt.calls).toHaveLength(0);
+    expect(writer.calls).toHaveLength(0);
+    expect(store.objects.size).toBeGreaterThan(0);
+    expect(await notifications('meeting.minutes_failed', meeting.id)).toHaveLength(1);
+    store.objects.clear();
   });
 
   it('lỗi không thử lại được: FAILED ngay lần đầu và ném UnrecoverableError', async () => {

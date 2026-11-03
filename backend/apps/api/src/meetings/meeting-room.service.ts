@@ -6,6 +6,7 @@ import {
   MEETING_MEDIA,
   type MeetingEndedHook,
   type MeetingMedia,
+  minutesAiAvailable,
   roomNameFor,
 } from '@luna/meetings';
 import { Inject, Injectable } from '@nestjs/common';
@@ -21,8 +22,17 @@ const ENDED_MESSAGE = 'This meeting has already ended';
 const NOT_STARTED_YET_MESSAGE = 'This meeting has not started yet';
 const MEDIA_UNAVAILABLE = 'The meeting service is unavailable, try again in a moment';
 
-const roomMetadata = (m: Pick<Meeting, 'title' | 'aiNotesEnabled' | 'createdById'>) =>
-  encodeRoomMetadata({ title: m.title, aiNotesEnabled: m.aiNotesEnabled, hostId: m.createdById });
+const AI_NOT_CONFIGURED = 'AI minutes are not configured';
+
+const roomMetadata = (
+  m: Pick<Meeting, 'title' | 'aiNotesEnabled' | 'createdById'>,
+  aiAvailable: boolean,
+) =>
+  encodeRoomMetadata({
+    title: m.title,
+    aiNotesEnabled: m.aiNotesEnabled && aiAvailable,
+    hostId: m.createdById,
+  });
 
 @Injectable()
 export class MeetingRoomService {
@@ -34,6 +44,10 @@ export class MeetingRoomService {
     @Inject(MEETING_ENDED_HOOK) private readonly onEnded: MeetingEndedHook,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
+
+  private get aiAvailable() {
+    return minutesAiAvailable(this.config);
+  }
 
   async join(user: AuthenticatedUser, meetingId: string, ctx: RequestContext) {
     const { meeting: seen, isHost, canManage } = await this.access.require(user, meetingId);
@@ -77,12 +91,12 @@ export class MeetingRoomService {
       const fresh = await this.prisma.client.meeting.findUniqueOrThrow({
         where: { id: meetingId },
       });
-      aiNotesEnabled = fresh.aiNotesEnabled;
-      if (fresh.status === 'LIVE' && fresh.aiNotesEnabled) {
+      aiNotesEnabled = fresh.aiNotesEnabled && this.aiAvailable;
+      if (fresh.status === 'LIVE' && aiNotesEnabled) {
         await this.minutesQueue.startRecording(meetingId);
       }
-      await this.media.ensureRoom(roomName, roomMetadata(fresh));
-      await this.media.setRoomMetadata(roomName, roomMetadata(fresh));
+      await this.media.ensureRoom(roomName, roomMetadata(fresh, this.aiAvailable));
+      await this.media.setRoomMetadata(roomName, roomMetadata(fresh, this.aiAvailable));
       token = await this.media.joinToken({
         roomName,
         identity: user.id,
@@ -167,6 +181,7 @@ export class MeetingRoomService {
     if (meeting.status === 'ENDED' || meeting.status === 'CANCELLED') {
       throw AppError.conflict(ENDED_MESSAGE);
     }
+    if (enabled && !this.aiAvailable) throw AppError.conflict(AI_NOT_CONFIGURED);
     await this.prisma.client.$transaction(async (tx) => {
       const { count } = await tx.meeting.updateMany({
         where: { id: meetingId, status: { in: ['SCHEDULED', 'LIVE'] } },
@@ -188,7 +203,7 @@ export class MeetingRoomService {
     if (fresh.status === 'LIVE') {
       const roomName = roomNameFor(meetingId);
       const sync = async () => {
-        await this.media.setRoomMetadata(roomName, roomMetadata(fresh));
+        await this.media.setRoomMetadata(roomName, roomMetadata(fresh, this.aiAvailable));
         await this.media.broadcast(roomName, 'luna.meeting', {
           type: 'ai_notes',
           enabled: fresh.aiNotesEnabled,

@@ -50,6 +50,9 @@ export const meetingSchema = z.object({
   startedAt: z.date().nullable(),
   endedAt: z.date().nullable(),
   aiNotesEnabled: z.boolean(),
+  aiNotesAvailable: z
+    .boolean()
+    .describe('false khi máy chủ chưa cấu hình AI: không thể bật biên bản AI'),
   createdBy: userSummarySchema,
   attendeeCount: z.number().int(),
 });

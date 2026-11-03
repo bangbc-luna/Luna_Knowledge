@@ -57,6 +57,7 @@ describe('Meetings (e2e)', () => {
       startedAt: null,
       endedAt: null,
       aiNotesEnabled: true,
+      aiNotesAvailable: true,
       attendeeCount: 0,
       createdBy: { id: bob.userId },
     });

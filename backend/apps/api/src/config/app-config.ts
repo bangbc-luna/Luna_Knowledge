@@ -12,7 +12,7 @@ import {
   videoEnvSchema,
   collabSecretsSchema,
 } from '@luna/shared';
-import { meetingsEnvSchema } from '@luna/meetings';
+import { meetingsEnvSchema, minutesProviderEnvSchema } from '@luna/meetings';
 import { z } from 'zod';
 
 const csv = z
@@ -36,6 +36,7 @@ export const apiEnvSchema = baseEnvSchema
   .extend(observabilityEnvSchema.shape)
   .extend(httpServerEnvSchema.shape)
   .extend(meetingsEnvSchema.shape)
+  .extend(minutesProviderEnvSchema.shape)
   .extend({
     API_PORT: z.coerce.number().int().positive().default(4000),
     API_PUBLIC_URL: z.url().default('http://localhost:4000'),
@@ -61,7 +62,7 @@ export const apiEnvSchema = baseEnvSchema
     RATE_LIMIT_USER_PER_MIN: z.coerce.number().int().positive().default(600),
     RATE_LIMIT_ANON_PER_MIN: z.coerce.number().int().positive().default(120),
     MEETING_AUDIO_WAIT_SEC: z.coerce.number().int().min(0).default(900),
-    MEETING_LIVEKIT_USD_PER_PARTICIPANT_MIN: z.coerce.number().min(0).default(0.0005),
+    MEETING_LIVEKIT_USD_PER_PARTICIPANT_MIN: z.coerce.number().min(0).default(0),
     BODY_LIMIT: z.string().default('512kb'),
     SWAGGER_ENABLED: z
       .enum(['true', 'false'])

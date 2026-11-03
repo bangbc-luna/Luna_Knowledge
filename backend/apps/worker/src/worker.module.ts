@@ -5,6 +5,7 @@ import {
   MEETING_ENDED_HOOK,
   MEETING_MEDIA,
   meetingEndedHook,
+  minutesAiAvailable,
 } from '@luna/meetings';
 import { type JobQueue, ObjectStore, QUEUES } from '@luna/shared';
 import { BullModule, getQueueToken } from '@nestjs/bullmq';
@@ -91,12 +92,12 @@ class WorkerConfigModule {}
     {
       provide: SPEECH_TO_TEXT,
       inject: [WORKER_CONFIG],
-      useFactory: (c: WorkerConfig) => createSpeechToText(c),
+      useFactory: (c: WorkerConfig) => (minutesAiAvailable(c) ? createSpeechToText(c) : null),
     },
     {
       provide: MINUTES_WRITER,
       inject: [WORKER_CONFIG],
-      useFactory: (c: WorkerConfig) => createMinutesWriter(c),
+      useFactory: (c: WorkerConfig) => (minutesAiAvailable(c) ? createMinutesWriter(c) : null),
     },
     {
       provide: MEETING_MEDIA,
