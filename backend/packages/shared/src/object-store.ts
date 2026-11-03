@@ -40,7 +40,7 @@ export interface PresignGetOptions {
 export interface UploadedPart {
   partNumber: number;
   size: number;
-  etag: string;
+  etag?: string;
 }
 
 export function contentDisposition(type: 'inline' | 'attachment', fileName: string): string {
@@ -196,7 +196,8 @@ export class ObjectStore {
     const res = await this.s3.send(
       new CreateMultipartUploadCommand({ Bucket: this.buckets.tmp, Key: key }),
     );
-    return res.UploadId!;
+    if (!res.UploadId) throw new Error('Object storage did not return an UploadId');
+    return res.UploadId;
   }
 
   async listTmpUploadParts(key: string, uploadId: string): Promise<UploadedPart[]> {
@@ -212,7 +213,11 @@ export class ObjectStore {
         }),
       );
       for (const p of res.Parts ?? []) {
-        parts.push({ partNumber: p.PartNumber!, size: p.Size ?? 0, etag: p.ETag ?? '' });
+        parts.push({
+          partNumber: p.PartNumber!,
+          size: p.Size ?? 0,
+          ...(p.ETag ? { etag: p.ETag } : {}),
+        });
       }
       if (!res.IsTruncated) return parts;
       marker = res.NextPartNumberMarker;
@@ -228,7 +233,7 @@ export class ObjectStore {
         MultipartUpload: {
           Parts: [...parts]
             .sort((a, b) => a.partNumber - b.partNumber)
-            .map((p) => ({ PartNumber: p.partNumber, ETag: p.etag })),
+            .map((p) => ({ PartNumber: p.partNumber, ...(p.etag ? { ETag: p.etag } : {}) })),
         },
       }),
     );
