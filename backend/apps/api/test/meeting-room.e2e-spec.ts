@@ -426,6 +426,18 @@ describe('Meeting rooms (e2e)', () => {
     expect((await ctx.prisma.meeting.findUniqueOrThrow({ where: { id } })).aiNotesEnabled).toBe(
       false,
     );
+    ctx.media.failNext('broadcast', new Error('down'), 2);
+    await http()
+      .put(`/api/v1/meetings/${id}/ai-notes`)
+      .set(alice.auth)
+      .send({ enabled: true })
+      .expect(503);
+    const row = await ctx.prisma.meeting.findUniqueOrThrow({ where: { id } });
+    expect(row.aiNotesEnabled).toBe(false);
+    expect(JSON.parse(ctx.media.rooms.get(`luna-${id}`)!.metadata)).toMatchObject({
+      aiNotesEnabled: false,
+      version: row.aiNotesVersion,
+    });
   });
 
   it('ending closes open sessions even when joined_at is in the future', async () => {

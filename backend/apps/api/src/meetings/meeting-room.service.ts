@@ -251,6 +251,18 @@ export class MeetingRoomService {
       });
     } catch (err) {
       console.error('meeting ai notes revert failed', { meetingId, err });
+      return;
+    }
+    try {
+      const reverted = await this.prisma.client.meeting.findUniqueOrThrow({
+        where: { id: meetingId },
+      });
+      await this.media.setRoomMetadata(
+        roomNameFor(meetingId),
+        roomMetadata(reverted, this.aiAvailable),
+      );
+    } catch (err) {
+      console.error('meeting ai notes revert metadata sync failed', { meetingId, err });
     }
   }
 
