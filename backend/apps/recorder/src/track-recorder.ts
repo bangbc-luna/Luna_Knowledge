@@ -103,10 +103,10 @@ export class TrackRecorder {
 
   private async consumeLoop(stream: AsyncIterable<RecordedFrame>): Promise<void> {
     const iterator = stream[Symbol.asyncIterator]();
+    this.settlePending(false);
     this.wallBaseMs = this.now() - this.meeting.startedAt.getTime();
     this.monoBaseMs = this.monotonic();
     this.sampleClockMs = null;
-    this.pendingSnap = null;
     try {
       while (!this.stopped) {
         const next = await Promise.race([iterator.next(), this.stopSignal]);
@@ -146,7 +146,7 @@ export class TrackRecorder {
   private push(frame: RecordedFrame, wallMs: number, snap: boolean): void {
     const frameMs = (frame.data.length * 1000) / SAMPLE_RATE;
     const atMs = snap || this.sampleClockMs === null ? wallMs - frameMs : this.sampleClockMs;
-    this.sampleClockMs = atMs + frameMs;
+    this.sampleClockMs = Math.min(atMs + frameMs, wallMs + frameMs);
     this.handle(this.chunker.push(frame.data, atMs));
   }
 
