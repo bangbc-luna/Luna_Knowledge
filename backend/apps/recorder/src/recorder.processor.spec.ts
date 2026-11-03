@@ -35,4 +35,17 @@ describe('RecorderProcessor', () => {
     expect(run).toHaveBeenCalledTimes(1);
     expect(moveToDelayed).not.toHaveBeenCalled();
   });
+
+  it('tắt máy mà hoãn job thất bại vẫn ném DelayedError', async () => {
+    const { processor, moveToDelayed, job } = setup();
+    moveToDelayed.mockRejectedValueOnce(new Error('redis down'));
+    await processor.onModuleDestroy();
+    await expect(processor.process(job, 'token')).rejects.toBeInstanceOf(DelayedError);
+  });
+
+  it('job lạ báo đúng tên job', async () => {
+    const { processor, job } = setup();
+    (job as unknown as { name: string }).name = 'other';
+    await expect(processor.process(job, 'token')).rejects.toThrow('Unknown job "other"');
+  });
 });

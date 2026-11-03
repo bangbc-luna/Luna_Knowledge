@@ -38,16 +38,16 @@ export class RecorderProcessor
   async process(job: Job, token?: string): Promise<RecordingResult> {
     const j = job as unknown as QueueJob<'meeting-recorder'>;
     if (j.name !== 'record') {
-      throw new Error(
-        `Unknown job "${unknownJob(j as never)}" on queue ${QUEUES.MEETING_RECORDER}`,
-      );
+      throw new Error(`Unknown job "${unknownJob(j.name)}" on queue ${QUEUES.MEETING_RECORDER}`);
     }
     return this.record(job, j.data.meetingId, token);
   }
 
   private async record(job: Job, meetingId: string, token?: string): Promise<RecordingResult> {
     if (this.shutdown.signal.aborted) {
-      await job.moveToDelayed(Date.now() + RESTART_DELAY_MS, token);
+      await job.moveToDelayed(Date.now() + RESTART_DELAY_MS, token).catch((err) => {
+        this.logger.error({ err, meetingId }, 'Delaying the recording job on shutdown failed');
+      });
       throw new DelayedError();
     }
     try {
