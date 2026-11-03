@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import type { BlobKind } from '@luna/db';
 import {
   FILE_TYPES,
@@ -114,10 +113,10 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
       include: { node: { select: { id: true, workspaceId: true, type: true } } },
     });
     if (!session || session.status !== 'COMPLETED') return { skipped: 'no completed upload' };
-    const tmp = { Bucket: this.store.buckets.tmp, Key: session.tmpKey };
+    const tmp = { container: this.store.buckets.tmp, key: session.tmpKey };
     const already = await this.prisma.client.fileVersion.findUnique({ where: { id: uploadId } });
     if (already) {
-      await this.store.s3.send(new DeleteObjectCommand(tmp)).catch(() => undefined);
+      await this.store.delete(tmp).catch(() => undefined);
       return { skipped: 'already processed' };
     }
 
@@ -127,15 +126,15 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
     const written: WrittenBlob[] = [];
     try {
       const local = join(workDir, 'original');
-      const obj = await this.store.s3.send(new GetObjectCommand(tmp));
-      const { sha256, size } = await saveWithHash(obj.Body as Readable, local);
+      const obj = await this.store.getStream(tmp);
+      const { sha256, size } = await saveWithHash(obj.body, local);
 
       let rule: FileTypeRule;
       try {
         rule = await sniffFile(local, session.fileName, kind);
       } catch (err) {
         if (err instanceof RejectedFileError) {
-          await this.store.s3.send(new DeleteObjectCommand(tmp)).catch(() => undefined);
+          await this.store.delete(tmp).catch(() => undefined);
           throw new UnrecoverableError(err.message);
         }
         throw err;
@@ -216,7 +215,7 @@ export class FileProcessProcessor extends WorkerHost implements OnApplicationBoo
         await this.deleteWritten(written);
         return { skipped: 'node deleted' };
       }
-      await this.store.s3.send(new DeleteObjectCommand(tmp)).catch(() => undefined);
+      await this.store.delete(tmp).catch(() => undefined);
       if (kind === 'VIDEO') {
         await enqueueTranscode(
           this.videoQueue,
