@@ -341,6 +341,45 @@ describe('Admin: stats & audit logs (e2e)', () => {
     });
   });
 
+  it('truy vấn chi phí AI chặn theo created_at của dòng chi phí để chỉ quét vùng BRIN của kỳ', async () => {
+    const ws = (
+      await http()
+        .post('/api/v1/workspaces')
+        .set(owner.auth)
+        .send({ name: 'Brin', slug: 'brin' })
+        .expect(201)
+    ).body.id;
+    const meeting = await ctx.prisma.meeting.create({
+      data: {
+        workspaceId: ws,
+        createdById: owner.userId,
+        title: 'Họp BRIN',
+        status: 'ENDED',
+        startedAt: new Date('2026-09-10T03:00:00Z'),
+        endedAt: new Date('2026-09-10T04:00:00Z'),
+      },
+    });
+    const row = (createdAt: string, costMicroUsd: bigint) => ({
+      workspaceId: ws,
+      meetingId: meeting.id,
+      provider: 'omniroute',
+      model: 'm',
+      kind: 'stt' as const,
+      audioMs: 60_000,
+      costMicroUsd,
+      createdAt: new Date(createdAt),
+    });
+    await ctx.prisma.meetingAiUsage.createMany({
+      data: [row('2026-09-12T03:00:00Z', 700n), row('2026-08-01T03:00:00Z', 90_000n)],
+    });
+
+    const res = await http()
+      .get('/api/v1/admin/meetings/usage?from=2026-09&to=2026-09')
+      .set(admin.auth)
+      .expect(200);
+    expect(res.body.months[0]).toMatchObject({ meetings: 1, aiCostMicroUsd: 700 });
+  });
+
   it('khoảng tháng sai hoặc quá 24 tháng trả 400', async () => {
     const get = (q: string) => http().get(`/api/v1/admin/meetings/usage?${q}`).set(admin.auth);
     await get('from=2026-05&to=2026-03').expect(400);

@@ -80,7 +80,8 @@ export class MeetingUsageService {
              coalesce(sum(u.cost_micro_usd), 0)::float8 AS cost_micro_usd
         FROM meeting_ai_usage u
         LEFT JOIN meetings m ON m.id = u.meeting_id
-       WHERE coalesce(m.started_at, u.created_at) >= ${start}
+       WHERE u.created_at >= ${start}
+         AND coalesce(m.started_at, u.created_at) >= ${start}
          AND coalesce(m.started_at, u.created_at) < ${end}
        GROUP BY 1`;
 
