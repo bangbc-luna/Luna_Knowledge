@@ -67,7 +67,7 @@ export function MinutesDraftEditor({
   const [confirming, setConfirming] = useState(false);
   const [conflict, setConflict] = useState(false);
   const [present, setPresent] = useState<ReadonlySet<string>>(() => suggestedIds(draft.doc as Node));
-  const [unchecked, setUnchecked] = useState<ReadonlySet<string>>(new Set());
+  const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -120,7 +120,7 @@ export function MinutesDraftEditor({
     try {
       const current = dirty ? await save() : revision;
       if (current === null) return;
-      const confirmed = items.filter((s) => !unchecked.has(s.userId)).map((s) => s.userId);
+      const confirmed = items.filter((s) => checked.has(s.userId)).map((s) => s.userId);
       await publishMinutes(meetingId, current, [...new Set(confirmed)]);
       setConfirming(false);
       toast("success", "Đã gửi biên bản");
@@ -134,7 +134,7 @@ export function MinutesDraftEditor({
   };
 
   const toggle = (userId: string) =>
-    setUnchecked((prev) => {
+    setChecked((prev) => {
       const next = new Set(prev);
       if (next.has(userId)) next.delete(userId);
       else next.add(userId);
@@ -183,12 +183,12 @@ export function MinutesDraftEditor({
       {items.length ? (
         <fieldset className="min-w-0">
           <legend className="text-sm font-semibold">Gợi ý gắn người phụ trách</legend>
-          <p className="mt-1 text-xs text-muted text-pretty">Những người này vắng mặt hoặc AI chưa chắc. Chỉ người được chọn mới được gắn tên và nhận thông báo khi gửi.</p>
+          <p className="mt-1 text-xs text-muted text-pretty">Chọn người bạn xác nhận được giao việc; bỏ trống thì tên chỉ hiện dạng chữ.</p>
           <ul className="mt-2">
             {items.map((s) => (
               <li key={`${s.userId}-${s.actionIndex}`}>
                 <label className="flex min-h-11 cursor-pointer items-start gap-3 py-2 text-sm">
-                  <input type="checkbox" checked={!unchecked.has(s.userId)} onChange={() => toggle(s.userId)} className="mt-0.5 size-4 shrink-0 accent-primary" />
+                  <input type="checkbox" checked={checked.has(s.userId)} onChange={() => toggle(s.userId)} className="mt-0.5 size-4 shrink-0 accent-primary" />
                   <span className="min-w-0 [overflow-wrap:anywhere]">
                     Gắn <span className="font-medium">@{s.userName}</span> cho việc {s.task ? `“${s.task}”` : `số ${s.actionIndex + 1}`}
                     {s.name !== s.userName ? <span className="text-muted"> (AI nghe là “{s.name}”)</span> : null}
