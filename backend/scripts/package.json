@@ -9,10 +9,13 @@
     "upload": "tsx upload.ts",
     "cleanup:test": "tsx cleanup-test-data.ts",
     "load:seed": "tsx load-seed.ts",
-    "db:app-login": "tsx db-app-login.ts"
+    "db:app-login": "tsx db-app-login.ts",
+    "meetings:eval": "tsx meetings-eval.ts"
   },
   "dependencies": {
     "@luna/db": "workspace:*",
+    "@luna/editor": "workspace:*",
+    "@luna/meetings": "workspace:*",
     "@luna/shared": "workspace:*",
     "jose": "^6.2.12",
     "zod": "^4.6.7"

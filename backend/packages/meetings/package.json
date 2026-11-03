@@ -20,6 +20,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "1.4.0",
     "@luna/db": "workspace:*",
     "@luna/editor": "workspace:*",
     "@luna/shared": "workspace:*",

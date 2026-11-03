@@ -45,3 +45,34 @@ export {
   type MentionSuggestion,
   type RenderInput,
 } from './minutes/render.js';
+export {
+  SttError,
+  buildSttPrompt,
+  type SpeechToText,
+  type SttAudio,
+  type SttSegment,
+} from './ai/speech-to-text.js';
+export { DeepgramSpeechToText, type DeepgramSttOptions } from './ai/deepgram-stt.js';
+export { GeminiSpeechToText, type GeminiSttOptions } from './ai/gemini-stt.js';
+export { OmniRouteSpeechToText, type OmniRouteSttOptions } from './ai/omniroute-stt.js';
+export {
+  MinutesWriterError,
+  type MinutesWriteResult,
+  type MinutesWriter,
+  type MinutesWriterErrorCode,
+} from './ai/minutes-writer.js';
+export {
+  ClaudeMinutesWriter,
+  type ClaudeMinutesWriterOptions,
+} from './ai/claude-minutes-writer.js';
+export {
+  OmniRouteMinutesWriter,
+  type OmniRouteMinutesWriterOptions,
+} from './ai/omniroute-minutes-writer.js';
+export { llmCostMicroUsd, sttCostMicroUsd } from './ai/cost.js';
+export {
+  createMinutesWriter,
+  createSpeechToText,
+  minutesAiEnvSchema,
+  type MinutesAiEnv,
+} from './ai/ai-env.js';
