@@ -47,7 +47,7 @@ Giới hạn tài nguyên trong `docker-compose.prod.yml` (giả định server 
 | gotenberg | 1 | 1 GB | |
 | meilisearch | 1 | 2 GB | lập chỉ mục tối đa 1 GB RAM, 1 luồng |
 | redis | 0,5 | 1 GB | `maxmemory 768mb`, giữ `noeviction` vì hàng đợi BullMQ cần |
-| recorder | 1 | 1 GB | tmpfs 512 MB cho âm thanh tạm, dừng êm tối đa 60 giây (mục 11) |
+| recorder | 1 | 1 GB | tmpfs 256 MB cho âm thanh tạm, dừng êm tối đa 60 giây (mục 11) |
 | api, collab, frontend | không giới hạn | không giới hạn | api, collab dừng êm tối đa 30 giây |
 
 Mạng: card mạng của server từ 2,5 GbE trở lên (200 người xem 1080p cùng lúc trong LAN khoảng 1 Gbps); switch LAN tối thiểu 1 GbE tới từng máy.
@@ -520,7 +520,7 @@ luna ps               # migrate: Exited (0); recorder: healthy
 Recorder vào phòng LiveKit như một người dự ẩn tên "Luna AI", chỉ nhận âm thanh micro của từng người, cắt theo lời nói, mã hoá Opus và đưa lên bucket âm thanh. Nó không ghi hình, không ghi màn hình, không ghi khi chủ trì tắt "Biên bản AI".
 
 - Giới hạn: 1 CPU, 1 GB RAM, `stop_grace_period` 60 giây (đủ để lưu đoạn đang mở khi tắt). `MEETING_RECORDER_CONCURRENCY` (mặc định 3) là số buổi họp ghi cùng lúc.
-- Âm thanh tạm nằm trên tmpfs 512 MB gắn ở `/var/tmp/luna-recorder` (`RECORDER_TMP_DIR`), không ghi xuống ổ đĩa; mất container thì mất đoạn chưa tải lên.
+- Âm thanh tạm nằm trên tmpfs 256 MB gắn ở `/var/tmp/luna-recorder` (`RECORDER_TMP_DIR`), không ghi xuống ổ đĩa; mất container thì mất đoạn chưa tải lên.
 - Cổng metrics `RECORDER_METRICS_PORT` = 9465 (`/health` không cần token, `/metrics` cần `METRICS_TOKEN`); Prometheus profile `monitoring` đã có job `recorder`. Cổng này không mở ra ngoài.
 - Hàng đợi `meeting-recorder`, `meeting-minutes` và `meetings` có trong chỉ số `queue_jobs` của worker.
 - Chạy ghi lại khi lỗi: job tự thử lại tối đa 12 lần với thời gian chờ tăng gấp đôi, tối đa 10 phút. Mất kết nối LiveKit quá 6 giờ tính từ lần mất đầu tiên thì dừng hẳn.

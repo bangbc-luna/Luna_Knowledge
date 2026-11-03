@@ -25,13 +25,14 @@ const MEDIA_UNAVAILABLE = 'The meeting service is unavailable, try again in a mo
 const AI_NOT_CONFIGURED = 'AI minutes are not configured';
 
 const roomMetadata = (
-  m: Pick<Meeting, 'title' | 'aiNotesEnabled' | 'createdById'>,
+  m: Pick<Meeting, 'title' | 'aiNotesEnabled' | 'aiNotesVersion' | 'createdById'>,
   aiAvailable: boolean,
 ) =>
   encodeRoomMetadata({
     title: m.title,
     aiNotesEnabled: m.aiNotesEnabled && aiAvailable,
     hostId: m.createdById,
+    version: m.aiNotesVersion,
   });
 
 @Injectable()
@@ -87,11 +88,13 @@ export class MeetingRoomService {
     const roomName = roomNameFor(meetingId);
     let token: string;
     let aiNotesEnabled: boolean;
+    let aiNotesVersion: number;
     try {
       const fresh = await this.prisma.client.meeting.findUniqueOrThrow({
         where: { id: meetingId },
       });
       aiNotesEnabled = fresh.aiNotesEnabled && this.aiAvailable;
+      aiNotesVersion = fresh.aiNotesVersion;
       if (fresh.status === 'LIVE' && aiNotesEnabled) {
         await this.minutesQueue.startRecording(meetingId);
       }
@@ -126,6 +129,7 @@ export class MeetingRoomService {
       roomName,
       identity: user.id,
       aiNotesEnabled,
+      aiNotesVersion,
       isHost,
       expiresInSec: this.config.MEETING_TOKEN_TTL_SEC,
     };
@@ -185,7 +189,7 @@ export class MeetingRoomService {
     await this.prisma.client.$transaction(async (tx) => {
       const { count } = await tx.meeting.updateMany({
         where: { id: meetingId, status: { in: ['SCHEDULED', 'LIVE'] } },
-        data: { aiNotesEnabled: enabled },
+        data: { aiNotesEnabled: enabled, aiNotesVersion: { increment: 1 } },
       });
       if (count === 0) throw AppError.conflict(ENDED_MESSAGE);
       await writeAudit(tx, {
@@ -207,6 +211,7 @@ export class MeetingRoomService {
         await this.media.broadcast(roomName, 'luna.meeting', {
           type: 'ai_notes',
           enabled: fresh.aiNotesEnabled,
+          version: fresh.aiNotesVersion,
         });
       };
       try {
@@ -218,7 +223,7 @@ export class MeetingRoomService {
       }
       if (enabled && fresh.aiNotesEnabled) await this.minutesQueue.startRecording(meetingId);
     }
-    return { aiNotesEnabled: fresh.aiNotesEnabled };
+    return { aiNotesEnabled: fresh.aiNotesEnabled, aiNotesVersion: fresh.aiNotesVersion };
   }
 
   private async revertAiNotes(
@@ -231,7 +236,7 @@ export class MeetingRoomService {
       await this.prisma.client.$transaction(async (tx) => {
         await tx.meeting.updateMany({
           where: { id: meetingId, status: { in: ['SCHEDULED', 'LIVE'] } },
-          data: { aiNotesEnabled: false },
+          data: { aiNotesEnabled: false, aiNotesVersion: { increment: 1 } },
         });
         await writeAudit(tx, {
           actorId,

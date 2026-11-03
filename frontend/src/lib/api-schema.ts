@@ -1927,6 +1927,7 @@ export interface operations {
                         name: string;
                         avatarUrl: string | null;
                         isSystemAdmin: boolean;
+                        aiNotesAvailable: boolean;
                         workspaces: {
                             id: string;
                             name: string;
@@ -9687,6 +9688,7 @@ export interface operations {
                         roomName: string;
                         identity: string;
                         aiNotesEnabled: boolean;
+                        aiNotesVersion: number;
                         isHost: boolean;
                         expiresInSec: number;
                     };
@@ -9857,6 +9859,7 @@ export interface operations {
                 content: {
                     "application/json": {
                         aiNotesEnabled: boolean;
+                        aiNotesVersion: number;
                     };
                 };
             };

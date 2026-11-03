@@ -157,7 +157,7 @@ services:
     mem_limit: 1g
     stop_grace_period: 60s
     tmpfs:
-      - /var/tmp/luna-recorder:size=512m,uid=1000,gid=1000,mode=0700
+      - /var/tmp/luna-recorder:size=256m,uid=1000,gid=1000,mode=0700
     environment:
       <<: [*no-owner-secrets, *no-ai-keys]
       RECORDER_TMP_DIR: /var/tmp/luna-recorder

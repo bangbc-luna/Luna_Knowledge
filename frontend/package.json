@@ -9,7 +9,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "check:headers": "node scripts/check-security-headers.mjs",
-    "test": "node --test scripts/linkify.test.mjs"
+    "test": "node --test scripts/linkify.test.mjs scripts/ai-notes-state.test.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "6.11.1",

@@ -152,38 +152,91 @@ function Section({
   );
 }
 
-export function MeetingsPage() {
-  const { wsId } = useParams<{ wsId: string }>();
-  const { me } = useAuth();
+type PagedList = {
+  items: MeetingSummary[];
+  cursor: string | null;
+  loading: boolean;
+  loadMore: () => Promise<void>;
+};
+
+function usePagedList(
+  wsId: string,
+  scope: "live" | "upcoming" | "past",
+  base: MeetingList | null | undefined,
+  limit: number,
+): PagedList {
   const toast = useToast();
-  const ws = me?.workspaces.find((w) => w.id === wsId);
-  const canCreate = !!ws && ws.role !== "VIEWER";
-  const [dialog, setDialog] = useState<MeetingMode | null>(null);
   const [extra, setExtra] = useState<{
-    base: MeetingList | null;
+    base: MeetingList | null | undefined;
     items: MeetingSummary[];
     cursor: string | null;
   }>({ base: null, items: [], cursor: null });
-  const [moreLoading, setMoreLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const current =
+    extra.base === base
+      ? extra
+      : { base, items: [], cursor: base?.nextCursor ?? null };
+  const loadMore = async () => {
+    if (!current.cursor) return;
+    setLoading(true);
+    try {
+      const page = await listMeetings(wsId, scope, current.cursor, limit);
+      setExtra({
+        base,
+        items: [...current.items, ...page.items],
+        cursor: page.nextCursor,
+      });
+    } catch (err) {
+      toast("error", meetingErrorText(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+  return {
+    items: [...(base?.items ?? []), ...current.items],
+    cursor: current.cursor,
+    loading,
+    loadMore,
+  };
+}
 
+function MoreButton({ list }: { list: PagedList }) {
+  if (!list.cursor) return null;
+  return (
+    <div className="mt-2 flex justify-center">
+      <Button
+        loading={list.loading}
+        onClick={() => void list.loadMore()}
+        className="w-full sm:w-auto"
+      >
+        Xem thêm
+      </Button>
+    </div>
+  );
+}
+
+export function MeetingsPage() {
+  const { wsId } = useParams<{ wsId: string }>();
+  const { me } = useAuth();
+  const ws = me?.workspaces.find((w) => w.id === wsId);
+  const canCreate = !!ws && ws.role !== "VIEWER";
+  const [dialog, setDialog] = useState<MeetingMode | null>(null);
   const live = useApi(() => listMeetings(wsId, "live", undefined, 50), [wsId]);
   const upcoming = useApi(
-    () => listMeetings(wsId, "upcoming", undefined, 50),
+    () => listMeetings(wsId, "upcoming", undefined, PAGE),
     [wsId],
   );
   const past = useApi(
     () => listMeetings(wsId, "past", undefined, PAGE),
     [wsId],
   );
+  const liveList = usePagedList(wsId, "live", live.data, 50);
+  const upcomingList = usePagedList(wsId, "upcoming", upcoming.data, PAGE);
+  const pastList = usePagedList(wsId, "past", past.data, PAGE);
 
-  const pastExtra =
-    extra.base === past.data
-      ? extra
-      : { base: past.data, items: [], cursor: past.data?.nextCursor ?? null };
-  const pastItems = [...(past.data?.items ?? []), ...pastExtra.items];
   const groups = useMemo(
-    () => groupByDay(upcoming.data?.items ?? []),
-    [upcoming.data],
+    () => groupByDay(upcomingList.items),
+    [upcomingList.items],
   );
 
   const reloadAll = () => {
@@ -192,36 +245,11 @@ export function MeetingsPage() {
     void past.reload();
   };
 
-  const loadMore = async () => {
-    if (!pastExtra.cursor) return;
-    setMoreLoading(true);
-    try {
-      const page = await listMeetings(wsId, "past", pastExtra.cursor, PAGE);
-      setExtra({
-        base: past.data,
-        items: [...pastExtra.items, ...page.items],
-        cursor: page.nextCursor,
-      });
-    } catch (err) {
-      toast("error", meetingErrorText(err));
-    } finally {
-      setMoreLoading(false);
-    }
-  };
-
   const loading = [live, upcoming, past].some((q) => q.loading && !q.data);
   const failed = [live, upcoming, past].find((q) => q.error && !q.data);
-  const allItems = [
-    ...(live.data?.items ?? []),
-    ...(upcoming.data?.items ?? []),
-    ...pastItems,
-  ];
-  const aiAvailable =
-    allItems.length === 0 || allItems.some((m) => m.aiNotesAvailable);
+  const aiAvailable = me?.aiNotesAvailable ?? false;
   const total =
-    (live.data?.items.length ?? 0) +
-    (upcoming.data?.items.length ?? 0) +
-    pastItems.length;
+    liveList.items.length + upcomingList.items.length + pastList.items.length;
 
   const create = canCreate ? (
     <div className="flex w-full gap-2 sm:w-auto">
@@ -273,24 +301,25 @@ export function MeetingsPage() {
           />
         ) : (
           <div className="flex flex-col gap-5">
-            {live.data?.items.length ? (
+            {liveList.items.length ? (
               <Section
                 id="meetings-live"
                 title="Đang diễn ra"
-                count={live.data.items.length}
+                count={liveList.items.length}
               >
                 <ul className="border-y border-border">
-                  {live.data.items.map((m) => (
+                  {liveList.items.map((m) => (
                     <MeetingRow key={m.id} wsId={wsId} m={m} live />
                   ))}
                 </ul>
+                <MoreButton list={liveList} />
               </Section>
             ) : null}
             {groups.length ? (
               <Section
                 id="meetings-upcoming"
                 title="Sắp tới"
-                count={upcoming.data?.items.length}
+                count={upcomingList.items.length}
               >
                 <div className="flex flex-col gap-3">
                   {groups.map((g) => (
@@ -306,26 +335,17 @@ export function MeetingsPage() {
                     </div>
                   ))}
                 </div>
+                <MoreButton list={upcomingList} />
               </Section>
             ) : null}
-            {pastItems.length ? (
+            {pastList.items.length ? (
               <Section id="meetings-past" title="Đã qua">
                 <ul className="border-y border-border">
-                  {pastItems.map((m) => (
+                  {pastList.items.map((m) => (
                     <MeetingRow key={m.id} wsId={wsId} m={m} />
                   ))}
                 </ul>
-                {pastExtra.cursor ? (
-                  <div className="mt-2 flex justify-center">
-                    <Button
-                      loading={moreLoading}
-                      onClick={() => void loadMore()}
-                      className="w-full sm:w-auto"
-                    >
-                      Xem thêm
-                    </Button>
-                  </div>
-                ) : null}
+                <MoreButton list={pastList} />
               </Section>
             ) : null}
           </div>

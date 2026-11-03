@@ -62,6 +62,7 @@ describe('Meeting rooms (e2e)', () => {
       roomName: `luna-${id}`,
       identity: alice.userId,
       aiNotesEnabled: false,
+      aiNotesVersion: 0,
       isHost: true,
       expiresInSec: 600,
     });
@@ -74,6 +75,7 @@ describe('Meeting rooms (e2e)', () => {
       title: 'Room',
       aiNotesEnabled: false,
       hostId: alice.userId,
+      version: 0,
     });
     await join(bob, id).expect(200);
     expect(await countAudit('meeting.start', id)).toBe(1);
@@ -200,17 +202,37 @@ describe('Meeting rooms (e2e)', () => {
       .set(alice.auth)
       .send({ enabled: false })
       .expect(200);
-    expect(toggled.body).toEqual({ aiNotesEnabled: false });
+    expect(toggled.body).toEqual({ aiNotesEnabled: false, aiNotesVersion: 1 });
     expect((await ctx.prisma.meeting.findUniqueOrThrow({ where: { id } })).aiNotesEnabled).toBe(
       false,
     );
-    expect(JSON.parse(ctx.media.rooms.get(`luna-${id}`)!.metadata).aiNotesEnabled).toBe(false);
+    expect(JSON.parse(ctx.media.rooms.get(`luna-${id}`)!.metadata)).toMatchObject({
+      aiNotesEnabled: false,
+      version: 1,
+    });
     expect(ctx.media.broadcasts).toContainEqual({
       roomName: `luna-${id}`,
       topic: 'luna.meeting',
-      payload: { type: 'ai_notes', enabled: false },
+      payload: { type: 'ai_notes', enabled: false, version: 1 },
     });
     expect(await countAudit('meeting.ai_notes_toggle', id)).toBe(1);
+    const versions = [toggled.body.aiNotesVersion];
+    for (const enabled of [true, false]) {
+      const next = await http()
+        .put(`/api/v1/meetings/${id}/ai-notes`)
+        .set(alice.auth)
+        .send({ enabled })
+        .expect(200);
+      versions.push(next.body.aiNotesVersion);
+    }
+    expect(versions).toEqual([1, 2, 3]);
+    expect((await ctx.prisma.meeting.findUniqueOrThrow({ where: { id } })).aiNotesVersion).toBe(3);
+    expect(JSON.parse(ctx.media.rooms.get(`luna-${id}`)!.metadata).version).toBe(3);
+    expect(
+      ctx.media.broadcasts
+        .filter((b) => b.roomName === `luna-${id}`)
+        .map((b) => (b.payload as { version: number }).version),
+    ).toEqual([1, 2, 3]);
     await http()
       .put(`/api/v1/meetings/${id}/ai-notes`)
       .set(alice.auth)

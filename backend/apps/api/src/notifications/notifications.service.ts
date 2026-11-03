@@ -1,5 +1,5 @@
 import { NOTIFY_PATTERN } from '@luna/shared';
-import { writeNotifications, type Prisma } from '@luna/db';
+import { toNotificationDto, writeNotifications, type NotificationDto, type Prisma } from '@luna/db';
 import { Inject, Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import type { Redis } from 'ioredis';
 import { Observable } from 'rxjs';
@@ -7,14 +7,6 @@ import { toPage } from '../common/pagination/cursor.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { REDIS } from '../infra/redis/redis.module.js';
 import type { MarkReadBody, NotificationsQuery } from './notifications.schemas.js';
-
-export interface NotificationDto {
-  id: string;
-  type: string;
-  payload: Record<string, unknown>;
-  readAt: Date | null;
-  createdAt: Date;
-}
 
 @Injectable()
 export class NotificationsService implements OnModuleDestroy {
@@ -57,7 +49,7 @@ export class NotificationsService implements OnModuleDestroy {
     });
     return {
       ...toPage(
-        rows.map((r) => this.toDto(r)),
+        rows.map((r) => toNotificationDto(r)),
         q.limit,
       ),
       unreadCount,
@@ -101,22 +93,6 @@ export class NotificationsService implements OnModuleDestroy {
         return;
       }
     });
-  }
-
-  private toDto(r: {
-    id: string;
-    type: string;
-    payload: unknown;
-    readAt: Date | null;
-    createdAt: Date;
-  }): NotificationDto {
-    return {
-      id: r.id,
-      type: r.type,
-      payload: r.payload as Record<string, unknown>,
-      readAt: r.readAt,
-      createdAt: r.createdAt,
-    };
   }
 
   async onModuleDestroy() {

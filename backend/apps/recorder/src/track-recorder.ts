@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { PrismaClient } from '@luna/db';
@@ -17,6 +18,7 @@ export interface TrackRecorderDeps {
   tmpDir: string;
   createEncoder: () => AudioEncoder;
   now?: () => number;
+  monotonic?: () => number;
   logger?: RecorderLogger;
   retryDelayMs?: number;
 }
@@ -31,6 +33,7 @@ interface OpenChunk {
 }
 
 const SAMPLE_RATE = 16000;
+const REAL_GAP_MS = 500;
 
 function isUniqueViolation(err: unknown): boolean {
   return (err as { code?: string } | null)?.code === 'P2002';
@@ -47,6 +50,10 @@ export class TrackRecorder {
   private readonly stopSignal: Promise<'stop'>;
   private signalStop!: () => void;
   private readonly now: () => number;
+  private readonly monotonic: () => number;
+  private wallBaseMs = 0;
+  private monoBaseMs = 0;
+  private sampleClockMs: number | null = null;
 
   constructor(
     private readonly deps: TrackRecorderDeps,
@@ -56,6 +63,7 @@ export class TrackRecorder {
   ) {
     this.paused = startPaused;
     this.now = deps.now ?? Date.now;
+    this.monotonic = deps.monotonic ?? deps.now ?? (() => performance.now());
     this.stopSignal = new Promise((resolve) => {
       this.signalStop = () => resolve('stop');
     });
@@ -93,6 +101,9 @@ export class TrackRecorder {
 
   private async consumeLoop(stream: AsyncIterable<RecordedFrame>): Promise<void> {
     const iterator = stream[Symbol.asyncIterator]();
+    this.wallBaseMs = this.now() - this.meeting.startedAt.getTime();
+    this.monoBaseMs = this.monotonic();
+    this.sampleClockMs = null;
     try {
       while (!this.stopped) {
         const next = await Promise.race([iterator.next(), this.stopSignal]);
@@ -108,7 +119,10 @@ export class TrackRecorder {
   private onFrame(frame: RecordedFrame): void {
     if (this.paused) return;
     const frameMs = (frame.data.length * 1000) / SAMPLE_RATE;
-    const atMs = this.now() - this.meeting.startedAt.getTime() - frameMs;
+    const wallMs = this.wallBaseMs + (this.monotonic() - this.monoBaseMs);
+    let atMs = this.sampleClockMs ?? wallMs - frameMs;
+    if (wallMs - (atMs + frameMs) > REAL_GAP_MS) atMs = wallMs - frameMs;
+    this.sampleClockMs = atMs + frameMs;
     this.handle(this.chunker.push(frame.data, atMs));
   }
 

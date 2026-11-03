@@ -48,10 +48,16 @@ export interface RoomMetadata {
   title: string;
   aiNotesEnabled: boolean;
   hostId: string;
+  version?: number;
 }
 
 export function encodeRoomMetadata(m: RoomMetadata): string {
-  return JSON.stringify({ title: m.title, aiNotesEnabled: m.aiNotesEnabled, hostId: m.hostId });
+  return JSON.stringify({
+    title: m.title,
+    aiNotesEnabled: m.aiNotesEnabled,
+    hostId: m.hostId,
+    ...(m.version === undefined ? {} : { version: m.version }),
+  });
 }
 
 export function decodeRoomMetadata(s: string): RoomMetadata | null {
@@ -66,7 +72,13 @@ export function decodeRoomMetadata(s: string): RoomMetadata | null {
     ) {
       return null;
     }
-    return { title: o.title, aiNotesEnabled: o.aiNotesEnabled, hostId: o.hostId };
+    const decoded: RoomMetadata = {
+      title: o.title,
+      aiNotesEnabled: o.aiNotesEnabled,
+      hostId: o.hostId,
+    };
+    if (typeof o.version === 'number' && Number.isInteger(o.version)) decoded.version = o.version;
+    return decoded;
   } catch {
     return null;
   }
