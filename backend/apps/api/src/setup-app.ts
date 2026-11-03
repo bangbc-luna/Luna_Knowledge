@@ -9,6 +9,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import type { AppConfig } from './config/app-config.js';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter.js';
 import { buildOpenApiDocument } from './common/swagger/openapi-document.js';
+import { corsOrigins } from './config/cors-origins.js';
 
 export const API_PREFIX = 'api/v1';
 
@@ -46,7 +47,7 @@ export function setupApp(app: INestApplication, config: AppConfig) {
   });
   app.use(cookieParser());
   app.useGlobalFilters(new AllExceptionsFilter());
-  app.enableCors({ origin: config.CORS_ORIGINS, credentials: true });
+  app.enableCors({ origin: corsOrigins(config.CORS_ORIGINS, config.NODE_ENV), credentials: true });
   app.enableShutdownHooks();
   const server = app.getHttpServer() as Server;
   server.keepAliveTimeout = config.HTTP_KEEP_ALIVE_TIMEOUT_MS;
