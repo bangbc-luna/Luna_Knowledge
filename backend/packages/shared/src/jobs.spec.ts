@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
-import { JOBS, QUEUES } from './constants.js';
+import { QUEUES } from './constants.js';
 import {
   enqueueFileJob,
   enqueueIndexNode,
@@ -10,14 +10,16 @@ import {
   RECORDER_JOB_OPTS,
   recorderBackoffMs,
   promoteMinutes,
+  enqueueReindexAll,
   enqueueTranscode,
+  upsertScheduler,
+  type ScheduledJobQueue,
   type JobName,
   type JobPayloads,
   type JobQueueName,
   transcodeJobOptions,
   type ProcessUploadJob,
   type RegenerateJob,
-  SEARCH_JOBS,
 } from './index.js';
 
 const fakeQueue = () => {
@@ -110,18 +112,10 @@ describe('enqueue helpers', () => {
     type Queues = (typeof QUEUES)[keyof typeof QUEUES];
     expectTypeOf<JobQueueName>().toEqualTypeOf<Exclude<Queues, 'audit'>>();
     expectTypeOf<JobName<'search-index'>>().toEqualTypeOf<
-      (typeof SEARCH_JOBS)[keyof typeof SEARCH_JOBS]
+      'index-node' | 'index-tree' | 'drop-workspace' | 'reindex-all'
     >();
-    expectTypeOf<JobName<'file-process'>>().toEqualTypeOf<
-      typeof JOBS.PROCESS_UPLOAD | typeof JOBS.REGENERATE
-    >();
-    expectTypeOf<JobName<'video-transcode'>>().toEqualTypeOf<typeof JOBS.TRANSCODE>();
-    expectTypeOf<JobName<'maintenance'>>().toEqualTypeOf<
-      | typeof JOBS.PURGE_TRASH
-      | typeof JOBS.RETENTION
-      | typeof JOBS.CLEAN_UPLOADS
-      | typeof JOBS.BLOB_GC
-    >();
+    expectTypeOf<JobName<'file-process'>>().toEqualTypeOf<'process-upload' | 'regenerate'>();
+    expectTypeOf<JobName<'video-transcode'>>().toEqualTypeOf<'transcode'>();
   });
 
   describe('enqueueMeetingReminder', () => {
@@ -250,5 +244,37 @@ describe('meeting recorder jobs', () => {
     expect([1, 2, 3, 4].map(recorderBackoffMs)).toEqual([5000, 10_000, 20_000, 40_000]);
     expect(recorderBackoffMs(8)).toBe(600_000);
     expect(recorderBackoffMs(40)).toBe(600_000);
+  });
+
+  describe('scheduler helpers', () => {
+    it('upsertScheduler dùng tên job làm id và gắn tuỳ chọn giữ lại mặc định', async () => {
+      const upsertJobScheduler = vi.fn().mockResolvedValue({});
+      const q = { ...fakeQueue(), upsertJobScheduler } as ScheduledJobQueue<'maintenance'>;
+      await upsertScheduler(q, 'blob-gc', { every: 600_000 });
+      expect(upsertJobScheduler).toHaveBeenCalledWith(
+        'blob-gc',
+        { every: 600_000 },
+        { name: 'blob-gc', opts: { removeOnComplete: 30, removeOnFail: 100 } },
+      );
+    });
+
+    it('upsertScheduler chỉ nhận job không có dữ liệu của đúng hàng đợi', () => {
+      type Name = Parameters<typeof upsertScheduler<'search-index'>>[1];
+      expectTypeOf<Name>().toEqualTypeOf<'reindex-all'>();
+      type Maint = Parameters<typeof upsertScheduler<'maintenance'>>[1];
+      expectTypeOf<Maint>().toEqualTypeOf<
+        'purge-trash' | 'retention' | 'clean-uploads' | 'blob-gc'
+      >();
+    });
+
+    it('enqueueReindexAll thêm reindex-all với jobId và tuỳ chọn gọn', async () => {
+      const q = fakeQueue();
+      await enqueueReindexAll(q, 'reindex-boot');
+      expect(q.add).toHaveBeenCalledWith(
+        'reindex-all',
+        {},
+        { jobId: 'reindex-boot', removeOnComplete: true, removeOnFail: 20 },
+      );
+    });
   });
 });

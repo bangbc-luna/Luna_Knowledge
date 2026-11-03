@@ -1,12 +1,18 @@
 import { readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AbortMultipartUploadCommand } from '@aws-sdk/client-s3';
 import { purgeExpiredTrash, RetentionError, type RetentionResult, runRetention } from '@luna/db';
-import { JOBS, ObjectStore, QUEUES, type QueueJob, unknownJob } from '@luna/shared';
+import {
+  ObjectStore,
+  QUEUES,
+  type QueueJob,
+  type ScheduledJobQueue,
+  unknownJob,
+  upsertScheduler,
+} from '@luna/shared';
 import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger, type OnApplicationBootstrap } from '@nestjs/common';
-import type { Job, Queue } from 'bullmq';
+import type { Job } from 'bullmq';
 import { WORKER_CONFIG, type WorkerConfig } from '../config/worker-config.js';
 import { PrismaService } from '../infra/prisma.provider.js';
 
@@ -22,34 +28,23 @@ export class MaintenanceProcessor extends WorkerHost implements OnApplicationBoo
   constructor(
     private readonly prisma: PrismaService,
     private readonly store: ObjectStore,
-    @InjectQueue(QUEUES.MAINTENANCE) private readonly queue: Queue,
+    @InjectQueue(QUEUES.MAINTENANCE) private readonly queue: ScheduledJobQueue<'maintenance'>,
     @Inject(WORKER_CONFIG) private readonly config: WorkerConfig,
   ) {
     super();
   }
 
   async onApplicationBootstrap() {
-    const opts = { removeOnComplete: 30, removeOnFail: 100 };
-    await this.queue.upsertJobScheduler(
-      JOBS.PURGE_TRASH,
-      { pattern: '0 3 * * *', tz: 'Asia/Ho_Chi_Minh' },
-      { name: JOBS.PURGE_TRASH, opts },
-    );
-    await this.queue.upsertJobScheduler(
-      JOBS.RETENTION,
-      { pattern: '30 3 * * *', tz: 'Asia/Ho_Chi_Minh' },
-      { name: JOBS.RETENTION, opts },
-    );
-    await this.queue.upsertJobScheduler(
-      JOBS.CLEAN_UPLOADS,
-      { pattern: '17 * * * *' },
-      { name: JOBS.CLEAN_UPLOADS, opts },
-    );
-    await this.queue.upsertJobScheduler(
-      JOBS.BLOB_GC,
-      { every: 10 * 60_000 },
-      { name: JOBS.BLOB_GC, opts },
-    );
+    await upsertScheduler(this.queue, 'purge-trash', {
+      pattern: '0 3 * * *',
+      tz: 'Asia/Ho_Chi_Minh',
+    });
+    await upsertScheduler(this.queue, 'retention', {
+      pattern: '30 3 * * *',
+      tz: 'Asia/Ho_Chi_Minh',
+    });
+    await upsertScheduler(this.queue, 'clean-uploads', { pattern: '17 * * * *' });
+    await upsertScheduler(this.queue, 'blob-gc', { every: 10 * 60_000 });
   }
 
   async process(job: Job): Promise<unknown> {
@@ -157,15 +152,7 @@ export class MaintenanceProcessor extends WorkerHost implements OnApplicationBoo
       take: 500,
     });
     for (const s of expired) {
-      await this.store.s3
-        .send(
-          new AbortMultipartUploadCommand({
-            Bucket: this.store.buckets.tmp,
-            Key: s.tmpKey,
-            UploadId: s.s3UploadId,
-          }),
-        )
-        .catch(() => undefined);
+      await this.store.abortTmpUpload(s.tmpKey, s.s3UploadId).catch(() => undefined);
       await this.prisma.client.uploadSession.update({
         where: { id: s.id },
         data: { status: 'ABORTED' },

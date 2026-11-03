@@ -7,14 +7,7 @@ import { createDecipheriv } from 'node:crypto';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-  createS3Client,
-  ensureBuckets,
-  JOBS,
-  loadEnv,
-  openVideoKey,
-  s3EnvSchema,
-} from '@luna/shared';
+import { createS3Client, ensureBuckets, loadEnv, openVideoKey, s3EnvSchema } from '@luna/shared';
 import type { INestApplicationContext } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
@@ -679,7 +672,7 @@ describe('Worker file-process (e2e)', () => {
         mime: 'application/octet-stream',
       },
     });
-    const r = await maintenance.process({ name: JOBS.RETENTION } as Job);
+    const r = await maintenance.process({ name: 'retention' } as Job);
     expect(r).toEqual(
       expect.objectContaining({
         auditLogs: expect.any(Number),
@@ -740,7 +733,7 @@ describe('Worker file-process (e2e)', () => {
       CREATE TRIGGER e2e_block_ws_delete BEFORE DELETE ON workspaces
         FOR EACH ROW WHEN (OLD.slug = 'retention-broken') EXECUTE FUNCTION e2e_block_ws_delete()`);
     try {
-      await expect(maintenance.process({ name: JOBS.RETENTION } as Job)).rejects.toThrow(
+      await expect(maintenance.process({ name: 'retention' } as Job)).rejects.toThrow(
         /Retention failed in: workspaces/,
       );
     } finally {

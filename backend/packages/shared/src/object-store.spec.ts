@@ -1,8 +1,12 @@
 import {
+  AbortMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
   CopyObjectCommand,
+  CreateMultipartUploadCommand,
   DeleteObjectCommand,
   DeleteObjectsCommand,
   ListObjectsV2Command,
+  ListPartsCommand,
 } from '@aws-sdk/client-s3';
 import { describe, expect, it, vi } from 'vitest';
 import { contentDisposition, ObjectStore } from './object-store.js';
@@ -121,5 +125,84 @@ describe('ObjectStore', () => {
     expect(url).toContain('X-Amz-Expires=3600');
     expect(url).toContain('partNumber=3');
     expect(url).toContain('uploadId=up-1');
+  });
+
+  describe('tmp multipart uploads', () => {
+    it('createTmpUpload mở multipart ở bucket tmp và trả UploadId', async () => {
+      const send = vi.fn().mockResolvedValue({ UploadId: 'u1' });
+      const store = new ObjectStore(env, { s3: { send } as never });
+      await expect(store.createTmpUpload('uploads/a')).resolves.toBe('u1');
+      const cmd = send.mock.calls[0]![0];
+      expect(cmd).toBeInstanceOf(CreateMultipartUploadCommand);
+      expect(cmd.input).toEqual({ Bucket: 'tmp', Key: 'uploads/a' });
+    });
+
+    it('listTmpUploadParts đi hết các trang và đổi sang kiểu nội bộ', async () => {
+      const send = vi
+        .fn()
+        .mockResolvedValueOnce({
+          Parts: [{ PartNumber: 1, Size: 5, ETag: '"a"' }],
+          IsTruncated: true,
+          NextPartNumberMarker: '1',
+        })
+        .mockResolvedValueOnce({ Parts: [{ PartNumber: 2, ETag: '"b"' }], IsTruncated: false });
+      const store = new ObjectStore(env, { s3: { send } as never });
+      await expect(store.listTmpUploadParts('uploads/a', 'u1')).resolves.toEqual([
+        { partNumber: 1, size: 5, etag: '"a"' },
+        { partNumber: 2, size: 0, etag: '"b"' },
+      ]);
+      expect(send.mock.calls[0]![0]).toBeInstanceOf(ListPartsCommand);
+      expect(send.mock.calls[0]![0].input).toEqual({
+        Bucket: 'tmp',
+        Key: 'uploads/a',
+        UploadId: 'u1',
+        PartNumberMarker: undefined,
+      });
+      expect(send.mock.calls[1]![0].input.PartNumberMarker).toBe('1');
+    });
+
+    it('completeTmpUpload gửi các phần theo thứ tự số phần', async () => {
+      const send = vi.fn().mockResolvedValue({});
+      const store = new ObjectStore(env, { s3: { send } as never });
+      await store.completeTmpUpload('uploads/a', 'u1', [
+        { partNumber: 2, size: 1, etag: 'b' },
+        { partNumber: 1, size: 1, etag: 'a' },
+      ]);
+      const cmd = send.mock.calls[0]![0];
+      expect(cmd).toBeInstanceOf(CompleteMultipartUploadCommand);
+      expect(cmd.input).toEqual({
+        Bucket: 'tmp',
+        Key: 'uploads/a',
+        UploadId: 'u1',
+        MultipartUpload: {
+          Parts: [
+            { PartNumber: 1, ETag: 'a' },
+            { PartNumber: 2, ETag: 'b' },
+          ],
+        },
+      });
+    });
+
+    it('abortTmpUpload huỷ multipart ở bucket tmp và để lỗi nổi lên cho người gọi', async () => {
+      const send = vi
+        .fn()
+        .mockRejectedValue(Object.assign(new Error('x'), { name: 'NoSuchUpload' }));
+      const store = new ObjectStore(env, { s3: { send } as never });
+      await expect(store.abortTmpUpload('uploads/a', 'u1')).rejects.toMatchObject({
+        name: 'NoSuchUpload',
+      });
+      const cmd = send.mock.calls[0]![0];
+      expect(cmd).toBeInstanceOf(AbortMultipartUploadCommand);
+      expect(cmd.input).toEqual({ Bucket: 'tmp', Key: 'uploads/a', UploadId: 'u1' });
+    });
+
+    it('presignTmpUploadPart ký URL phần của bucket tmp bằng endpoint công khai', async () => {
+      const store = new ObjectStore(env, { s3: { send: vi.fn() } as never });
+      const url = await store.presignTmpUploadPart('uploads/a', 'u1', 3, 3600);
+      expect(url.startsWith('http://media.test/tmp/uploads/a?')).toBe(true);
+      expect(url).toContain('partNumber=3');
+      expect(url).toContain('uploadId=u1');
+      expect(url).toContain('X-Amz-Expires=3600');
+    });
   });
 });

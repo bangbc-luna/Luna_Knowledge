@@ -1,16 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import {
-  AbortMultipartUploadCommand,
-  CompleteMultipartUploadCommand,
-  CreateMultipartUploadCommand,
-  ListPartsCommand,
-  type Part,
-} from '@aws-sdk/client-s3';
 import type { UploadSession } from '@luna/db';
 import {
   enqueueFileJob,
   type JobQueue,
   ObjectStore,
+  type UploadedPart,
   QUEUES,
   ALLOWED_EXTENSIONS,
   ruleForFileName,
@@ -97,16 +91,13 @@ export class UploadsService {
     let s3UploadId: string | undefined;
     let session: UploadSession;
     try {
-      const multipart = await this.store.s3.send(
-        new CreateMultipartUploadCommand({ Bucket: this.store.buckets.tmp, Key: tmpKey }),
-      );
-      s3UploadId = multipart.UploadId;
+      s3UploadId = await this.store.createTmpUpload(tmpKey);
       session = await this.prisma.client.uploadSession.create({
         data: {
           id,
           nodeId,
           workspaceId,
-          s3UploadId: multipart.UploadId!,
+          s3UploadId,
           tmpKey,
           fileName: body.fileName,
           sizeBytes: BigInt(body.size),
@@ -120,20 +111,12 @@ export class UploadsService {
       });
     } catch (err) {
       if (s3UploadId) {
-        await this.store.s3
-          .send(
-            new AbortMultipartUploadCommand({
-              Bucket: this.store.buckets.tmp,
-              Key: tmpKey,
-              UploadId: s3UploadId,
-            }),
-          )
-          .catch((cleanupErr: unknown) => {
-            this.logger.warn(
-              { err: cleanupErr, uploadId: id },
-              'Failed to abort the multipart upload after a failed upload start',
-            );
-          });
+        await this.store.abortTmpUpload(tmpKey, s3UploadId).catch((cleanupErr: unknown) => {
+          this.logger.warn(
+            { err: cleanupErr, uploadId: id },
+            'Failed to abort the multipart upload after a failed upload start',
+          );
+        });
       }
       if (createdNode) {
         await this.prisma.client.node
@@ -173,11 +156,11 @@ export class UploadsService {
     return {
       ...this.toDto(session, await this.kindOf(session.nodeId)),
       uploadedParts: uploaded.map((p) => ({
-        partNumber: p.PartNumber!,
-        size: p.Size ?? 0,
-        etag: p.ETag ?? '',
+        partNumber: p.partNumber,
+        size: p.size,
+        etag: p.etag,
       })),
-      uploadedBytes: uploaded.reduce((sum, p) => sum + (p.Size ?? 0), 0),
+      uploadedBytes: uploaded.reduce((sum, p) => sum + p.size, 0),
     };
   }
 
@@ -202,7 +185,7 @@ export class UploadsService {
     const node = await this.access.requireNode(user, session.nodeId, 'EDITOR');
 
     const parts = await this.listParts(session);
-    const received = new Set(parts.map((p) => p.PartNumber));
+    const received = new Set(parts.map((p) => p.partNumber));
     const missing: number[] = [];
     for (let n = 1; n <= session.partCount && missing.length < 20; n++) {
       if (!received.has(n)) missing.push(n);
@@ -210,7 +193,7 @@ export class UploadsService {
     if (missing.length) {
       throw AppError.validation('Some parts have not been uploaded yet', { missingParts: missing });
     }
-    const total = parts.reduce((sum, p) => sum + (p.Size ?? 0), 0);
+    const total = parts.reduce((sum, p) => sum + p.size, 0);
     if (BigInt(total) !== session.sizeBytes || parts.length !== session.partCount) {
       throw AppError.validation('Uploaded size does not match the declared size', {
         declared: Number(session.sizeBytes),
@@ -218,18 +201,7 @@ export class UploadsService {
       });
     }
 
-    await this.store.s3.send(
-      new CompleteMultipartUploadCommand({
-        Bucket: this.store.buckets.tmp,
-        Key: session.tmpKey,
-        UploadId: session.s3UploadId,
-        MultipartUpload: {
-          Parts: parts
-            .sort((a, b) => a.PartNumber! - b.PartNumber!)
-            .map((p) => ({ PartNumber: p.PartNumber, ETag: p.ETag })),
-        },
-      }),
-    );
+    await this.store.completeTmpUpload(session.tmpKey, session.s3UploadId, parts);
     const [done] = await this.prisma.client.$transaction([
       this.prisma.client.uploadSession.update({
         where: { id: uploadId },
@@ -274,14 +246,8 @@ export class UploadsService {
   }
 
   async abortSession(session: UploadSession) {
-    await this.store.s3
-      .send(
-        new AbortMultipartUploadCommand({
-          Bucket: this.store.buckets.tmp,
-          Key: session.tmpKey,
-          UploadId: session.s3UploadId,
-        }),
-      )
+    await this.store
+      .abortTmpUpload(session.tmpKey, session.s3UploadId)
       .catch((err: { name?: string }) => {
         if (err.name !== 'NoSuchUpload') throw err;
       });
@@ -335,8 +301,8 @@ export class UploadsService {
   private async signParts(session: UploadSession, from: number, to: number) {
     const parts: { partNumber: number; url: string }[] = [];
     for (let partNumber = from; partNumber <= to; partNumber++) {
-      const url = await this.store.presignUploadPart(
-        { container: this.store.buckets.tmp, key: session.tmpKey },
+      const url = await this.store.presignTmpUploadPart(
+        session.tmpKey,
         session.s3UploadId,
         partNumber,
         PART_URL_TTL_SEC,
@@ -346,22 +312,8 @@ export class UploadsService {
     return parts;
   }
 
-  private async listParts(session: UploadSession): Promise<Part[]> {
-    const parts: Part[] = [];
-    let marker: string | undefined;
-    for (;;) {
-      const res = await this.store.s3.send(
-        new ListPartsCommand({
-          Bucket: this.store.buckets.tmp,
-          Key: session.tmpKey,
-          UploadId: session.s3UploadId,
-          PartNumberMarker: marker,
-        }),
-      );
-      parts.push(...(res.Parts ?? []));
-      if (!res.IsTruncated) return parts;
-      marker = res.NextPartNumberMarker;
-    }
+  private listParts(session: UploadSession): Promise<UploadedPart[]> {
+    return this.store.listTmpUploadParts(session.tmpKey, session.s3UploadId);
   }
 
   private async kindOf(nodeId: string): Promise<'FILE' | 'VIDEO'> {
