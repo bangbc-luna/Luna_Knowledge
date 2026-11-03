@@ -43,6 +43,10 @@ export class RecorderProcessor
   }
 
   private async record(job: Job, meetingId: string, token?: string): Promise<RecordingResult> {
+    if (this.shutdown.signal.aborted) {
+      await job.moveToDelayed(Date.now() + RESTART_DELAY_MS, token);
+      throw new DelayedError();
+    }
     try {
       const running = this.session.run(meetingId, this.shutdown.signal);
       this.active.add(running);
