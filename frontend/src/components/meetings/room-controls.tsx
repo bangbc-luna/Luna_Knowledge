@@ -32,9 +32,8 @@ export function ControlButton({ icon: Icon, label, active = true, danger, presse
   );
 }
 
-function HostMenu({ aiOn, onToggleAi, onEnd }: { aiOn: boolean; onToggleAi: () => Promise<void>; onEnd: () => Promise<void> }) {
-  const { open, setOpen, toggle, rootRef } = usePopover();
-  const [confirm, setConfirm] = useState(false);
+function HostMenu({ aiOn, onToggleAi }: { aiOn: boolean; onToggleAi: () => Promise<void> }) {
+  const { open, toggle, rootRef } = usePopover();
   const [busy, setBusy] = useState(false);
   return (
     <>
@@ -65,6 +64,44 @@ function HostMenu({ aiOn, onToggleAi, onEnd }: { aiOn: boolean; onToggleAi: () =
                 <span className={cn("absolute top-0.5 left-0.5 size-5 rounded-full bg-surface transition-transform motion-reduce:transition-none", aiOn && "translate-x-4")} />
               </button>
             </div>
+          </div>
+        </PopoverPanel>
+      </div>
+    </>
+  );
+}
+
+const LEAVE_CLASS = "inline-flex h-11 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-full bg-err px-4 text-sm font-medium text-rail-foreground hover:bg-err/85";
+
+function LeaveControl({ isHost, onLeave, onEnd }: { isHost: boolean; onLeave: () => void; onEnd: () => Promise<void> }) {
+  const { open, setOpen, toggle, rootRef } = usePopover();
+  const [confirm, setConfirm] = useState(false);
+  if (!isHost) {
+    return (
+      <button type="button" aria-label="Rời phòng" onClick={onLeave} className={cn(LEAVE_CLASS, focusRing)}>
+        <PhoneOff className="size-5" aria-hidden />
+        <span className="hidden sm:inline">Rời phòng</span>
+      </button>
+    );
+  }
+  return (
+    <>
+      <div ref={rootRef} className="relative">
+        <button type="button" aria-label="Rời hoặc kết thúc buổi họp" aria-haspopup="menu" aria-expanded={open} onClick={toggle} className={cn(LEAVE_CLASS, focusRing)}>
+          <PhoneOff className="size-5" aria-hidden />
+          <span className="hidden sm:inline">Rời phòng</span>
+        </button>
+        <PopoverPanel open={open} align="right" offset="lg" className="w-72 max-w-[calc(100vw-2rem)] text-foreground">
+          <div className="px-1">
+            <MenuItem
+              onClick={() => {
+                setOpen(false);
+                onLeave();
+              }}
+            >
+              <PhoneOff className="size-4 shrink-0" aria-hidden />
+              Chỉ mình tôi rời phòng
+            </MenuItem>
             <MenuItem
               danger
               onClick={() => {
@@ -127,7 +164,10 @@ export function RoomControls({ isHost, aiOn, onToggleAi, onEnd, onReact, handRai
   const { localParticipant, isMicrophoneEnabled, isCameraEnabled, isScreenShareEnabled } = useLocalParticipant();
   const canShare = typeof navigator !== "undefined" && typeof navigator.mediaDevices?.getDisplayMedia === "function";
   const run = (fn: () => Promise<unknown>, what: string) => () => {
-    fn().catch((err: unknown) => toast("error", `${what}: ${meetingErrorText(err)}`));
+    fn().catch((err: unknown) => {
+      console.error(what, err);
+      toast("error", `${what}: ${meetingErrorText(err)}`);
+    });
   };
   return (
     <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 border-t border-rail-item px-3 py-3">
@@ -161,16 +201,8 @@ export function RoomControls({ isHost, aiOn, onToggleAi, onEnd, onReact, handRai
           </span>
         ) : null}
       </div>
-      {isHost ? <HostMenu aiOn={aiOn} onToggleAi={onToggleAi} onEnd={onEnd} /> : null}
-      <button
-        type="button"
-        aria-label="Rời phòng"
-        onClick={() => void room.disconnect()}
-        className={cn("inline-flex h-11 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-full bg-err px-4 text-sm font-medium text-rail-foreground hover:bg-err/85", focusRing)}
-      >
-        <PhoneOff className="size-5" aria-hidden />
-        <span className="hidden sm:inline">Rời phòng</span>
-      </button>
+      {isHost ? <HostMenu aiOn={aiOn} onToggleAi={onToggleAi} /> : null}
+      <LeaveControl isHost={isHost} onLeave={() => void room.disconnect()} onEnd={onEnd} />
     </div>
   );
 }
