@@ -13,6 +13,7 @@ import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { UsersService } from '../users/users.service.js';
 import { MeetingAccess } from './meeting-access.service.js';
+import type { MinutesSummary } from './minutes/minutes.schemas.js';
 import { MinutesService } from './minutes/minutes.service.js';
 import type {
   CreateMeetingBody,
@@ -24,6 +25,8 @@ import type {
 const userSummary = { id: true, email: true, name: true, avatarUrl: true } as const;
 const ENDED_MESSAGE = 'This meeting has already ended';
 const AI_NOT_CONFIGURED = 'AI minutes are not configured';
+
+type MinutesStatus = MinutesSummary['status'];
 
 type MeetingRow = Meeting & {
   createdBy: { id: string; email: string; name: string; avatarUrl: string | null };
@@ -103,7 +106,7 @@ export class MeetingsService {
     });
     await this.notifyInvited(user, meeting, invitees);
     if (body.mode !== 'instant') await this.scheduleReminder(meeting.id, meeting.scheduledAt);
-    return this.toDto(meeting, 0);
+    return this.toDto(meeting, 0, 'NONE');
   }
 
   async list(
@@ -140,11 +143,15 @@ export class MeetingsService {
     });
     const hasMore = rows.length > q.limit;
     const items = hasMore ? rows.slice(0, q.limit) : rows;
-    const counts = await this.attendeeCounts(items.map((m) => m.id));
+    const ids = items.map((m) => m.id);
+    const [counts, minutes] = await Promise.all([
+      this.attendeeCounts(ids),
+      this.minutesStatuses(ids),
+    ]);
     const last = items[items.length - 1];
     const lastAt = last?.[field];
     return {
-      items: items.map((m) => this.toDto(m, counts.get(m.id) ?? 0)),
+      items: items.map((m) => this.toDto(m, counts.get(m.id) ?? 0, minutes.get(m.id) ?? 'NONE')),
       nextCursor: hasMore && last && lastAt ? encodeKeysetCursor(lastAt, last.id) : null,
     };
   }
@@ -347,6 +354,15 @@ export class MeetingsService {
     );
   }
 
+  private async minutesStatuses(meetingIds: string[]): Promise<Map<string, MinutesStatus>> {
+    if (meetingIds.length === 0) return new Map();
+    const rows = await this.prisma.client.meetingMinutes.findMany({
+      where: { meetingId: { in: meetingIds } },
+      select: { meetingId: true, status: true },
+    });
+    return new Map(rows.map((r) => [r.meetingId, r.status]));
+  }
+
   private async attendeeCounts(meetingIds: string[]): Promise<Map<string, number>> {
     if (meetingIds.length === 0) return new Map();
     const rows = await this.prisma.client.meetingAttendance.groupBy({
@@ -372,7 +388,7 @@ export class MeetingsService {
     });
     const attendeeCount = new Set(meeting.attendances.map((a) => a.user.id)).size;
     return {
-      ...this.toDto(meeting, attendeeCount),
+      ...this.toDto(meeting, attendeeCount, 'NONE'),
       invitees: meeting.invites.map((i) => i.user),
       attendees: meeting.attendances.map((a) => ({
         ...a.user,
@@ -389,7 +405,7 @@ export class MeetingsService {
     };
   }
 
-  private toDto(m: MeetingRow, attendeeCount: number) {
+  private toDto(m: MeetingRow, attendeeCount: number, minutesStatus: MinutesStatus) {
     return {
       id: m.id,
       workspaceId: m.workspaceId,
@@ -402,6 +418,7 @@ export class MeetingsService {
       aiNotesAvailable: this.aiAvailable,
       createdBy: m.createdBy,
       attendeeCount,
+      minutes: { status: minutesStatus },
     };
   }
 }
