@@ -63,7 +63,7 @@ export class TrackRecorder {
   ) {
     this.paused = startPaused;
     this.now = deps.now ?? Date.now;
-    this.monotonic = deps.monotonic ?? (() => performance.now());
+    this.monotonic = deps.monotonic ?? deps.now ?? (() => performance.now());
     this.stopSignal = new Promise((resolve) => {
       this.signalStop = () => resolve('stop');
     });
