@@ -11,7 +11,7 @@ import { decodeRoomMetadata, MEETING_MEDIA, type MeetingMedia, roomNameFor } fro
 import { ObjectStore, promoteMinutes, QUEUES } from '@luna/shared';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { type Queue, UnrecoverableError } from 'bullmq';
+import { UnrecoverableError } from 'bullmq';
 import { RECORDER_CONFIG, type RecorderConfig } from './config.js';
 import { PrismaService } from './prisma.provider.js';
 import { type AudioEncoder, OpusEncoder } from './opus-encoder.js';
@@ -90,7 +90,7 @@ export class RecordingSession {
   constructor(
     private readonly prisma: PrismaService,
     private readonly store: ObjectStore,
-    @InjectQueue(QUEUES.MEETING_MINUTES) private readonly minutesQueue: Queue,
+    @InjectQueue(QUEUES.MEETING_MINUTES) private readonly minutesQueue: Parameters<typeof promoteMinutes>[0],
     @Inject(MEETING_MEDIA) private readonly media: MeetingMedia,
     @Inject(RECORDER_CONFIG) private readonly config: RecorderConfig,
     @Optional() @Inject(RECORDER_HOOKS) private readonly hooks: RecorderHooks = {},
@@ -386,7 +386,7 @@ export class RecordingSession {
         audioPurgeAfter: new Date(at.getTime() + this.config.MEETING_AUDIO_RETENTION_DAYS * DAY_MS),
       },
     });
-    await promoteMinutes(this.minutesQueue as never, meetingId);
+    await promoteMinutes(this.minutesQueue, meetingId);
   }
 
   private async resultOf(meetingId: string): Promise<RecordingResult> {
