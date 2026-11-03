@@ -90,3 +90,7 @@ export const retryMinutes = (meetingId: string) => api<void>(`/meetings/${meetin
 
 export { linkify };
 export type { LinkPart };
+
+export type MeetingUsage = ApiOk<"/api/v1/admin/meetings/usage", "get">;
+
+export const getMeetingUsage = (from: string, to: string) => api<MeetingUsage>("/admin/meetings/usage", { query: { from, to } });
