@@ -31,6 +31,17 @@ Giả định: 60 buổi họp/tháng (3 buổi mỗi ngày làm việc), trung 
 
 Phương án rẻ hơn để so trong Task 4: Gemini 2.5 Flash cho chép lời (~$6/tháng) và Claude Sonnet 5.5 cho biên bản (~$7/tháng). Gói LiveKit Build (miễn phí, 5.000 participant-phút, không có giá vượt mức) chỉ đủ khoảng 14 buổi như trên nên chỉ dùng cho dev/test. Vendor chỉ chốt sau Task 4.
 
+## Điều chỉnh của chủ dự án (2026-11-03, đè lên các mục bên dưới khi mâu thuẫn)
+
+- **Bỏ camera** (plan 1 đã làm): phòng chỉ có mic, chia sẻ màn hình, chat. Recorder vẫn chỉ đăng ký `SOURCE_MICROPHONE`.
+- **LiveKit tự cài** thay cho LiveKit Cloud (xem `docs/DEPLOY.md` mục "Tự cài LiveKit"); bỏ dòng LiveKit Cloud $50 khỏi chi phí. Recorder nối tới `LIVEKIT_URL` như mọi client.
+- **AI khi dev: Gemini qua OmniRoute** (`OMNIROUTE_BASE_URL`, `OMNIROUTE_API_KEY`, `OMNIROUTE_MODEL` trong `backend/.env`, API kiểu OpenAI `POST /chat/completions`). Thêm adapter `OmniRouteSpeechToText` (gửi audio dạng `input_audio`, yêu cầu JSON `{segments:[{startSec,endSec,text}]}`) và `OmniRouteMinutesWriter` (JSON theo `minutesDraftSchema`, kiểm bằng zod, `temperature` thấp). Provider env: `MEETING_STT_PROVIDER` và `MEETING_LLM_PROVIDER` thêm giá trị `omniroute`. Deepgram và Claude giữ nguyên là adapter cho production; chủ dự án cấp tài khoản sau. Khoá OmniRoute là khoá dùng chung trong `backend/.env`, không in ra log.
+- **Không có ghi âm thật**: Task 4 bước 5 đổi thành **buổi họp tổng hợp**: kịch bản tiếng Việt nhiều người → giọng tổng hợp (TTS) → các "người họp giả" vào phòng LiveKit dev, phát giọng qua mic giả → recorder → pipeline đầy đủ. Kết quả dùng để kiểm luồng và định dạng, không dùng để chốt chất lượng chép lời; chốt vendor production làm lại khi có ghi âm thật.
+- **Khuôn biên bản đã duyệt** (tài liệu mẫu `01a19f78-4349-7748-863a-5695b0a43458` "[Mẫu AI] Biên bản họp sprint 13"): dòng mô tả (ngày, giờ, chủ trì, "thư ký AI, bản nháp chờ duyệt"), "Người dự" + "Vắng", dòng "Nguồn"; `1. Tổng quan` gồm đoạn tóm tắt + "Đã chốt" + "Hoãn sang sprint sau" + "Còn bỏ ngỏ"; `2. Phân việc` bảng 5 cột `# | Việc | Người phụ trách | Hạn | Căn cứ` (Căn cứ = mốc `[HH:mm] Tên` của câu gốc; người vắng ghi "(vắng, cần chủ trì xác nhận)"; nhiều người cùng nhận thì "Chưa rõ người phụ trách"), kèm đoạn "Ghi chú cho chủ trì khi duyệt"; `3. Chi tiết theo chủ đề` dạng heading(3) + đoạn; `4. Tin nhắn chat đáng chú ý`; `5. Bản ghi lời nói`. Vì vậy `minutesDraftSchema` thêm `overview.deferred: string[]`, `overview.openQuestions: string[]`, `notableChat: string[]` (refId của chat), và `actionItems[].ambiguous: boolean`; `renderMinutesDoc` dựng đúng khuôn này.
+- **An toàn ghi âm**: recorder chỉ thu khi **cả** `meetings.ai_notes_enabled` trong DB **và** metadata phòng đều bật (đọc DB mỗi 10 giây và khi metadata đổi).
+- **Hook kết thúc**: `MEETING_ENDED_HOOK` chỉ enqueue; worker thêm quét định kỳ các buổi `ENDED` có `meeting_minutes` mà chưa có job để không mất khi hook lỗi.
+- Branch: `feature/meetings-ai-minutes`. Persona test: `qa.*` đã bị xoá, dev login `?as=` tạo lại khi cần.
+
 ## Global Constraints
 
 - Không viết comment trong code (TS, TSX, SQL, script, compose, Dockerfile mới). Prompt nằm trong code dưới dạng hằng chuỗi có tên mô tả (`MINUTES_SYSTEM_PROMPT`, `MINUTES_OUTPUT_RULES`), không phải comment.
