@@ -37,6 +37,7 @@ describe('Users & admin (e2e)', () => {
       email: 'alice.nguyen@lunatech.vn',
       name: 'Alice Nguyễn',
       workspaces: [{ slug: 'eng', role: 'MEMBER' }],
+      aiNotesAvailable: true,
     });
   });
 

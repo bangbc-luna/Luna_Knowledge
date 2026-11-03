@@ -13,6 +13,9 @@ export const userSummarySchema = z.object({
 
 export const meSchema = userSummarySchema.extend({
   isSystemAdmin: z.boolean(),
+  aiNotesAvailable: z
+    .boolean()
+    .describe('false khi máy chủ chưa cấu hình AI: hộp thoại tạo họp ẩn công tắc biên bản AI'),
   workspaces: z.array(
     z.object({
       id: z.uuid(),

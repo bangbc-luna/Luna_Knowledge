@@ -1,10 +1,12 @@
 import { Prisma } from '@luna/db';
-import { Injectable } from '@nestjs/common';
+import { minutesAiAvailable } from '@luna/meetings';
+import { Inject, Injectable } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service.js';
 import { AuthService, type AuthenticatedUser } from '../auth/auth.service.js';
 import { AppError } from '../common/errors/app-error.js';
 import type { RequestContext } from '../common/http/request-context.js';
 import { toPage } from '../common/pagination/cursor.js';
+import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { PrismaService } from '../infra/prisma/prisma.service.js';
 import { CollabEventsService } from '../infra/redis/collab-events.service.js';
 import type { AdminListUsersQuery, AdminUpdateUserBody } from './users.schemas.js';
@@ -25,6 +27,7 @@ export class UsersService {
     private readonly auth: AuthService,
     private readonly audit: AuditService,
     private readonly collab: CollabEventsService,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
   async me(user: AuthenticatedUser) {
@@ -41,6 +44,7 @@ export class UsersService {
       name: user.name,
       avatarUrl: user.avatarUrl,
       isSystemAdmin: user.isSystemAdmin,
+      aiNotesAvailable: minutesAiAvailable(this.config),
       workspaces: memberships.map((m) => ({ ...m.workspace, role: m.role })),
     };
   }

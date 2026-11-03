@@ -54,6 +54,11 @@ describe('Meetings without AI providers (e2e)', () => {
     expect(detail.body).toMatchObject({ aiNotesEnabled: false, aiNotesAvailable: false });
   });
 
+  it('/me báo aiNotesAvailable=false để hộp thoại tạo họp không cần danh sách buổi họp', async () => {
+    const me = await http().get('/api/v1/me').set(alice.auth).expect(200);
+    expect(me.body.aiNotesAvailable).toBe(false);
+  });
+
   it('bật ghi biên bản trả 409; tắt vẫn được; sửa lịch bật AI cũng 409', async () => {
     const id = (await create({ aiNotesEnabled: false }).expect(201)).body.id as string;
     const on = await http()
