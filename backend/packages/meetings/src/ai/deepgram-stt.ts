@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import {
   SttError,
+  isBodyReadFailure,
   isRetryableStatus,
+  normalizeSegments,
   isTimeoutError,
   readErrorSnippet,
   type FetchLike,
@@ -66,7 +68,7 @@ export class DeepgramSpeechToText implements SpeechToText {
       throw new SttError('Deepgram không kết nối được', true);
     }
     if (!res.ok) {
-      const snippet = await readErrorSnippet(res);
+      const snippet = await readErrorSnippet(res, this.apiKey);
       throw new SttError(
         `Deepgram trả về ${res.status}: ${snippet}`,
         isRetryableStatus(res.status),
@@ -75,17 +77,16 @@ export class DeepgramSpeechToText implements SpeechToText {
     let json: unknown;
     try {
       json = await res.json();
-    } catch {
-      throw new SttError('Phản hồi Deepgram không phải JSON', false);
+    } catch (err) {
+      throw new SttError('Phản hồi Deepgram không đọc được', isBodyReadFailure(err));
     }
     const parsed = deepgramResponseSchema.safeParse(json);
     if (!parsed.success) throw new SttError('Phản hồi Deepgram sai cấu trúc', false);
-    return (parsed.data.results.utterances ?? [])
-      .map((u) => ({
-        startMs: Math.round(u.start * 1000),
-        endMs: Math.round(u.end * 1000),
-        text: u.transcript.trim(),
-      }))
-      .filter((s) => s.text.length > 0);
+    const segments = (parsed.data.results.utterances ?? []).map((u) => ({
+      startMs: Math.round(u.start * 1000),
+      endMs: Math.round(u.end * 1000),
+      text: u.transcript,
+    }));
+    return normalizeSegments(segments, audio.durationMs);
   }
 }

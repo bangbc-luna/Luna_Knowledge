@@ -65,7 +65,7 @@ export function buildSttPrompt(keyterms: string[]): string {
   return [
     'Chép lại lời nói trong đoạn âm thanh này bằng tiếng Việt, đúng chính tả và có dấu câu.',
     'Giữ nguyên các thuật ngữ tiếng Anh như đã nghe, không dịch.' + terms,
-    'Nếu không có lời nói thì trả về mảng segments rỗng. Không bịa nội dung.',
+    'Nếu không có lời nói thì trả về mảng segments rỗng, ví dụ {"segments":[]}. Không bịa nội dung, không đoán chữ từ tiếng ồn, nhạc hay tiếng bíp.',
     'Trả về duy nhất một đối tượng JSON dạng {"segments":[{"startSec":number,"endSec":number,"text":string}]}, thời gian tính bằng giây từ đầu đoạn âm thanh, không thêm chữ nào khác.',
   ].join('\n');
 }
@@ -97,6 +97,26 @@ export function parseSttSegments(text: string): SttSegment[] {
     .filter((s) => s.text.length > 0);
 }
 
+const MAX_CHARS_PER_SECOND = 25;
+
+export function normalizeSegments(segments: SttSegment[], durationMs: number): SttSegment[] {
+  const out: SttSegment[] = [];
+  for (const s of segments) {
+    const text = s.text.trim();
+    if (text.length === 0 || s.startMs >= durationMs) continue;
+    const endMs = Math.min(Math.max(s.endMs, s.startMs), durationMs);
+    const spanMs = endMs - s.startMs;
+    if (spanMs <= 0) continue;
+    if (text.length / Math.max(1, spanMs / 1000) > MAX_CHARS_PER_SECOND) continue;
+    out.push({ startMs: s.startMs, endMs, text });
+  }
+  return out;
+}
+
+export function isBodyReadFailure(err: unknown): boolean {
+  return !(err instanceof SyntaxError);
+}
+
 export function isRetryableStatus(status: number): boolean {
   return status === 429 || status >= 500 || status === 408;
 }
@@ -107,10 +127,11 @@ export function isTimeoutError(err: unknown): boolean {
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
-export async function readErrorSnippet(res: Response): Promise<string> {
+export async function readErrorSnippet(res: Response, secret?: string): Promise<string> {
   try {
-    const t = await res.text();
-    return t.replace(/\s+/g, ' ').slice(0, 300);
+    let t = (await res.text()).replace(/\s+/g, ' ');
+    if (secret) t = t.split(secret).join('[redacted]');
+    return t.slice(0, 300);
   } catch {
     return '';
   }

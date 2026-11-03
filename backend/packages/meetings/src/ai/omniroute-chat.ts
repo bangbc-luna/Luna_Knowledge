@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  isBodyReadFailure,
   isRetryableStatus,
   isTimeoutError,
   readErrorSnippet,
@@ -65,7 +66,7 @@ export async function omniRouteChat(
     throw new OmniRouteHttpError('OmniRoute không kết nối được', true);
   }
   if (!res.ok) {
-    const snippet = await readErrorSnippet(res);
+    const snippet = await readErrorSnippet(res, opts.apiKey);
     throw new OmniRouteHttpError(
       `OmniRoute trả về ${res.status}: ${snippet}`,
       isRetryableStatus(res.status),
@@ -74,8 +75,8 @@ export async function omniRouteChat(
   let json: unknown;
   try {
     json = await res.json();
-  } catch {
-    throw new OmniRouteHttpError('Phản hồi OmniRoute không phải JSON', false);
+  } catch (err) {
+    throw new OmniRouteHttpError('Phản hồi OmniRoute không đọc được', isBodyReadFailure(err));
   }
   const parsed = chatResponseSchema.safeParse(json);
   if (!parsed.success) throw new OmniRouteHttpError('Phản hồi OmniRoute sai cấu trúc', false);

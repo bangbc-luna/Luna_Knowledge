@@ -66,7 +66,16 @@ export class ClaudeMinutesWriter implements MinutesWriter {
   }
 }
 
+const PARSE_FAILURE_PREFIX = 'Failed to parse structured output';
+
 function mapAnthropicError(err: unknown): MinutesWriterError {
+  if (
+    err instanceof Anthropic.AnthropicError &&
+    !(err instanceof Anthropic.APIError) &&
+    err.message.startsWith(PARSE_FAILURE_PREFIX)
+  ) {
+    return new MinutesWriterError('truncated', 'Biên bản bị cắt giữa chừng', false);
+  }
   if (err instanceof Anthropic.RateLimitError) {
     return new MinutesWriterError('rate_limited', 'Claude giới hạn tốc độ (429)', true);
   }
@@ -79,6 +88,9 @@ function mapAnthropicError(err: unknown): MinutesWriterError {
       'Claude không kết nối được hoặc quá thời gian',
       true,
     );
+  }
+  if (err instanceof Anthropic.APIError && err.status === 408) {
+    return new MinutesWriterError('unavailable', 'Claude quá thời gian chờ (408)', true);
   }
   if (err instanceof Anthropic.APIError) {
     return new MinutesWriterError('rejected', `Claude từ chối yêu cầu (${err.status})`, false);

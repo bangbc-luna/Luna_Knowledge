@@ -34,9 +34,9 @@ export const minutesAiEnvSchema = z
     OMNIROUTE_API_KEY: optionalEnv(z.string()),
     MEETING_OMNIROUTE_STT_MODEL: z.string().default('auto/gemini-3.8-flash'),
     MEETING_OMNIROUTE_LLM_MODEL: z.string().default('auto/gemini-3.8-flash'),
-    MEETING_STT_USD_PER_MIN: z.coerce.number().default(0.0043),
-    MEETING_LLM_USD_PER_MTOK_IN: z.coerce.number().default(4),
-    MEETING_LLM_USD_PER_MTOK_OUT: z.coerce.number().default(20),
+    MEETING_STT_USD_PER_MIN: z.coerce.number().min(0).default(0.0043),
+    MEETING_LLM_USD_PER_MTOK_IN: z.coerce.number().min(0).default(4),
+    MEETING_LLM_USD_PER_MTOK_OUT: z.coerce.number().min(0).default(20),
     MEETING_KEYTERMS: csv,
   })
   .superRefine((env, ctx) => {

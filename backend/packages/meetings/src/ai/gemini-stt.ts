@@ -3,7 +3,9 @@ import {
   STT_JSON_SCHEMA,
   SttError,
   buildSttPrompt,
+  isBodyReadFailure,
   isRetryableStatus,
+  normalizeSegments,
   isTimeoutError,
   parseSttSegments,
   readErrorSnippet,
@@ -76,18 +78,18 @@ export class GeminiSpeechToText implements SpeechToText {
       throw new SttError('Gemini không kết nối được', true);
     }
     if (!res.ok) {
-      const snippet = await readErrorSnippet(res);
+      const snippet = await readErrorSnippet(res, this.apiKey);
       throw new SttError(`Gemini trả về ${res.status}: ${snippet}`, isRetryableStatus(res.status));
     }
     let json: unknown;
     try {
       json = await res.json();
-    } catch {
-      throw new SttError('Phản hồi Gemini không phải JSON', false);
+    } catch (err) {
+      throw new SttError('Phản hồi Gemini không đọc được', isBodyReadFailure(err));
     }
     const parsed = geminiResponseSchema.safeParse(json);
     if (!parsed.success) throw new SttError('Phản hồi Gemini sai cấu trúc', false);
     const text = parsed.data.candidates[0]!.content.parts.map((p) => p.text ?? '').join('');
-    return parseSttSegments(text);
+    return normalizeSegments(parseSttSegments(text), audio.durationMs);
   }
 }

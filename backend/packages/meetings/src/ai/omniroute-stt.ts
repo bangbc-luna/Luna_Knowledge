@@ -3,6 +3,7 @@ import {
   SttError,
   STT_SYSTEM_PROMPT,
   buildSttPrompt,
+  normalizeSegments,
   parseSttSegments,
   type FetchLike,
   type SpeechToText,
@@ -51,6 +52,6 @@ export class OmniRouteSpeechToText implements SpeechToText {
       if (err instanceof OmniRouteHttpError) throw new SttError(err.message, err.retryable);
       throw err;
     }
-    return parseSttSegments(content);
+    return normalizeSegments(parseSttSegments(content), audio.durationMs);
   }
 }

@@ -50,6 +50,12 @@ export class OmniRouteMinutesWriter implements MinutesWriter {
       }
       throw err;
     }
+    if (out.finishReason === 'length') {
+      throw new MinutesWriterError('truncated', 'Biên bản bị cắt giữa chừng', false);
+    }
+    if (out.finishReason === 'content_filter') {
+      throw new MinutesWriterError('refused', 'OmniRoute từ chối viết biên bản', false);
+    }
     let raw: unknown;
     try {
       raw = JSON.parse(stripJsonFence(out.content));

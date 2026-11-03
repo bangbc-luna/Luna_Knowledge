@@ -9,7 +9,7 @@ import { GeminiSpeechToText } from './gemini-stt.js';
 import { MinutesWriterError } from './minutes-writer.js';
 import { OmniRouteMinutesWriter } from './omniroute-minutes-writer.js';
 import { OmniRouteSpeechToText } from './omniroute-stt.js';
-import { SttError, type FetchLike } from './speech-to-text.js';
+import { SttError, normalizeSegments, buildSttPrompt, type FetchLike } from './speech-to-text.js';
 
 const audio = { body: Buffer.from('ogg-bytes'), mime: 'audio/ogg' as const, durationMs: 5000 };
 
@@ -358,5 +358,231 @@ describe('fake', () => {
     const out = await w.write({ system: 's', user: '[U3 00:01] S1 An: làm đi' });
     expect(out.draft.actionItems[0]!.evidence).toEqual(['U3']);
     expect(w.calls).toHaveLength(1);
+  });
+});
+
+describe('chuẩn hoá đoạn chép lời', () => {
+  const seg = (startMs: number, endMs: number, text: string) => ({ startMs, endMs, text });
+
+  it('bỏ đoạn bắt đầu sau độ dài âm thanh, kẹp endMs vào [startMs, durationMs]', () => {
+    expect(normalizeSegments([seg(6000, 7000, 'ngoài'), seg(5000, 6000, 'sát mép')], 5000)).toEqual(
+      [],
+    );
+    expect(normalizeSegments([seg(1000, 9000, 'dài quá')], 5000)).toEqual([
+      seg(1000, 5000, 'dài quá'),
+    ]);
+  });
+
+  it('đoạn đảo ngược hoặc dài bằng 0 hoặc chỉ có khoảng trắng bị bỏ', () => {
+    expect(normalizeSegments([seg(3000, 2000, 'đảo')], 5000)).toEqual([]);
+    expect(normalizeSegments([seg(1000, 1000, 'không dài')], 5000)).toEqual([]);
+    expect(normalizeSegments([seg(1000, 2000, '   \n ')], 5000)).toEqual([]);
+  });
+
+  it('câu bịa quá dày ký tự trên một giây bị bỏ, câu bình thường giữ lại', () => {
+    const invented =
+      'Chậm trễ này kia là bắt đầu chuyển sang sprint sau và cũng là hết hạn vào ngày mai';
+    expect(normalizeSegments([seg(0, 1000, invented)], 5000)).toEqual([]);
+    expect(normalizeSegments([seg(0, 4000, invented)], 5000)).toHaveLength(1);
+    expect(normalizeSegments([seg(0, 200, invented)], 5000)).toEqual([]);
+  });
+
+  it('mọi adapter dùng chuẩn hoá: Deepgram và OmniRoute bỏ đoạn ngoài thời lượng', async () => {
+    const dg = vi.fn().mockResolvedValue(
+      json({
+        results: {
+          utterances: [
+            { start: 9, end: 10, transcript: 'ngoài' },
+            { start: 0, end: 1, transcript: 'ok' },
+          ],
+        },
+      }),
+    );
+    const out = await new DeepgramSpeechToText({
+      apiKey: 'k',
+      model: 'nova-3',
+      language: 'vi',
+      fetchImpl: dg,
+    }).transcribe(audio, { keyterms: [] });
+    expect(out).toEqual([{ startMs: 0, endMs: 1000, text: 'ok' }]);
+    const or = vi
+      .fn()
+      .mockResolvedValue(chat('{"segments":[{"startSec":8,"endSec":9,"text":"ngoài"}]}'));
+    const stt = new OmniRouteSpeechToText({
+      baseUrl: 'https://or.test/v1',
+      apiKey: 'k',
+      model: 'm',
+      fetchImpl: or,
+    });
+    expect(await stt.transcribe(audio, { keyterms: [] })).toEqual([]);
+  });
+
+  it('prompt có ví dụ rỗng và dặn không đoán chữ từ tiếng ồn', () => {
+    const p = buildSttPrompt([]);
+    expect(p).toContain('{"segments":[]}');
+    expect(p).toContain('không đoán chữ từ tiếng ồn, nhạc hay tiếng bíp');
+  });
+});
+
+describe('lỗi khi đọc thân phản hồi và rò khoá', () => {
+  const bodyFail = (err: Error) => {
+    const res = new Response('{}', { status: 200 });
+    vi.spyOn(res, 'json').mockRejectedValue(err);
+    return vi.fn().mockResolvedValue(res);
+  };
+  const timeout = Object.assign(new Error('timeout'), { name: 'TimeoutError' });
+
+  it('mất kết nối hoặc quá hạn khi đọc thân là lỗi thử lại được; SyntaxError thì không', async () => {
+    const mk = {
+      deepgram: (f: FetchLike) =>
+        new DeepgramSpeechToText({ apiKey: 'k', model: 'nova-3', language: 'vi', fetchImpl: f }),
+      gemini: (f: FetchLike) => new GeminiSpeechToText({ apiKey: 'k', model: 'g', fetchImpl: f }),
+      omniroute: (f: FetchLike) =>
+        new OmniRouteSpeechToText({
+          baseUrl: 'https://or.test/v1',
+          apiKey: 'k',
+          model: 'm',
+          fetchImpl: f,
+        }),
+    };
+    for (const make of Object.values(mk)) {
+      await expect(
+        make(bodyFail(timeout)).transcribe(audio, { keyterms: [] }),
+      ).rejects.toMatchObject({ retryable: true });
+      await expect(
+        make(bodyFail(new TypeError('terminated'))).transcribe(audio, { keyterms: [] }),
+      ).rejects.toMatchObject({ retryable: true });
+      await expect(
+        make(bodyFail(new SyntaxError('bad json'))).transcribe(audio, { keyterms: [] }),
+      ).rejects.toMatchObject({ retryable: false });
+    }
+    const w = new OmniRouteMinutesWriter({
+      baseUrl: 'https://or.test/v1',
+      apiKey: 'k',
+      model: 'm',
+      fetchImpl: bodyFail(timeout),
+    });
+    await expect(w.write({ system: 's', user: 'u' })).rejects.toMatchObject({ retryable: true });
+  });
+
+  it('thân lỗi lặp lại khoá thì khoá bị che và độ dài vẫn bị cắt', async () => {
+    const key = 'sk-very-secret-key-123';
+    const body = `Authorization: Bearer ${key} ${'y'.repeat(2000)}`;
+    const stt = new OmniRouteSpeechToText({
+      baseUrl: 'https://or.test/v1',
+      apiKey: key,
+      model: 'm',
+      fetchImpl: vi.fn().mockResolvedValue(new Response(body, { status: 401 })),
+    });
+    const e1 = (await stt.transcribe(audio, { keyterms: [] }).catch((e: unknown) => e)) as Error;
+    expect(e1.message).not.toContain(key);
+    expect(e1.message.length).toBeLessThanOrEqual(500);
+    const dg = new DeepgramSpeechToText({
+      apiKey: key,
+      model: 'nova-3',
+      language: 'vi',
+      fetchImpl: vi.fn().mockResolvedValue(new Response(`Token ${key}`, { status: 401 })),
+    });
+    expect(
+      ((await dg.transcribe(audio, { keyterms: [] }).catch((e: unknown) => e)) as Error).message,
+    ).not.toContain(key);
+    const w = new OmniRouteMinutesWriter({
+      baseUrl: 'https://or.test/v1',
+      apiKey: key,
+      model: 'm',
+      fetchImpl: vi.fn().mockResolvedValue(new Response(`Bearer ${key}`, { status: 400 })),
+    });
+    expect(
+      ((await w.write({ system: 's', user: 'u' }).catch((e: unknown) => e)) as Error).message,
+    ).not.toContain(key);
+  });
+});
+
+describe('OmniRoute viết biên bản: finish_reason', () => {
+  const withReason = (reason: string) =>
+    new OmniRouteMinutesWriter({
+      baseUrl: 'https://or.test/v1',
+      apiKey: 'k',
+      model: 'm',
+      fetchImpl: vi.fn().mockResolvedValue(
+        json({
+          choices: [{ finish_reason: reason, message: { content: JSON.stringify(draft) } }],
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+        }),
+      ),
+    });
+
+  it('length thành truncated, content_filter thành refused, đều không thử lại', async () => {
+    await expect(withReason('length').write({ system: 's', user: 'u' })).rejects.toMatchObject({
+      code: 'truncated',
+      retryable: false,
+    });
+    await expect(
+      withReason('content_filter').write({ system: 's', user: 'u' }),
+    ).rejects.toMatchObject({ code: 'refused', retryable: false });
+    expect((await withReason('stop').write({ system: 's', user: 'u' })).draft).toEqual(draft);
+  });
+});
+
+describe('Claude: lỗi parse và nhánh messages.parse', () => {
+  const run = async (error: Error, model?: string) => {
+    const rejecting = vi.fn().mockRejectedValue(error);
+    const client = {
+      messages: { parse: rejecting },
+      beta: { messages: { parse: rejecting } },
+    } as unknown as Anthropic;
+    return (await new ClaudeMinutesWriter({ apiKey: 'k', model, client })
+      .write({ system: 's', user: 'u' })
+      .catch((e: unknown) => e)) as MinutesWriterError;
+  };
+
+  it('AnthropicError "Failed to parse structured output" thành truncated; AnthropicError khác thành invalid_output', async () => {
+    const cut = await run(
+      new Anthropic.AnthropicError(
+        'Failed to parse structured output: Unexpected end of JSON input',
+      ),
+    );
+    expect(cut).toMatchObject({ code: 'truncated', retryable: false });
+    const other = await run(new Anthropic.AnthropicError('something else'));
+    expect(other).toMatchObject({ code: 'invalid_output', retryable: false });
+    const apiErr = await run(
+      new Anthropic.BadRequestError(400, {}, 'Failed to parse structured output', new Headers()),
+    );
+    expect(apiErr).toMatchObject({ code: 'rejected', retryable: false });
+  });
+
+  it('nhánh messages.parse (không phải Opus 5.5) cũng ánh xạ lỗi, 408 thử lại được', async () => {
+    const h = new Headers();
+    expect(
+      await run(new Anthropic.RateLimitError(429, {}, 'rl', h), 'claude-sonnet-5-5'),
+    ).toMatchObject({ retryable: true });
+    expect(
+      await run(new Anthropic.InternalServerError(503, {}, 'x', h), 'claude-sonnet-5-5'),
+    ).toMatchObject({ retryable: true });
+    expect(
+      await run(new Anthropic.APIError(408, {}, 'timeout', h), 'claude-sonnet-5-5'),
+    ).toMatchObject({ retryable: true });
+    expect(
+      await run(new Anthropic.BadRequestError(400, {}, 'bad', h), 'claude-sonnet-5-5'),
+    ).toMatchObject({ retryable: false });
+    expect(
+      await run(
+        new Anthropic.AnthropicError('Failed to parse structured output'),
+        'claude-sonnet-5-5',
+      ),
+    ).toMatchObject({ code: 'truncated' });
+  });
+});
+
+describe('env: giá không âm', () => {
+  it('giá âm bị từ chối', () => {
+    for (const k of [
+      'MEETING_STT_USD_PER_MIN',
+      'MEETING_LLM_USD_PER_MTOK_IN',
+      'MEETING_LLM_USD_PER_MTOK_OUT',
+    ]) {
+      expect(minutesAiEnvSchema.safeParse({ [k]: '-1' }).success).toBe(false);
+      expect(minutesAiEnvSchema.safeParse({ [k]: '0' }).success).toBe(true);
+    }
   });
 });
