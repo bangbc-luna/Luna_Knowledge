@@ -8777,6 +8777,12 @@ export interface operations {
                             meetings: number;
                             roomMinutes: number;
                             participantMinutes: number;
+                            sttMinutes: number;
+                            llmInputTokens: number;
+                            llmOutputTokens: number;
+                            aiCostMicroUsd: number;
+                            aiCostUsd: number;
+                            liveKitEstimateUsd: number;
                             byWorkspace: {
                                 workspaceId: string;
                                 name: string;

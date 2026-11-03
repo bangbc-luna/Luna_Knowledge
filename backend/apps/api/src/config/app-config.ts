@@ -61,6 +61,7 @@ export const apiEnvSchema = baseEnvSchema
     RATE_LIMIT_USER_PER_MIN: z.coerce.number().int().positive().default(600),
     RATE_LIMIT_ANON_PER_MIN: z.coerce.number().int().positive().default(120),
     MEETING_AUDIO_WAIT_SEC: z.coerce.number().int().min(0).default(900),
+    MEETING_LIVEKIT_USD_PER_PARTICIPANT_MIN: z.coerce.number().min(0).default(0.0005),
     BODY_LIMIT: z.string().default('512kb'),
     SWAGGER_ENABLED: z
       .enum(['true', 'false'])

@@ -250,6 +250,97 @@ describe('Admin: stats & audit logs (e2e)', () => {
     ]);
   });
 
+  it('chi phí AI theo tháng cộng đúng micro USD; dòng chi phí của buổi họp đã xoá vẫn được tính', async () => {
+    const at = (iso: string) => new Date(iso);
+    const ws = (
+      await http()
+        .post('/api/v1/workspaces')
+        .set(owner.auth)
+        .send({ name: 'Ops', slug: 'ops' })
+        .expect(201)
+    ).body.id;
+    const mk = (startedAt: Date) =>
+      ctx.prisma.meeting.create({
+        data: {
+          workspaceId: ws,
+          createdById: owner.userId,
+          title: 'Họp AI',
+          status: 'ENDED',
+          startedAt,
+          endedAt: new Date(startedAt.getTime() + 600_000),
+        },
+      });
+    const kept = await mk(at('2026-07-10T03:00:00Z'));
+    const doomed = await mk(at('2026-07-20T03:00:00Z'));
+    await mk(at('2026-07-25T03:00:00Z'));
+    const row = (data: Record<string, unknown>) => ({
+      workspaceId: ws,
+      provider: 'omniroute',
+      model: 'm',
+      ...data,
+    });
+    await ctx.prisma.meetingAiUsage.createMany({
+      data: [
+        row({ meetingId: kept.id, kind: 'stt', audioMs: 90_000, costMicroUsd: 1_500n }),
+        row({ meetingId: kept.id, kind: 'stt', audioMs: 30_000, costMicroUsd: 500n }),
+        row({
+          meetingId: kept.id,
+          kind: 'llm',
+          inputTokens: 1000,
+          outputTokens: 200,
+          costMicroUsd: 2_000n,
+        }),
+        row({
+          meetingId: doomed.id,
+          kind: 'stt',
+          audioMs: 60_000,
+          costMicroUsd: 1_000n,
+          createdAt: at('2026-07-20T04:00:00Z'),
+        }),
+        row({
+          meetingId: doomed.id,
+          kind: 'llm',
+          inputTokens: 500,
+          outputTokens: 100,
+          costMicroUsd: 3_000n,
+          createdAt: at('2026-07-20T04:00:00Z'),
+        }),
+        row({
+          meetingId: null,
+          kind: 'llm',
+          inputTokens: 10,
+          outputTokens: 5,
+          costMicroUsd: 250n,
+          createdAt: at('2026-07-31T17:30:00Z'),
+        }),
+      ] as never,
+    });
+    await ctx.prisma.meeting.delete({ where: { id: doomed.id } });
+
+    const res = await http()
+      .get('/api/v1/admin/meetings/usage?from=2026-07&to=2026-08')
+      .set(admin.auth)
+      .expect(200);
+    const [jul, aug] = res.body.months;
+    expect(jul).toMatchObject({
+      meetings: 2,
+      sttMinutes: 3,
+      llmInputTokens: 1500,
+      llmOutputTokens: 300,
+      aiCostMicroUsd: 8_000,
+      aiCostUsd: 0.008,
+      liveKitEstimateUsd: 0,
+    });
+    expect(aug).toMatchObject({
+      meetings: 0,
+      sttMinutes: 0,
+      llmInputTokens: 10,
+      llmOutputTokens: 5,
+      aiCostMicroUsd: 250,
+      aiCostUsd: 0.00025,
+    });
+  });
+
   it('khoảng tháng sai hoặc quá 24 tháng trả 400', async () => {
     const get = (q: string) => http().get(`/api/v1/admin/meetings/usage?${q}`).set(admin.auth);
     await get('from=2026-05&to=2026-03').expect(400);
