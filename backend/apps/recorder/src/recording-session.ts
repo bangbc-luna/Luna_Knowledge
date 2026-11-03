@@ -49,6 +49,7 @@ export interface RecorderHooks {
   openAudio?: (track: unknown) => AsyncIterable<RecordedFrame>;
   createEncoder?: () => AudioEncoder;
   now?: () => number;
+  monotonic?: () => number;
   pollMs?: number;
 }
 
@@ -144,7 +145,9 @@ export class RecordingSession {
     const micPublications = new Map<PublicationLike, { identity: string; on: boolean }>();
     const consumers = new Set<Promise<void>>();
     let dbEnabled = meeting.aiNotesEnabled;
-    let metaEnabled = decodeRoomMetadata(room.metadata ?? '')?.aiNotesEnabled ?? false;
+    const initialMeta = decodeRoomMetadata(room.metadata ?? '');
+    let metaEnabled = initialMeta?.aiNotesEnabled ?? false;
+    let metaVersion = initialMeta?.version ?? -1;
     let recording = false;
     let minutesReady = false;
     let disconnected = false;
@@ -239,6 +242,7 @@ export class RecordingSession {
             tmpDir: this.config.RECORDER_TMP_DIR,
             createEncoder,
             now,
+            ...(this.hooks.monotonic ? { monotonic: this.hooks.monotonic } : {}),
             logger: this.logger,
           },
           { id: meetingId, startedAt },
@@ -261,7 +265,12 @@ export class RecordingSession {
       consumers.add(consumer);
     };
     const onMetadata = (metadata: string) => {
-      metaEnabled = decodeRoomMetadata(metadata)?.aiNotesEnabled ?? false;
+      const decoded = decodeRoomMetadata(metadata);
+      if (decoded?.version !== undefined) {
+        if (decoded.version < metaVersion) return;
+        metaVersion = decoded.version;
+      }
+      metaEnabled = decoded?.aiNotesEnabled ?? false;
       if (!metaEnabled) {
         recording = false;
         for (const r of recorders.values()) {
