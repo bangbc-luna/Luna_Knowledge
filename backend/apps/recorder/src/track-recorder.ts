@@ -54,6 +54,7 @@ export class TrackRecorder {
   private wallBaseMs = 0;
   private monoBaseMs = 0;
   private sampleClockMs: number | null = null;
+  private pendingSnap: { frame: RecordedFrame; wallMs: number } | null = null;
 
   constructor(
     private readonly deps: TrackRecorderDeps,
@@ -63,7 +64,7 @@ export class TrackRecorder {
   ) {
     this.paused = startPaused;
     this.now = deps.now ?? Date.now;
-    this.monotonic = deps.monotonic ?? deps.now ?? (() => performance.now());
+    this.monotonic = deps.monotonic ?? (() => performance.now());
     this.stopSignal = new Promise((resolve) => {
       this.signalStop = () => resolve('stop');
     });
@@ -82,6 +83,7 @@ export class TrackRecorder {
   async pause(): Promise<void> {
     if (!this.paused) {
       this.paused = true;
+      this.settlePending(false);
       this.handle(this.chunker.flush());
     }
     await this.tail;
@@ -104,6 +106,7 @@ export class TrackRecorder {
     this.wallBaseMs = this.now() - this.meeting.startedAt.getTime();
     this.monoBaseMs = this.monotonic();
     this.sampleClockMs = null;
+    this.pendingSnap = null;
     try {
       while (!this.stopped) {
         const next = await Promise.race([iterator.next(), this.stopSignal]);
@@ -112,6 +115,7 @@ export class TrackRecorder {
       }
     } finally {
       void Promise.resolve(iterator.return?.()).catch(() => undefined);
+      this.settlePending(false);
       if (!this.stopped) this.handle(this.chunker.flush());
     }
   }
@@ -120,8 +124,28 @@ export class TrackRecorder {
     if (this.paused) return;
     const frameMs = (frame.data.length * 1000) / SAMPLE_RATE;
     const wallMs = this.wallBaseMs + (this.monotonic() - this.monoBaseMs);
-    let atMs = this.sampleClockMs ?? wallMs - frameMs;
-    if (wallMs - (atMs + frameMs) > REAL_GAP_MS) atMs = wallMs - frameMs;
+    if (this.pendingSnap) {
+      const pending = this.pendingSnap;
+      const realTime = wallMs - pending.wallMs >= frameMs / 2;
+      this.settlePending(realTime);
+    }
+    if (this.sampleClockMs !== null && wallMs - (this.sampleClockMs + frameMs) > REAL_GAP_MS) {
+      this.pendingSnap = { frame, wallMs };
+      return;
+    }
+    this.push(frame, wallMs, false);
+  }
+
+  private settlePending(snap: boolean): void {
+    const pending = this.pendingSnap;
+    if (!pending) return;
+    this.pendingSnap = null;
+    this.push(pending.frame, pending.wallMs, snap);
+  }
+
+  private push(frame: RecordedFrame, wallMs: number, snap: boolean): void {
+    const frameMs = (frame.data.length * 1000) / SAMPLE_RATE;
+    const atMs = snap || this.sampleClockMs === null ? wallMs - frameMs : this.sampleClockMs;
     this.sampleClockMs = atMs + frameMs;
     this.handle(this.chunker.push(frame.data, atMs));
   }
