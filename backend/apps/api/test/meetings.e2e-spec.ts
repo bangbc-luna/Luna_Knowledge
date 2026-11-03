@@ -285,7 +285,7 @@ describe('Meetings (e2e)', () => {
     }
     await ctx.prisma.meetingMinutes.createMany({
       data: [
-        { meetingId: p2, status: 'PUBLISHED' },
+        { meetingId: p2, status: 'AWAITING_REVIEW' },
         { meetingId: p3, status: 'FAILED' },
       ],
     });
@@ -309,7 +309,7 @@ describe('Meetings (e2e)', () => {
     expect(first.body.items.map((m: { id: string }) => m.id)).toEqual([p2, p3]);
     expect(first.body.nextCursor).toBeTruthy();
     expect(first.body.items.map((m: { minutes: unknown }) => m.minutes)).toEqual([
-      { status: 'PUBLISHED' },
+      { status: 'AWAITING_REVIEW' },
       { status: 'FAILED' },
     ]);
     const second = await list('past', { limit: 2, cursor: first.body.nextCursor }).expect(200);
