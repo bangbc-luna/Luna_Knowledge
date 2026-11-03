@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, LoaderCircle, RotateCw } from "lucide-react";
+import { ChevronRight, FileText, LoaderCircle, RotateCw } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { docHref } from "@/lib/documents";
@@ -87,11 +87,17 @@ export function MinutesPanel({ wsId, meetingId }: { wsId: string; meetingId: str
   } else {
     body = (
       <div className="mt-2 flex flex-col gap-3">
-        <p className="text-sm text-muted text-pretty">
-          Không tạo được biên bản.
-          {data.canReview && data.error ? <span className="mt-1 block line-clamp-3 [overflow-wrap:anywhere]">{data.error}</span> : null}
-        </p>
-        {data.canReview ? (
+        <p className="text-sm text-muted text-pretty [overflow-wrap:anywhere]">{data.failureReason ?? "Không tạo được biên bản."}</p>
+        {data.canReview && data.error ? (
+          <details className="group text-xs text-muted">
+            <summary className={cn("inline-flex min-h-8 cursor-pointer items-center gap-1 rounded font-medium", focusRing)}>
+              <ChevronRight className="size-3.5 transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden />
+              Chi tiết
+            </summary>
+            <pre className="mt-1 max-h-40 overflow-auto rounded-lg bg-secondary p-2 font-mono text-xs whitespace-pre-wrap [overflow-wrap:anywhere]">{data.error}</pre>
+          </details>
+        ) : null}
+        {data.canRetry ? (
           <div>
             <Button icon={RotateCw} loading={retrying} onClick={() => void retry()}>
               Thử lại
