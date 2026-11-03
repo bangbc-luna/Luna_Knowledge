@@ -728,6 +728,7 @@ model MeetingAudioChunk {
   key           String
   sizeBytes     BigInt    @map("size_bytes")
   transcribedAt DateTime? @map("transcribed_at") @db.Timestamptz(3)
+  skippedAt     DateTime? @map("skipped_at") @db.Timestamptz(3)
   deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(3)
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
 

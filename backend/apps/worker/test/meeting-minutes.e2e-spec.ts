@@ -396,6 +396,40 @@ describe('Meeting minutes worker (e2e)', () => {
     expect(await prisma.meetingUtterance.count({ where: { meetingId: meeting.id } })).toBe(1);
   });
 
+  it('đoạn bị bộ lọc chặn ở mọi lần thử: biên bản vẫn chờ duyệt kèm cảnh báo, âm thanh đoạn đó còn trong kho', async () => {
+    const { host, ws, meeting } = await setup();
+    const a = await member(ws.id, 'An');
+    const good = await chunk(meeting.id, host.id, 0);
+    const blocked = await chunk(meeting.id, a.id, 30_000);
+    stt.blockKey(blocked.key);
+
+    await runAllAttempts(meeting.id);
+
+    const row = await prisma.meetingMinutes.findUniqueOrThrow({ where: { meetingId: meeting.id } });
+    expect(row.status).toBe('AWAITING_REVIEW');
+    expect(row.error).toContain('bỏ qua 1 đoạn');
+    expect(row.audioPurgedAt).toBeNull();
+    expect(store.objects.has(blocked.key)).toBe(true);
+    expect(store.objects.has(good.key)).toBe(false);
+    const after = await prisma.meetingAudioChunk.findUniqueOrThrow({ where: { id: blocked.id } });
+    expect(after.deletedAt).toBeNull();
+    expect(after.skippedAt).not.toBeNull();
+    store.objects.clear();
+  });
+
+  it('đoạn bị chặn chưa phải lần thử cuối: job thử lại, chưa bỏ qua', async () => {
+    const { host, meeting } = await setup();
+    const blocked = await chunk(meeting.id, host.id, 0);
+    stt.blockKey(blocked.key);
+
+    await expect(run('process', { meetingId: meeting.id }, 0)).rejects.toThrow();
+
+    const after = await prisma.meetingAudioChunk.findUniqueOrThrow({ where: { id: blocked.id } });
+    expect(after.transcribedAt).toBeNull();
+    expect(after.skippedAt).toBeNull();
+    store.objects.clear();
+  });
+
   it('không có lời nói: không gọi LLM, bản nháp chỉ có chat', async () => {
     const { host, meeting } = await setup();
     await chunk(meeting.id, host.id, 0, []);
@@ -416,7 +450,7 @@ describe('Meeting minutes worker (e2e)', () => {
     const doc = JSON.stringify(row.draftDoc);
     expect(doc).toContain('Không có lời nói được ghi lại');
     expect(doc).toContain('link tài liệu');
-    expect(doc).toContain('4. Tin nhắn chat đáng chú ý');
+    expect(doc).toContain('3. Tin nhắn chat đáng chú ý');
     const usage = await prisma.meetingAiUsage.findMany({ where: { meetingId: meeting.id } });
     expect(usage.map((u) => u.kind)).toEqual(['stt']);
   });

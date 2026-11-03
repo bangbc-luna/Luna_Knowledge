@@ -77,8 +77,9 @@ class ClaimLost extends Error {}
 
 class StageFailure extends Error {}
 
-function isSkippable(err: unknown): boolean {
+function isSkippable(err: unknown, lastAttempt: boolean): boolean {
   if (isMissingObject(err)) return true;
+  if (err instanceof SttError && err.kind === 'blocked') return lastAttempt;
   if (!(err instanceof SttError) || err.retryable) return false;
   if (BILLING_ERROR.test(err.message)) return false;
   return err.status === undefined || CONTENT_STATUSES.has(err.status);
@@ -223,7 +224,8 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
     );
     let stage: Stage = 'transcribe';
     try {
-      await this.transcribeChunks(meeting.id, meeting.workspaceId, jobId, stt);
+      const lastAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
+      await this.transcribeChunks(meeting.id, meeting.workspaceId, jobId, stt, lastAttempt);
       const skipped = await this.skippedChunkCount(meeting.id);
       if (skipped.skipped > 0) {
         if (skipped.succeeded === 0) {
@@ -232,7 +234,7 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
           warnings.add('không chép lời được đoạn âm thanh nào, bản nháp chỉ có tin nhắn chat');
         } else {
           warnings.add(
-            `${SKIP_WARNING_PREFIX}${skipped.skipped} đoạn âm thanh không chép lời được`,
+            `${SKIP_WARNING_PREFIX}${skipped.skipped} đoạn âm thanh không chép lời được, âm thanh được giữ tới khi hết hạn`,
           );
         }
       }
@@ -288,11 +290,11 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
 
   private async skippedChunkCount(meetingId: string) {
     const db = this.prisma.client;
-    const [transcribed, succeeded] = await Promise.all([
-      db.meetingAudioChunk.count({ where: { meetingId, transcribedAt: { not: null } } }),
+    const [skipped, succeeded] = await Promise.all([
+      db.meetingAudioChunk.count({ where: { meetingId, skippedAt: { not: null } } }),
       db.meetingAiUsage.count({ where: { meetingId, kind: 'stt' } }),
     ]);
-    return { skipped: Math.max(0, transcribed - succeeded), succeeded };
+    return { skipped, succeeded };
   }
 
   private async fail(
@@ -356,6 +358,7 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
     workspaceId: string,
     jobId: string,
     stt: SpeechToText,
+    lastAttempt: boolean,
   ): Promise<void> {
     const db = this.prisma.client;
     for (let round = 0; round < MAX_TRANSCRIBE_ROUNDS; round++) {
@@ -378,10 +381,11 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
         try {
           await this.transcribeChunk(meetingId, workspaceId, chunk, stt);
         } catch (err) {
-          if (isSkippable(err)) {
+          if (isSkippable(err, lastAttempt)) {
+            const now = new Date();
             await db.meetingAudioChunk.updateMany({
               where: { id: chunk.id, transcribedAt: null },
-              data: { transcribedAt: new Date() },
+              data: { transcribedAt: now, skippedAt: now },
             });
             this.logger.warn(
               `Skipped audio chunk ${chunk.id} of meeting ${meetingId}: ${this.redact(err instanceof Error ? err.message : String(err))}`,
@@ -461,7 +465,7 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
       where: {
         meetingId,
         deletedAt: null,
-        ...(opts.onlyTranscribed ? { transcribedAt: { not: null } } : {}),
+        ...(opts.onlyTranscribed ? { transcribedAt: { not: null }, skippedAt: null } : {}),
       },
       select: { id: true, container: true, key: true },
     });

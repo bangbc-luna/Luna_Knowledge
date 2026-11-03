@@ -35,6 +35,7 @@ CREATE TABLE "meeting_audio_chunks" (
     "key" TEXT NOT NULL,
     "size_bytes" BIGINT NOT NULL,
     "transcribed_at" TIMESTAMPTZ(3),
+    "skipped_at" TIMESTAMPTZ(3),
     "deleted_at" TIMESTAMPTZ(3),
     "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
