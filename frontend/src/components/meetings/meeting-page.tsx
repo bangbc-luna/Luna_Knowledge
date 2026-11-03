@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarX2, Clock, FileText, Users } from "lucide-react";
+import { CalendarX2, Clock, Users } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -18,6 +18,7 @@ import { dateOf, timeOf } from "./meeting-time";
 import { meetingErrorText } from "./meeting-errors";
 import { ManageActions } from "./meeting-manage";
 import { MeetingRoom } from "./meeting-room";
+import { MinutesPanel } from "./minutes-panel";
 import { AI_NOTICE, PreJoin } from "./pre-join";
 import type { JoinChoices } from "./pre-join";
 
@@ -51,7 +52,7 @@ function mergeAttendees(list: MeetingDetail["attendees"]): MeetingDetail["attend
   return [...byUser.values()];
 }
 
-function EndedBlock({ meeting }: { meeting: MeetingDetail }) {
+function EndedBlock({ wsId, meeting }: { wsId: string; meeting: MeetingDetail }) {
   const start = meeting.startedAt ?? meeting.scheduledAt;
   const end = meeting.endedAt;
   const attendees = mergeAttendees(meeting.attendees);
@@ -105,13 +106,7 @@ function EndedBlock({ meeting }: { meeting: MeetingDetail }) {
           )}
         </section>
       </Card>
-      <Card className="p-5">
-        <h2 className="flex items-center gap-2 text-sm font-semibold">
-          <FileText className="size-4 text-muted" aria-hidden />
-          Biên bản
-        </h2>
-        <p className="mt-2 text-sm text-muted text-pretty">Chưa có biên bản cho buổi họp này.</p>
-      </Card>
+      <MinutesPanel wsId={wsId} meetingId={meeting.id} />
     </div>
   );
 }
@@ -246,7 +241,7 @@ export function MeetingPage() {
             <SkeletonRows rows={3} />
           </div>
         ) : data.status === "ENDED" ? (
-          <EndedBlock meeting={data} />
+          <EndedBlock wsId={wsId} meeting={data} />
         ) : data.status === "CANCELLED" ? (
           <CancelledBlock wsId={wsId} />
         ) : (

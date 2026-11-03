@@ -32,6 +32,7 @@ export type AppNotification = Omit<NotificationGen, "payload"> & {
     meetingId?: string;
     title?: string;
     scheduledAt?: string | null;
+    tasks?: string[];
   };
 };
 

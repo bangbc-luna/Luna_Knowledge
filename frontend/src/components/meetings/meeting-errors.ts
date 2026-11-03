@@ -20,6 +20,7 @@ const BY_STATUS: Record<number, string> = {
   403: "Bạn không có quyền làm việc này.",
   404: "Không tìm thấy buổi họp.",
   409: "Trạng thái buổi họp đã thay đổi, thử lại sau khi tải lại.",
+  413: "Biên bản quá lớn để lưu. Rút gọn bớt nội dung rồi lưu lại.",
   429: "Bạn thao tác quá nhanh, chờ một chút rồi thử lại.",
   503: "Dịch vụ họp đang tạm thời không dùng được, thử lại sau ít phút.",
 };

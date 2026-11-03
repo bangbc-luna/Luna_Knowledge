@@ -224,3 +224,13 @@ summary:focus-visible,
   background: var(--warning-bg);
   color: var(--warning);
 }
+
+.luna-minutes-editor .luna-mention-suggested::after {
+  content: " gợi ý";
+  font-size: 0.75em;
+  font-weight: 400;
+}
+
+.luna-minutes-editor table {
+  min-width: 36rem;
+}

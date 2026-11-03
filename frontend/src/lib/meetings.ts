@@ -21,6 +21,11 @@ export type UpdateMeetingInput = NonNullable<
 >["content"]["application/json"];
 export type InvitesAdded = ApiOk<"/api/v1/meetings/{id}/invites", "post">;
 
+export type MeetingMinutes = ApiOk<"/api/v1/meetings/{id}/minutes", "get">;
+export type MinutesDraft = NonNullable<MeetingMinutes["draft"]>;
+export type MinutesSuggestion = MinutesDraft["suggestions"][number];
+export type MinutesStatus = MeetingMinutes["status"];
+
 export const meetingHref = (wsId: string, meetingId: string) => `/w/${wsId}/meetings/${meetingId}`;
 
 export const listMeetings = (wsId: string, scope: MeetingScope, cursor?: string, limit?: number) =>
@@ -66,6 +71,22 @@ export const sendChat = (meetingId: string, body: string) =>
 
 export const listChat = (meetingId: string, cursor?: string, limit?: number) =>
   api<MeetingChatPage>(`/meetings/${meetingId}/messages`, { query: { cursor, limit } });
+
+export const getMinutes = (meetingId: string) => api<MeetingMinutes>(`/meetings/${meetingId}/minutes`);
+
+export const saveMinutesDraft = (meetingId: string, doc: Record<string, unknown>, revision: number) =>
+  api<ApiOk<"/api/v1/meetings/{id}/minutes/draft", "put">>(`/meetings/${meetingId}/minutes/draft`, {
+    method: "PUT",
+    body: { doc, revision },
+  });
+
+export const publishMinutes = (meetingId: string, revision: number, confirmedUserIds: string[]) =>
+  api<ApiOk<"/api/v1/meetings/{id}/minutes/publish", "post">>(`/meetings/${meetingId}/minutes/publish`, {
+    method: "POST",
+    body: { revision, confirmedUserIds },
+  });
+
+export const retryMinutes = (meetingId: string) => api<void>(`/meetings/${meetingId}/minutes/retry`, { method: "POST" });
 
 export { linkify };
 export type { LinkPart };
