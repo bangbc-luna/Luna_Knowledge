@@ -159,6 +159,8 @@ type PagedList = {
   loadMore: () => Promise<void>;
 };
 
+const NO_ITEMS: MeetingSummary[] = [];
+
 function usePagedList(
   wsId: string,
   scope: "live" | "upcoming" | "past",
@@ -172,10 +174,17 @@ function usePagedList(
     cursor: string | null;
   }>({ base: null, items: [], cursor: null });
   const [loading, setLoading] = useState(false);
-  const current =
-    extra.base === base
-      ? extra
-      : { base, items: [], cursor: base?.nextCursor ?? null };
+  const current = useMemo(
+    () =>
+      extra.base === base
+        ? extra
+        : { base, items: NO_ITEMS, cursor: base?.nextCursor ?? null },
+    [extra, base],
+  );
+  const items = useMemo(
+    () => [...(base?.items ?? []), ...current.items],
+    [base, current.items],
+  );
   const loadMore = async () => {
     if (!current.cursor) return;
     setLoading(true);
@@ -193,7 +202,7 @@ function usePagedList(
     }
   };
   return {
-    items: [...(base?.items ?? []), ...current.items],
+    items,
     cursor: current.cursor,
     loading,
     loadMore,
