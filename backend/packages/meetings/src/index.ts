@@ -22,3 +22,25 @@ export {
   type EndedMeeting,
   type MeetingEndedHook,
 } from './lifecycle.js';
+export { minutesDraftSchema, type MinutesDraft } from './minutes/schema.js';
+export {
+  buildTimeline,
+  formatTimelineForPrompt,
+  type Speaker,
+  type TimelineEntry,
+  type TimelineInput,
+} from './minutes/timeline.js';
+export {
+  MINUTES_OUTPUT_RULES,
+  MINUTES_SYSTEM_PROMPT,
+  buildMinutesUserMessage,
+} from './minutes/prompt.js';
+export { validateDraft } from './minutes/validate.js';
+export { foldName, matchPerson } from './minutes/name-match.js';
+export {
+  applyMentionConfirmations,
+  collectMentionIds,
+  renderMinutesDoc,
+  type MentionSuggestion,
+  type RenderInput,
+} from './minutes/render.js';

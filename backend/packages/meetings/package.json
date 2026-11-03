@@ -21,12 +21,14 @@
   },
   "dependencies": {
     "@luna/db": "workspace:*",
+    "@luna/editor": "workspace:*",
     "@luna/shared": "workspace:*",
     "livekit-server-sdk": "2.19.2",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@luna/tsconfig": "workspace:*",
+    "@tiptap/pm": "3.31.4",
     "@types/node": "^24.0.0",
     "typescript": "~6.0.3",
     "vitest": "^4.1.2"

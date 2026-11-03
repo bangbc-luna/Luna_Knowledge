@@ -442,6 +442,9 @@ importers:
       '@luna/db':
         specifier: workspace:*
         version: link:../db
+      '@luna/editor':
+        specifier: workspace:*
+        version: link:../editor
       '@luna/shared':
         specifier: workspace:*
         version: link:../shared
@@ -455,6 +458,9 @@ importers:
       '@luna/tsconfig':
         specifier: workspace:*
         version: link:../tsconfig
+      '@tiptap/pm':
+        specifier: 3.31.4
+        version: 3.31.4
       '@types/node':
         specifier: ^24.0.0
         version: 24.19.2
