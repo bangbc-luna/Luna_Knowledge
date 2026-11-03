@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { purgeExpiredTrash } from '@luna/db';
 import request from 'supertest';
+import { vi } from 'vitest';
+import { TrashService } from '../src/content/trash.service.js';
 import {
   createTestApp,
   type LoggedIn,
@@ -801,6 +803,60 @@ describe('Content tree, sharing, trash (e2e)', () => {
       expect(
         await ctx.prisma.auditLog.count({ where: { action: 'trash.empty', workspaceId: wsId } }),
       ).toBe(before + 1);
+    });
+
+    const seedTrash = async (total: number) => {
+      const ids = Array.from({ length: total }, () => randomUUID());
+      await ctx.prisma.node.createMany({
+        data: ids.map((id, i) => ({
+          id,
+          workspaceId: wsId,
+          type: 'DOCUMENT' as const,
+          name: `Hàng loạt ${i}`,
+          nameNormalized: `hàng loạt ${i}`,
+          createdById: alice.userId,
+          deletedAt: new Date(),
+          deletedById: alice.userId,
+          deletedRootId: id,
+        })),
+      });
+      return ids;
+    };
+
+    it('dọn thùng rác nhiều đợt chỉ ghi một audit với tổng số mục gốc', async () => {
+      await http().delete(`/api/v1/workspaces/${wsId}/trash`).set(alice.auth).expect(200);
+      await seedTrash(450);
+      const before = await ctx.prisma.auditLog.count({
+        where: { action: 'trash.empty', workspaceId: wsId },
+      });
+      await http().delete(`/api/v1/workspaces/${wsId}/trash`).set(alice.auth).expect(200);
+      const rows = await ctx.prisma.auditLog.findMany({
+        where: { action: 'trash.empty', workspaceId: wsId },
+        orderBy: { id: 'desc' },
+      });
+      expect(rows).toHaveLength(before + 1);
+      expect(rows[0]!.metadata).toMatchObject({ deletedRoots: 450 });
+    });
+
+    it('dọn thùng rác lỗi ở đợt sau vẫn yêu cầu dọn rác blob khi đã xoá được đợt trước', async () => {
+      await http().delete(`/api/v1/workspaces/${wsId}/trash`).set(alice.auth).expect(200);
+      const ids = await seedTrash(250);
+      const add = vi
+        .spyOn(
+          (ctx.app.get(TrashService) as unknown as { maintenance: { add: () => unknown } })
+            .maintenance,
+          'add',
+        )
+        .mockResolvedValue(undefined as never);
+      try {
+        await blockAudit('trash.empty');
+        await http().delete(`/api/v1/workspaces/${wsId}/trash`).set(alice.auth).expect(500);
+        await unblockAudit();
+        expect(await ctx.prisma.node.count({ where: { id: { in: ids } } })).toBe(50);
+        expect(add).toHaveBeenCalledWith('blob-gc', {}, expect.anything());
+      } finally {
+        add.mockRestore();
+      }
     });
   });
 });

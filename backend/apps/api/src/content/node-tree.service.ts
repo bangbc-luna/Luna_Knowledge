@@ -331,24 +331,26 @@ export class NodeTree {
     });
   }
 
-  async purgeAll(workspaceId: string, audit: (count: number) => AuditEntry): Promise<number> {
+  async purgeAll(workspaceId: string, audit: (total: number) => AuditEntry): Promise<number> {
     const roots = await this.prisma.client.$queryRaw<{ id: string }[]>`
       SELECT id FROM nodes WHERE workspace_id = ${workspaceId}::uuid AND deleted_root_id = id`;
+    if (roots.length === 0) {
+      await this.prisma.client.$transaction((tx) => this.writeAudit(tx, audit(0)));
+      return 0;
+    }
     let deleted = 0;
     for (let i = 0; i < roots.length; i += PURGE_BATCH_SIZE) {
       const ids = roots.slice(i, i + PURGE_BATCH_SIZE).map((r) => r.id);
+      const last = i + PURGE_BATCH_SIZE >= roots.length;
       deleted += await this.withLock(workspaceId, async (tx) => {
         const count = await tx.$executeRaw`
           DELETE FROM nodes
           WHERE workspace_id = ${workspaceId}::uuid
             AND deleted_root_id = id
             AND id = ANY(${ids}::uuid[])`;
-        await this.writeAudit(tx, audit(count));
+        if (last) await this.writeAudit(tx, audit(deleted + count));
         return count;
       });
-    }
-    if (roots.length === 0) {
-      await this.prisma.client.$transaction((tx) => this.writeAudit(tx, audit(0)));
     }
     return deleted;
   }
