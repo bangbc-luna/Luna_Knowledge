@@ -1,4 +1,4 @@
-import { Mark, mergeAttributes, type Extensions } from "@tiptap/core";
+import { Mark, Node, mergeAttributes, type Extensions } from "@tiptap/core";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import Highlight from "@tiptap/extension-highlight";
@@ -50,6 +50,38 @@ export const LunaImage = Image.extend({
   },
 });
 
+export const LunaMention = Node.create({
+  name: "mention",
+  group: "inline",
+  inline: true,
+  atom: true,
+  selectable: true,
+  addAttributes() {
+    return {
+      id: { default: null },
+      label: { default: "" },
+      suggested: { default: false },
+    };
+  },
+  parseHTML() {
+    return [{ tag: 'span[data-type="mention"]' }];
+  },
+  renderHTML({ node }) {
+    return [
+      "span",
+      {
+        "data-type": "mention",
+        "data-id": node.attrs.id,
+        class: node.attrs.suggested ? "luna-mention luna-mention-suggested" : "luna-mention",
+      },
+      `@${node.attrs.label}`,
+    ];
+  },
+  renderText({ node }) {
+    return `@${node.attrs.label}`;
+  },
+});
+
 export function buildExtensions({ ydoc, provider, user }: { ydoc: Y.Doc; provider: HocuspocusProvider; user: { name: string; color: string } }): Extensions {
   return [
     StarterKit.configure({ undoRedo: false, link: { openOnClick: false, autolink: true, HTMLAttributes: { rel: "noopener noreferrer", target: "_blank" } } }),
@@ -61,6 +93,7 @@ export function buildExtensions({ ydoc, provider, user }: { ydoc: Y.Doc; provide
     TextStyle,
     Color,
     CommentMark,
+    LunaMention,
     Placeholder.configure({ placeholder: "Bắt đầu viết…" }),
     Collaboration.configure({ document: ydoc, field: "default" }),
     CollaborationCaret.configure({ provider, user }),

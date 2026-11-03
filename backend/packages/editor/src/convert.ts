@@ -62,11 +62,16 @@ export function htmlToJSON(html: string): DocJSON {
   return normalize(generateJSON(html, editorExtensions) as DocJSON);
 }
 
+function leafToText(leaf: PMNode): string {
+  const toText = leaf.type.spec.toText as ((props: { node: PMNode }) => string) | undefined;
+  return toText ? toText({ node: leaf }) : ' ';
+}
+
 export function jsonToText(json: DocJSON): string {
   if (isLatexJSON(json)) return latexToText(json.source);
   const node = PMNode.fromJSON(editorSchema, normalize(json));
   return node
-    .textBetween(0, node.content.size, '\n', ' ')
+    .textBetween(0, node.content.size, '\n', leafToText)
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }

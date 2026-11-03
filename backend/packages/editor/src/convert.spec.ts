@@ -78,4 +78,34 @@ describe('editor convert', () => {
     });
     expect(jsonToText(stateToJSON(Y.encodeStateAsUpdate(b)))).toBe('Bản cũ');
   });
+
+  it('mention trong đoạn văn: jsonToText ra @Tên, jsonToHTML ra span data-type="mention", Yjs khứ hồi giữ id và suggested', () => {
+    const id = '0198a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b';
+    const doc = {
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            { type: 'text', text: 'Giao ' },
+            { type: 'mention', attrs: { id, label: 'Lan', suggested: false } },
+            { type: 'text', text: ' và ' },
+            { type: 'mention', attrs: { id, label: 'Hùng', suggested: true } },
+          ],
+        },
+      ],
+    };
+    expect(jsonToText(doc)).toBe('Giao @Lan và @Hùng');
+    const html = jsonToHTML(doc);
+    expect(html).toContain('data-type="mention"');
+    expect(html).toContain(`data-id="${id}"`);
+    expect(html).toContain('class="luna-mention luna-mention-suggested"');
+    expect(stateToJSON(jsonToState(doc))).toEqual(doc);
+  });
+
+  it('tài liệu không có mention cho kết quả chuyển đổi y như trước', () => {
+    expect(jsonToHTML(sample)).not.toContain('mention');
+    expect(jsonToText(sample)).toBe('Quy trình onboarding\nChào mừng thành viên mới\nNhận laptop');
+    expect(jsonToText(stateToJSON(jsonToState(sample)))).toBe(jsonToText(sample));
+  });
 });

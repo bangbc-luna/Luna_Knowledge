@@ -1,4 +1,4 @@
-import { type Extensions, getSchema, Mark, mergeAttributes } from '@tiptap/core';
+import { type Extensions, getSchema, Mark, mergeAttributes, Node } from '@tiptap/core';
 import Highlight from '@tiptap/extension-highlight';
 import Image from '@tiptap/extension-image';
 import { TaskItem, TaskList } from '@tiptap/extension-list';
@@ -40,6 +40,38 @@ export const LunaImage = Image.extend({
   },
 });
 
+export const LunaMention = Node.create({
+  name: 'mention',
+  group: 'inline',
+  inline: true,
+  atom: true,
+  selectable: true,
+  addAttributes() {
+    return {
+      id: { default: null },
+      label: { default: '' },
+      suggested: { default: false },
+    };
+  },
+  parseHTML() {
+    return [{ tag: 'span[data-type="mention"]' }];
+  },
+  renderHTML({ node }) {
+    return [
+      'span',
+      {
+        'data-type': 'mention',
+        'data-id': node.attrs.id,
+        class: node.attrs.suggested ? 'luna-mention luna-mention-suggested' : 'luna-mention',
+      },
+      `@${node.attrs.label}`,
+    ];
+  },
+  renderText({ node }) {
+    return `@${node.attrs.label}`;
+  },
+});
+
 export const editorExtensions: Extensions = [
   StarterKit.configure({ undoRedo: false, link: { openOnClick: false } }),
   TaskList,
@@ -50,6 +82,7 @@ export const editorExtensions: Extensions = [
   TextStyle,
   Color,
   CommentMark,
+  LunaMention,
 ];
 
 export const editorSchema = getSchema(editorExtensions);
