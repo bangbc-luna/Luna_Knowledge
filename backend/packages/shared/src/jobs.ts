@@ -143,18 +143,40 @@ export async function enqueueMeetingReminder(
   );
 }
 
+export const RECORDER_BACKOFF_BASE_MS = 5000;
+export const RECORDER_BACKOFF_CAP_MS = 600_000;
+
+export function recorderBackoffMs(attemptsMade: number): number {
+  return Math.min(
+    RECORDER_BACKOFF_CAP_MS,
+    RECORDER_BACKOFF_BASE_MS * 2 ** Math.max(0, attemptsMade - 1),
+  );
+}
+
 export const RECORDER_JOB_OPTS = {
-  attempts: 5,
-  backoff: { type: 'fixed' as const, delay: 5000 },
+  attempts: 12,
+  backoff: { type: 'custom' as const },
   removeOnComplete: true,
   removeOnFail: 50,
 };
 
+const REMOVABLE_RECORDER_STATES = new Set(['failed', 'completed']);
+
 export async function enqueueRecording(
-  queue: JobQueue<'meeting-recorder'>,
+  queue: JobQueue<'meeting-recorder'> & {
+    getJob(
+      id: string,
+    ): Promise<{ getState(): Promise<string>; remove(): Promise<void> } | undefined>;
+  },
   meetingId: string,
 ): Promise<void> {
-  await queue.add('record', { meetingId }, { jobId: `record-${meetingId}`, ...RECORDER_JOB_OPTS });
+  const jobId = `record-${meetingId}`;
+  const existing = await queue.getJob(jobId);
+  if (existing) {
+    if (!REMOVABLE_RECORDER_STATES.has(await existing.getState())) return;
+    await existing.remove();
+  }
+  await queue.add('record', { meetingId }, { jobId, ...RECORDER_JOB_OPTS });
 }
 
 export async function enqueueMinutes(

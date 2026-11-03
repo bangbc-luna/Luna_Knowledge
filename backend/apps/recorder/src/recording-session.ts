@@ -22,6 +22,7 @@ const RECORDER_IDENTITY = 'luna-recorder';
 const RECORDER_NAME = 'Luna AI';
 const DAY_MS = 86_400_000;
 const MAX_RECONNECT_WINDOW_MS = 6 * 3_600_000;
+const STABLE_CONNECTION_MS = 5 * 60_000;
 
 export interface PublicationLike {
   readonly kind?: TrackKind;
@@ -83,6 +84,7 @@ export function isMicrophone(publication: PublicationLike): boolean {
 @Injectable()
 export class RecordingSession {
   private readonly logger = new Logger(RecordingSession.name);
+  private readonly firstDisconnectAt = new Map<string, number>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -139,13 +141,14 @@ export class RecordingSession {
         }));
 
     const recorders = new Map<string, TrackRecorder>();
-    const micPublications = new Map<PublicationLike, boolean>();
+    const micPublications = new Map<PublicationLike, { identity: string; on: boolean }>();
     const consumers = new Set<Promise<void>>();
     let dbEnabled = meeting.aiNotesEnabled;
     let metaEnabled = decodeRoomMetadata(room.metadata ?? '')?.aiNotesEnabled ?? false;
     let recording = false;
     let minutesReady = false;
     let disconnected = false;
+    const connectedAt = now();
     let emptySince: number | null = null;
     let wakeRequested = false;
     let wake: () => void = () => undefined;
@@ -156,10 +159,17 @@ export class RecordingSession {
       wake();
     };
     const syncSubscriptions = () => {
-      for (const [publication, state] of micPublications) {
-        if (state === recording) continue;
-        micPublications.set(publication, recording);
-        publication.setSubscribed(recording);
+      for (const [publication, entry] of micPublications) {
+        if (entry.on === recording) continue;
+        try {
+          publication.setSubscribed(recording);
+          entry.on = recording;
+        } catch (err) {
+          this.logger.error(
+            { err, meetingId, identity: entry.identity },
+            'Changing a microphone subscription failed',
+          );
+        }
       }
     };
     const ensureMinutes = async () => {
@@ -197,7 +207,7 @@ export class RecordingSession {
       if (!isRecordable(participant)) return;
       for (const publication of participant.trackPublications.values()) {
         if (!isMicrophone(publication) || micPublications.has(publication)) continue;
-        micPublications.set(publication, false);
+        micPublications.set(publication, { identity: participant.identity, on: false });
       }
       syncSubscriptions();
     };
@@ -205,6 +215,14 @@ export class RecordingSession {
     const onParticipant = (participant: ParticipantLike) => subscribe(participant);
     const onPublished = (publication: PublicationLike, participant: ParticipantLike) => {
       if (isRecordable(participant) && isMicrophone(publication)) subscribe(participant);
+    };
+    const onParticipantLeft = (participant: ParticipantLike) => {
+      for (const [publication, entry] of micPublications) {
+        if (entry.identity === participant.identity) micPublications.delete(publication);
+      }
+    };
+    const onUnpublished = (publication: PublicationLike) => {
+      micPublications.delete(publication);
     };
     const onSubscribed = (
       track: unknown,
@@ -246,6 +264,9 @@ export class RecordingSession {
       metaEnabled = decodeRoomMetadata(metadata)?.aiNotesEnabled ?? false;
       if (!metaEnabled) {
         recording = false;
+        for (const r of recorders.values()) {
+          void r.pause().catch((err) => this.logger.error({ err, meetingId }, 'Pause failed'));
+        }
         void applyEnabled().catch((err) => this.logger.error({ err, meetingId }, 'Pause failed'));
       }
       requestWake();
@@ -257,6 +278,8 @@ export class RecordingSession {
 
     room.on(RoomEvent.ParticipantConnected, onParticipant);
     room.on(RoomEvent.TrackPublished, onPublished);
+    room.on(RoomEvent.TrackUnpublished, onUnpublished);
+    room.on(RoomEvent.ParticipantDisconnected, onParticipantLeft);
     room.on(RoomEvent.TrackSubscribed, onSubscribed);
     room.on(RoomEvent.RoomMetadataChanged, onMetadata);
     room.on(RoomEvent.Disconnected, onDisconnected);
@@ -282,11 +305,15 @@ export class RecordingSession {
       });
       if (!row || row.status !== 'LIVE') return true;
       if (disconnected) {
-        if (now() - startedAt.getTime() > MAX_RECONNECT_WINDOW_MS) {
+        const first = this.firstDisconnectAt.get(meetingId) ?? now();
+        this.firstDisconnectAt.set(meetingId, first);
+        if (now() - first > MAX_RECONNECT_WINDOW_MS) {
+          this.firstDisconnectAt.delete(meetingId);
           throw new Error('Recorder kept losing the room for too long');
         }
         throw new RecordingAborted('Recorder was disconnected from the room');
       }
+      if (now() - connectedAt >= STABLE_CONNECTION_MS) this.firstDisconnectAt.delete(meetingId);
       dbEnabled = row.aiNotesEnabled;
       await applyEnabled();
       const present = [...room.remoteParticipants.values()].filter(isRecordable).length;
@@ -314,6 +341,8 @@ export class RecordingSession {
       try {
         room.off(RoomEvent.ParticipantConnected, onParticipant);
         room.off(RoomEvent.TrackPublished, onPublished);
+        room.off(RoomEvent.TrackUnpublished, onUnpublished);
+        room.off(RoomEvent.ParticipantDisconnected, onParticipantLeft);
         room.off(RoomEvent.TrackSubscribed, onSubscribed);
         room.off(RoomEvent.RoomMetadataChanged, onMetadata);
         room.off(RoomEvent.Disconnected, onDisconnected);
@@ -324,6 +353,7 @@ export class RecordingSession {
       }
     }
     if (!finished) throw new RecordingAborted('Recording was interrupted');
+    this.firstDisconnectAt.delete(meetingId);
     const minutes = await db.meetingMinutes.findUnique({
       where: { meetingId },
       select: { meetingId: true },
@@ -334,6 +364,11 @@ export class RecordingSession {
   }
 
   private async complete(meetingId: string): Promise<void> {
+    const meeting = await this.prisma.client.meeting.findUnique({
+      where: { id: meetingId },
+      select: { status: true },
+    });
+    if (meeting?.status !== 'ENDED') return;
     const at = new Date();
     await this.prisma.client.meetingMinutes.update({
       where: { meetingId },

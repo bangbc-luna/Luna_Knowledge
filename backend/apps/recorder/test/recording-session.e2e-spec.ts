@@ -25,6 +25,7 @@ import { RedisContainer } from '@testcontainers/redis';
 import { Queue } from 'bullmq';
 import { GenericContainer, type StartedTestContainer, Wait } from 'testcontainers';
 import type { RecorderHooks, RoomLike } from '../src/recording-session.js';
+import { TrackRecorder } from '../src/track-recorder.js';
 
 const FRAME_MS = 20;
 const SAMPLES = FRAME_MS * 16;
@@ -104,6 +105,19 @@ class FakeRoom extends EventEmitter implements RoomLike {
     const participant = this.remoteParticipants.get(identity)!;
     const publication = this.mic(identity);
     this.emit(RoomEvent.TrackSubscribed, publication.queue, publication, participant);
+  }
+
+  leave(identity: string) {
+    const participant = this.remoteParticipants.get(identity)!;
+    this.remoteParticipants.delete(identity);
+    this.emit(RoomEvent.ParticipantDisconnected, participant);
+  }
+
+  unpublishMic(identity: string) {
+    const participant = this.remoteParticipants.get(identity)!;
+    const publication = this.mic(identity);
+    participant.trackPublications.delete(`${identity}-${TrackSource.SOURCE_MICROPHONE}`);
+    this.emit(RoomEvent.TrackUnpublished, publication, participant);
   }
 
   setMetadata(metadata: string) {
@@ -406,7 +420,142 @@ describe('Recording session (e2e)', () => {
     expect(
       (await prisma.meetingMinutes.findUnique({ where: { meetingId: meeting.id } }))
         ?.audioCompletedAt,
-    ).toBeInstanceOf(Date);
+    ).toBeNull();
+    expect(await minutesQueue.getJob(`minutes-${meeting.id}`)).toBeUndefined();
+  });
+
+  it('phiên ghi: phòng trống nhưng buổi họp còn LIVE → không đẩy job biên bản, không đặt audioCompletedAt', async () => {
+    const { meeting, owner } = await newMeeting();
+    const alice = await newUser();
+    const room = new FakeRoom(roomMeta(owner.id, true));
+    room.join(alice.id);
+    useRoom(room);
+    clock = startedAt.getTime();
+    const running = session.run(meeting.id, new AbortController().signal);
+    await waitUntil(async () => room.mic(alice.id).subscribedCalls.length > 0);
+    room.deliverMic(alice.id);
+    await speak(room.mic(alice.id).queue, 0, 1000, true);
+    await speak(room.mic(alice.id).queue, 1000, 2000, false);
+    room.leave(alice.id);
+    await sleep(200);
+    clock += 31_000;
+    await expect(running).resolves.toBe('ended');
+    expect(
+      (await prisma.meetingMinutes.findUnique({ where: { meetingId: meeting.id } }))
+        ?.audioCompletedAt,
+    ).toBeNull();
+    expect(await minutesQueue.getJob(`minutes-${meeting.id}`)).toBeUndefined();
+  });
+
+  it('phiên ghi: mốc 6 giờ tính từ lần mất kết nối đầu tiên, không phải từ lúc bắt đầu buổi họp', async () => {
+    const { meeting, owner } = await newMeeting();
+    const drop = async (at: number) => {
+      const room = new FakeRoom(roomMeta(owner.id, true));
+      useRoom(room);
+      clock = at;
+      const running = session.run(meeting.id, new AbortController().signal).catch((e) => e);
+      await sleep(250);
+      room.emit(RoomEvent.Disconnected);
+      return (await running) as Error;
+    };
+    const first = startedAt.getTime() + 8 * 3_600_000;
+    expect((await drop(first)).message).toContain('disconnected');
+    expect((await drop(first + 3_600_000)).message).toContain('disconnected');
+    expect((await drop(first + 6 * 3_600_000 + 1000)).message).toContain('kept losing');
+  });
+
+  it('phiên ghi: kết nối ổn định đủ lâu thì mốc 6 giờ được tính lại', async () => {
+    const { meeting, owner } = await newMeeting();
+    const alice = await newUser();
+    const first = startedAt.getTime() + 8 * 3_600_000;
+    const room1 = new FakeRoom(roomMeta(owner.id, true));
+    useRoom(room1);
+    clock = first;
+    const run1 = session.run(meeting.id, new AbortController().signal).catch((e) => e);
+    await sleep(250);
+    room1.emit(RoomEvent.Disconnected);
+    expect(((await run1) as Error).message).toContain('disconnected');
+
+    const room2 = new FakeRoom(roomMeta(owner.id, true));
+    room2.join(alice.id);
+    useRoom(room2);
+    clock = first + 60_000;
+    const abort = new AbortController();
+    const run2 = session.run(meeting.id, abort.signal);
+    await sleep(250);
+    clock = first + 60_000 + 10 * 60_000;
+    await sleep(250);
+    abort.abort();
+    await expect(run2).rejects.toThrow('interrupted');
+
+    const room3 = new FakeRoom(roomMeta(owner.id, true));
+    useRoom(room3);
+    clock = first + 7 * 3_600_000;
+    const run3 = session.run(meeting.id, new AbortController().signal).catch((e) => e);
+    await sleep(250);
+    room3.emit(RoomEvent.Disconnected);
+    expect(((await run3) as Error).message).toContain('disconnected');
+  });
+
+  it('phiên ghi: setSubscribed lỗi không làm hỏng phiên; người rời phòng hoặc gỡ mic bị bỏ khỏi danh sách đăng ký', async () => {
+    const { meeting, owner } = await newMeeting();
+    const [alice, bob, carol, dave] = [
+      await newUser(),
+      await newUser(),
+      await newUser(),
+      await newUser(),
+    ];
+    const room = new FakeRoom(roomMeta(owner.id, true));
+    room.join(alice.id);
+    room.mic(alice.id).setSubscribed = () => {
+      throw new Error('setSubscribed boom');
+    };
+    useRoom(room);
+    const abort = new AbortController();
+    let failure: unknown;
+    const running = session.run(meeting.id, abort.signal).catch((e) => (failure = e));
+    await sleep(300);
+    room.join(bob.id);
+    room.join(carol.id);
+    room.join(dave.id);
+    await waitUntil(async () => room.mic(dave.id).subscribedCalls.length > 0);
+    expect(failure).toBeUndefined();
+    expect(room.mic(bob.id).subscribedCalls).toEqual([true]);
+
+    const carolMic = room.mic(carol.id);
+    const daveMic = room.mic(dave.id);
+    room.leave(carol.id);
+    room.unpublishMic(dave.id);
+    await prisma.meeting.update({ where: { id: meeting.id }, data: { aiNotesEnabled: false } });
+    await waitUntil(async () => room.mic(bob.id).subscribedCalls.length === 2);
+    expect(room.mic(bob.id).subscribedCalls).toEqual([true, false]);
+    expect(carolMic.subscribedCalls).toEqual([true]);
+    expect(daveMic.subscribedCalls).toEqual([true]);
+    expect(failure).toBeUndefined();
+    abort.abort();
+    await running;
+  });
+
+  it('phiên ghi: metadata tắt ghi → pause từng recorder ngay trong cùng lượt xử lý sự kiện', async () => {
+    const { meeting, owner } = await newMeeting();
+    const alice = await newUser();
+    const room = new FakeRoom(roomMeta(owner.id, true));
+    room.join(alice.id);
+    useRoom(room);
+    const abort = new AbortController();
+    const running = session.run(meeting.id, abort.signal);
+    await waitUntil(async () => room.mic(alice.id).subscribedCalls.length > 0);
+    room.deliverMic(alice.id);
+    await sleep(100);
+    const pause = vi.spyOn(TrackRecorder.prototype, 'pause');
+    try {
+      room.setMetadata(roomMeta(owner.id, false));
+      expect(pause).toHaveBeenCalledTimes(1);
+    } finally {
+      pause.mockRestore();
+    }
+    abort.abort();
+    await expect(running).rejects.toThrow('interrupted');
   });
   it('phiên ghi: ghi biên bản tắt suốt buổi họp → không có dòng meeting_minutes, không có job biên bản, không đăng ký mic', async () => {
     const { meeting, owner } = await newMeeting({ aiNotesEnabled: false });

@@ -1,4 +1,4 @@
-import { JOBS, QUEUES, type QueueJob } from '@luna/shared';
+import { JOBS, QUEUES, type QueueJob, recorderBackoffMs } from '@luna/shared';
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger, type OnApplicationBootstrap, type OnModuleDestroy } from '@nestjs/common';
 import { DelayedError, type Job } from 'bullmq';
@@ -7,7 +7,10 @@ import { RecordingAborted, type RecordingResult, RecordingSession } from './reco
 
 const RESTART_DELAY_MS = 5000;
 
-@Processor(QUEUES.MEETING_RECORDER, { lockDuration: 60_000 })
+@Processor(QUEUES.MEETING_RECORDER, {
+  lockDuration: 60_000,
+  settings: { backoffStrategy: (attemptsMade: number) => recorderBackoffMs(attemptsMade) },
+})
 export class RecorderProcessor
   extends WorkerHost
   implements OnApplicationBootstrap, OnModuleDestroy

@@ -1,6 +1,7 @@
 import { enqueueMinutes, enqueueRecording, type JobQueue, QUEUES } from '@luna/shared';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
+import type { Queue } from 'bullmq';
 
 @Injectable()
 export class MinutesQueueService {
@@ -8,7 +9,7 @@ export class MinutesQueueService {
 
   constructor(
     @InjectQueue(QUEUES.MEETING_RECORDER)
-    private readonly recorder: JobQueue<'meeting-recorder'>,
+    private readonly recorder: Queue,
     @InjectQueue(QUEUES.MEETING_MINUTES)
     private readonly minutes: JobQueue<'meeting-minutes'>,
   ) {}
