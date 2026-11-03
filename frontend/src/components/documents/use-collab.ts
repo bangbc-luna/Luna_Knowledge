@@ -4,9 +4,10 @@ import { HocuspocusProvider, WebSocketStatus } from "@hocuspocus/provider";
 import { useEffect, useState } from "react";
 import * as Y from "yjs";
 import { ApiError, api } from "@/lib/api";
+import { tokenErrorOutcome } from "@/lib/collab-sync";
 import { type CollabToken, userColor } from "@/lib/documents";
 
-export type CollabStatus = "connecting" | "online" | "offline" | "denied";
+export type CollabStatus = "connecting" | "online" | "offline" | "denied" | "ended";
 
 const LOST_ACCESS = new Set(["Forbidden", "Session ended"]);
 const FINAL = new Set([401, 403, 404]);
@@ -43,8 +44,9 @@ export function useCollab(nodeId: string) {
       try {
         return await api<CollabToken>(`/documents/${nodeId}/collab-token`);
       } catch (err) {
-        if (err instanceof ApiError && (err.status === 404 || err.status === 403)) {
-          setStatus("denied");
+        const outcome = tokenErrorOutcome(err instanceof ApiError ? err.status : undefined);
+        if (outcome !== "retry") {
+          setStatus(outcome);
           provider?.disconnect();
         }
         throw err;
@@ -91,7 +93,7 @@ export function useCollab(nodeId: string) {
         },
         onStatus: ({ status: s }) => {
           if (s === WebSocketStatus.Connected) setStatus("online");
-          else setStatus((prev) => (prev === "denied" ? prev : s === WebSocketStatus.Connecting ? "connecting" : "offline"));
+          else setStatus((prev) => (prev === "denied" || prev === "ended" ? prev : s === WebSocketStatus.Connecting ? "connecting" : "offline"));
         },
         onSynced: ({ state }) => {
           if (state) lostStreak = 0;
