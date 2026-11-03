@@ -1,4 +1,3 @@
-import { JOBS } from '@luna/shared';
 import { DelayedError, type Job } from 'bullmq';
 import { vi } from 'vitest';
 import type { RecorderConfig } from './config.js';
@@ -13,7 +12,7 @@ function setup() {
   );
   const moveToDelayed = vi.fn(async () => undefined);
   const job = {
-    name: JOBS.MEETING_RECORD,
+    name: 'record',
     data: { meetingId: 'm1' },
     moveToDelayed,
   } as unknown as Job;
