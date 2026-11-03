@@ -287,4 +287,33 @@ describe('TrackRecorder', () => {
     await recorder.stop();
     expect(written.samples).toBe(101 * 160);
   });
+
+  it('luồng mới bắt đầu sau một luồng kết thúc khi đang giữ frame: không mất frame nào của cả hai luồng', async () => {
+    const clock = { t: 0 };
+    const written = { samples: 0 };
+    const { recorder } = setup({
+      now: () => clock.t,
+      monotonic: () => clock.t,
+      createEncoder: () => countingEncoder(written),
+    });
+    async function* endsHeld() {
+      for (let i = 0; i < 100; i++) {
+        clock.t += 10;
+        yield loud();
+      }
+      clock.t += 2000;
+      yield loud();
+    }
+    async function* next() {
+      for (let i = 0; i < 50; i++) {
+        clock.t += 10;
+        yield loud();
+      }
+    }
+    const first = recorder.consume(endsHeld());
+    const second = recorder.consume(next());
+    await Promise.all([first, second]);
+    await recorder.stop();
+    expect(written.samples).toBe(151 * 160);
+  });
 });
