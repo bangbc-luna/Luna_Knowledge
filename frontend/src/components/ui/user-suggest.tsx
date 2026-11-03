@@ -16,6 +16,7 @@ export function UserSuggestInput({
   onChange,
   onPick,
   taken,
+  takenHint = "Đã ở trong workspace",
   invalid,
   placeholder,
   className,
@@ -25,6 +26,7 @@ export function UserSuggestInput({
   onChange: (value: string) => void;
   onPick: (user: UserSummary) => void;
   taken?: ReadonlySet<string>;
+  takenHint?: string;
   invalid?: boolean;
   placeholder?: string;
   className?: string;
@@ -126,7 +128,7 @@ export function UserSuggestInput({
                   <span className="block truncate text-sm font-medium text-foreground">{u.name}</span>
                   <span className="block truncate text-xs text-muted">{u.email}</span>
                 </span>
-                {!selectable[i] ? <span className="shrink-0 text-xs text-muted">Đã ở trong workspace</span> : null}
+                {!selectable[i] ? <span className="shrink-0 text-xs text-muted">{takenHint}</span> : null}
               </button>
             ))
           ) : (

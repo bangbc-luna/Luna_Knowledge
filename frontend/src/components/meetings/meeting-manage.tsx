@@ -193,6 +193,7 @@ function InviteForm({ meeting, onClose, onChanged }: { meeting: MeetingDetail; o
               value={query}
               onChange={setQuery}
               taken={taken}
+              takenHint="Đã được mời"
               placeholder="Tìm theo tên hoặc email"
               onPick={(u) => {
                 setPicked((list) => (list.some((x) => x.id === u.id) ? list : [...list, u]));
