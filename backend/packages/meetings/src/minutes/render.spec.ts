@@ -30,6 +30,7 @@ function build(over: Partial<RenderInput> = {}, withSpeech = true) {
     endedAt,
     hostName: 'Bằng',
     attendeeCount: 2,
+    attendeeIds: ['u1', 'u2'],
     absentees: ['Hùng'],
     droppedItemCount: 0,
     draft: {
@@ -117,7 +118,7 @@ describe('renderMinutesDoc', () => {
     ]);
     const body = doc.content!;
     expect(flat(body[1]!)).toBe(
-      '03/11/2026 · 14:00–14:38 (38 phút) · Chủ trì: Bằng · Thư ký: AI Luna (bản nháp, chờ chủ trì duyệt)',
+      'Thứ Ba 03/11/2026 · 14:00–14:38 (38 phút) · Chủ trì: Bằng · Thư ký: AI Luna (bản nháp, chờ chủ trì duyệt)',
     );
     expect(flat(body[2]!)).toBe('Người dự (2): Tuấn, Lan. Vắng: Hùng.');
     expect(flat(body[3]!)).toContain('Nguồn: chép lời âm thanh riêng từng người + 1 tin nhắn chat');
@@ -150,7 +151,9 @@ describe('renderMinutesDoc', () => {
     expect(flat(rows[2]!.content![3]!)).toBe('sprint sau');
     expect(flat(rows[4]!.content![3]!)).toBe('—');
     expect(flat(rows[3]!.content![4]!)).toBe('[14:06] Tuấn, [14:10] Lan');
-    expect(flat(doc)).toContain('Ghi chú cho chủ trì khi duyệt: 1 việc giao cho người vắng mặt');
+    expect(flat(doc)).toContain(
+      'Ghi chú cho chủ trì khi duyệt: Dòng 2 giao cho người vắng mặt, AI chỉ gợi ý theo câu nói, không gửi thông báo cho tới khi bạn xác nhận; dòng 3 có nhiều người cùng nhận nên chưa chọn người.',
+    );
   });
 
   it('bỏ nhóm tổng quan rỗng, bỏ mục chat rỗng, không ghi chú khi không cần', () => {
@@ -173,7 +176,7 @@ describe('renderMinutesDoc', () => {
 
   it('ghi chú nhắc việc bị bỏ', () => {
     const doc = build({ droppedItemCount: 2, suggestions: [] });
-    expect(flat(doc)).toContain('2 việc bị bỏ vì không có căn cứ');
+    expect(flat(doc)).toContain('AI bỏ 2 việc không có căn cứ');
   });
 
   it('không có lời nói: tài liệu có chat và câu "Không có lời nói được ghi lại."', () => {
@@ -221,6 +224,59 @@ describe('mention confirmations', () => {
     PMNode.fromJSON(editorSchema, none).check();
     expect(collectMentionIds(none)).toEqual(['u1']);
     expect(findAll(none, 'mention').every((m) => m.attrs?.suggested === false)).toBe(true);
+    expect(flat(none)).toContain('Phạm Quốc Hùng (vắng, cần chủ trì xác nhận)');
+  });
+});
+
+describe('renderMinutesDoc bổ sung', () => {
+  it('buổi họp qua nửa đêm: thứ, ngày và mốc giờ theo Asia/Ho_Chi_Minh', () => {
+    const s = new Date('2026-11-03T16:30:00Z');
+    const t = buildTimeline({
+      utterances: [{ userId: 'u1', startMs: 35 * 60000, endMs: 36 * 60000, text: 'Sau nửa đêm.' }],
+      chat: [],
+      meetingStartedAt: s,
+      names,
+    });
+    const doc = build(
+      {
+        startedAt: s,
+        endedAt: new Date('2026-11-03T17:10:00Z'),
+        speakers: t.speakers,
+        entries: t.entries,
+        draft: {
+          overview: { summary: 'S', decisions: [], deferred: [], openQuestions: [] },
+          actionItems: [],
+          topics: [],
+          notableChat: [],
+        },
+        suggestions: [],
+      },
+      true,
+    );
+    expect(flat(doc.content![1]!)).toContain('Thứ Ba 03/11/2026 · 23:30–00:10 (40 phút)');
+    expect(flat(doc)).toContain('[00:05] Tuấn: Sau nửa đêm.');
+  });
+
+  it('người dự im lặng được gợi ý là mention đã dự, không ghi vắng', () => {
+    const doc = build({
+      attendeeIds: ['u1', 'u2', 'u9'],
+      suggestions: [{ actionIndex: 1, name: 'Hùng', userId: 'u9', userName: 'Hùng Im' }],
+    });
+    const table = findAll(doc, 'table')[0]!;
+    expect(findAll(table, 'mention').map((m) => m.attrs)).toContainEqual({
+      id: 'u9',
+      label: 'Hùng Im',
+      suggested: false,
+    });
+    expect(flat(table)).not.toContain('vắng, cần chủ trì');
+    expect(flat(doc)).not.toContain('dòng 2 giao cho người vắng');
+  });
+
+  it('xác nhận gợi ý thì bỏ ghi chú vắng khỏi ô', () => {
+    const doc = build();
+    const confirmed = applyMentionConfirmations(doc, new Set(['u9']));
+    expect(flat(confirmed)).not.toContain('(vắng, cần chủ trì xác nhận)');
+    const none = applyMentionConfirmations(doc, new Set());
     expect(flat(none)).toContain('Phạm Quốc Hùng (vắng, cần chủ trì xác nhận)');
   });
 });

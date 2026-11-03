@@ -5,6 +5,14 @@ const MAX_SUMMARY = 4000;
 const MAX_ITEMS = 100;
 const SPEAKER_ID = /^S\d+$/;
 
+const clip = (s: string, n: number) => s.slice(0, n);
+
+function realDate(s: string | null): string | null {
+  if (s === null) return null;
+  const d = new Date(`${s}T00:00:00Z`);
+  return Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== s ? null : s;
+}
+
 const cap = <T>(list: T[]): T[] => list.slice(0, MAX_ITEMS);
 
 export function validateDraft(
@@ -28,19 +36,34 @@ export function validateDraft(
       ownerName = ownerName ?? (SPEAKER_ID.test(ownerSpeakerId) ? null : ownerSpeakerId);
       ownerSpeakerId = null;
     }
-    kept.push({ ...item, task, evidence, ownerSpeakerId, ownerName });
+    if (item.ambiguous) {
+      ownerSpeakerId = null;
+      ownerName = null;
+    }
+    kept.push({
+      ...item,
+      task: clip(task, 500),
+      evidence,
+      ownerSpeakerId,
+      ownerName: ownerName === null ? null : clip(ownerName, 120),
+      dueText: item.dueText === null ? null : clip(item.dueText, 120),
+      dueDate: realDate(item.dueDate),
+    });
   }
 
   return {
     draft: {
       overview: {
         summary: draft.overview.summary.slice(0, MAX_SUMMARY),
-        decisions: cap(draft.overview.decisions),
-        deferred: cap(draft.overview.deferred),
-        openQuestions: cap(draft.overview.openQuestions),
+        decisions: cap(draft.overview.decisions).map((x) => clip(x, 1000)),
+        deferred: cap(draft.overview.deferred).map((x) => clip(x, 1000)),
+        openQuestions: cap(draft.overview.openQuestions).map((x) => clip(x, 1000)),
       },
       actionItems: cap(kept),
-      topics: cap(draft.topics).map((t) => ({ title: t.title, points: cap(t.points) })),
+      topics: cap(draft.topics).map((t) => ({
+        title: clip(t.title, 200),
+        points: cap(t.points).map((x) => clip(x, 1000)),
+      })),
       notableChat: cap([
         ...new Set(draft.notableChat.filter((r) => refs.has(r) && r.startsWith('C'))),
       ]),

@@ -25,6 +25,7 @@ export {
 export { minutesDraftSchema, type MinutesDraft } from './minutes/schema.js';
 export {
   buildTimeline,
+  MAX_TIMELINE_CHARS,
   formatTimelineForPrompt,
   type Speaker,
   type TimelineEntry,

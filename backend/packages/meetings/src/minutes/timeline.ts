@@ -87,6 +87,10 @@ export function formatClock(ms: number): string {
   return `${pad(Math.floor(total / 3600))}:${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`;
 }
 
+export const MAX_TIMELINE_CHARS = 400_000;
+
+const oneLine = (s: string) => s.replace(/\s*[\r\n]+\s*/g, ' ');
+
 export function formatTimelineForPrompt(t: {
   speakers: Speaker[];
   entries: TimelineEntry[];
@@ -95,7 +99,7 @@ export function formatTimelineForPrompt(t: {
   return t.entries
     .map((e) => {
       const tag = e.kind === 'chat' ? ' (chat)' : '';
-      return `[${e.refId} ${formatClock(e.startMs)}] ${e.speakerId} ${names.get(e.speakerId) ?? ''}${tag}: ${e.text}`;
+      return `[${e.refId} ${formatClock(e.startMs)}] ${e.speakerId} ${oneLine(names.get(e.speakerId) ?? '')}${tag}: ${oneLine(e.text)}`;
     })
     .join('\n');
 }

@@ -88,3 +88,51 @@ describe('validateDraft', () => {
     expect(r.draft.overview.decisions).toHaveLength(100);
   });
 });
+
+describe('validateDraft bổ sung', () => {
+  it('việc ambiguous không giữ người phụ trách', () => {
+    const r = validateDraft(
+      draftWith([{ ambiguous: true, ownerSpeakerId: 'S1', ownerName: 'Lan' }]),
+      refs,
+      speakers,
+    );
+    expect(r.draft.actionItems[0]).toMatchObject({
+      ambiguous: true,
+      ownerSpeakerId: null,
+      ownerName: null,
+    });
+  });
+
+  it('dueDate không phải ngày thật thì thành null', () => {
+    const r = validateDraft(
+      draftWith([{ dueDate: '2026-02-30' }, { dueDate: '2026-11-05' }, { dueDate: '2026-13-01' }]),
+      refs,
+      speakers,
+    );
+    expect(r.draft.actionItems.map((i) => i.dueDate)).toEqual([null, '2026-11-05', null]);
+  });
+
+  it('cắt độ dài chuỗi', () => {
+    const long = (n: number) => 'x'.repeat(n + 50);
+    const r = validateDraft(
+      draftWith([{ task: long(500), ownerName: long(120), dueText: long(120) }], {
+        topics: [{ title: long(200), points: [long(1000)] }],
+        overview: {
+          summary: 's',
+          decisions: [long(1000)],
+          deferred: [long(1000)],
+          openQuestions: [long(1000)],
+        },
+      }),
+      refs,
+      speakers,
+    );
+    const i = r.draft.actionItems[0]!;
+    expect([i.task.length, i.ownerName?.length, i.dueText?.length]).toEqual([500, 120, 120]);
+    expect(r.draft.topics[0]!.title).toHaveLength(200);
+    expect(r.draft.topics[0]!.points[0]).toHaveLength(1000);
+    expect(r.draft.overview.decisions[0]).toHaveLength(1000);
+    expect(r.draft.overview.deferred[0]).toHaveLength(1000);
+    expect(r.draft.overview.openQuestions[0]).toHaveLength(1000);
+  });
+});

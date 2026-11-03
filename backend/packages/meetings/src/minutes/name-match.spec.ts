@@ -29,3 +29,20 @@ describe('matchPerson', () => {
     expect(matchPerson('hung.nv', people)).toBe('a');
   });
 });
+
+describe('matchPerson bổ sung', () => {
+  it('không bỏ từ xưng hô trong tên ứng viên: "Chi Mai" không bị thành "mai"', () => {
+    const list = [
+      { id: 'a', name: 'Chi Mai', email: 'x@x.vn' },
+      { id: 'b', name: 'Lê Mai', email: 'y@x.vn' },
+    ];
+    expect(matchPerson('Mai', list)).toBeNull();
+    expect(matchPerson('Chi Mai', list)).toBe('a');
+    expect(matchPerson('chị Mai', [{ id: 'a', name: 'Trần Mai', email: 'm@x.vn' }])).toBe('a');
+  });
+
+  it('loại các id cho trước khỏi ứng viên', () => {
+    expect(matchPerson('Hùng', people, new Set(['a']))).toBeNull();
+    expect(matchPerson('Hà', people, new Set(['a']))).toBe('b');
+  });
+});

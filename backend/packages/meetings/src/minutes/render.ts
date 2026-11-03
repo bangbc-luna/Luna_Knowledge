@@ -15,6 +15,7 @@ export interface RenderInput {
   endedAt: Date;
   hostName: string;
   attendeeCount: number;
+  attendeeIds: string[];
   absentees: string[];
   droppedItemCount: number;
   draft: MinutesDraft;
@@ -73,6 +74,7 @@ function formatters(timeZone: string) {
       const p = parts(d, { day: '2-digit', month: '2-digit', year: 'numeric' });
       return `${p.day}/${p.month}/${p.year}`;
     },
+    weekday: (d: Date) => new Intl.DateTimeFormat('vi-VN', { timeZone, weekday: 'long' }).format(d),
     time: (d: Date) => {
       const p = parts(d, { hour: '2-digit', minute: '2-digit' });
       return `${p.hour}:${p.minute}`;
@@ -89,7 +91,6 @@ export function renderMinutesDoc(input: RenderInput): DocJSON {
   const fmt = formatters(input.timeZone);
   const { draft } = input;
   const speakerById = new Map(input.speakers.map((s) => [s.speakerId, s]));
-  const speakerByUser = new Map(input.speakers.map((s) => [s.userId, s]));
   const entryByRef = new Map(input.entries.map((e) => [e.refId, e]));
   const clock = (e: TimelineEntry) => fmt.time(new Date(input.startedAt.getTime() + e.startMs));
   const nameOf = (e: TimelineEntry) => speakerById.get(e.speakerId)?.name ?? '';
@@ -104,7 +105,7 @@ export function renderMinutesDoc(input: RenderInput): DocJSON {
   const content: DocJSON[] = [
     heading(1, `Biên bản: ${input.title}`),
     textPara(
-      `${fmt.date(input.startedAt)} · ${fmt.time(input.startedAt)}–${fmt.time(input.endedAt)} (${minutes} phút) · Chủ trì: ${input.hostName} · Thư ký: AI Luna (bản nháp, chờ chủ trì duyệt)`,
+      `${fmt.weekday(input.startedAt)} ${fmt.date(input.startedAt)} · ${fmt.time(input.startedAt)}–${fmt.time(input.endedAt)} (${minutes} phút) · Chủ trì: ${input.hostName} · Thư ký: AI Luna (bản nháp, chờ chủ trì duyệt)`,
     ),
     para(
       text(`Người dự (${input.attendeeCount}): `, bold),
@@ -142,19 +143,22 @@ export function renderMinutesDoc(input: RenderInput): DocJSON {
     const rows: DocJSON[] = [
       { type: 'tableRow', content: header.map((h) => cell('tableHeader', text(h, bold))) },
     ];
-    let absentSuggestions = 0;
-    let ambiguousItems = 0;
+    const attendeeIds = new Set([...input.attendeeIds, ...input.speakers.map((sp) => sp.userId)]);
+    const absentRows: number[] = [];
+    const ambiguousRows: number[] = [];
     draft.actionItems.forEach((item, index) => {
       let owner: DocJSON[];
       const attendee = item.ownerSpeakerId ? speakerById.get(item.ownerSpeakerId) : undefined;
       const suggestion = input.suggestions.find((s) => s.actionIndex === index);
       if (item.ambiguous) {
-        ambiguousItems += 1;
+        ambiguousRows.push(index + 1);
         owner = [text(AMBIGUOUS_OWNER)];
       } else if (attendee) {
         owner = [mention(attendee.userId, attendee.name, false)];
-      } else if (suggestion && !speakerByUser.has(suggestion.userId)) {
-        absentSuggestions += 1;
+      } else if (suggestion && attendeeIds.has(suggestion.userId)) {
+        owner = [mention(suggestion.userId, suggestion.userName, false)];
+      } else if (suggestion) {
+        absentRows.push(index + 1);
         owner = [mention(suggestion.userId, suggestion.userName, true), text(ABSENT_NOTE)];
       } else if (item.ownerName && item.ownerName.trim() !== '') {
         owner = [text(item.ownerName)];
@@ -179,29 +183,33 @@ export function renderMinutesDoc(input: RenderInput): DocJSON {
     });
     content.push({ type: 'table', content: rows });
 
+    const rowList = (rows: number[]) => rows.join(', ');
     const notes: string[] = [];
-    if (absentSuggestions > 0) {
+    if (absentRows.length > 0) {
       notes.push(
-        `${absentSuggestions} việc giao cho người vắng mặt, AI chỉ gợi ý theo câu nói, không gửi thông báo cho tới khi bạn xác nhận`,
+        `dòng ${rowList(absentRows)} giao cho người vắng mặt, AI chỉ gợi ý theo câu nói, không gửi thông báo cho tới khi bạn xác nhận`,
       );
     }
-    if (ambiguousItems > 0) {
-      notes.push(
-        `${ambiguousItems} việc có nhiều người cùng nhận nên AI không tự chọn người phụ trách`,
-      );
+    if (ambiguousRows.length > 0) {
+      notes.push(`dòng ${rowList(ambiguousRows)} có nhiều người cùng nhận nên chưa chọn người`);
     }
     if (input.droppedItemCount > 0) {
-      notes.push(`${input.droppedItemCount} việc bị bỏ vì không có căn cứ trong bản ghi`);
+      notes.push(`AI bỏ ${input.droppedItemCount} việc không có căn cứ`);
     }
     if (notes.length > 0) {
-      content.push(textPara(`Ghi chú cho chủ trì khi duyệt: ${notes.join('; ')}.`));
+      const joined = notes.join('; ');
+      content.push(
+        textPara(
+          `Ghi chú cho chủ trì khi duyệt: ${joined.charAt(0).toUpperCase()}${joined.slice(1)}.`,
+        ),
+      );
     }
   } else {
     content.push(heading(2, '2. Phân việc'));
     if (input.droppedItemCount > 0) {
       content.push(
         textPara(
-          `Ghi chú cho chủ trì khi duyệt: ${input.droppedItemCount} việc bị bỏ vì không có căn cứ trong bản ghi.`,
+          `Ghi chú cho chủ trì khi duyệt: AI bỏ ${input.droppedItemCount} việc không có căn cứ.`,
         ),
       );
     } else {
@@ -250,8 +258,23 @@ function mapMentions(node: DocJSON, fn: (m: DocJSON) => DocJSON | null): DocJSON
   return { ...node, content };
 }
 
+function dropConfirmedNotes(node: DocJSON, confirmed: Set<string>): DocJSON {
+  if (!node.content) return node;
+  const content: DocJSON[] = [];
+  node.content.forEach((child, i) => {
+    const prev = node.content![i - 1];
+    const afterConfirmed =
+      prev?.type === 'mention' &&
+      prev.attrs?.suggested === true &&
+      confirmed.has(String(prev.attrs.id));
+    if (afterConfirmed && child.type === 'text' && child.text === ABSENT_NOTE) return;
+    content.push(dropConfirmedNotes(child, confirmed));
+  });
+  return { ...node, content };
+}
+
 export function applyMentionConfirmations(doc: DocJSON, confirmedUserIds: Set<string>): DocJSON {
-  return mapMentions(doc, (m) => {
+  return mapMentions(dropConfirmedNotes(doc, confirmedUserIds), (m) => {
     const attrs = m.attrs ?? {};
     if (attrs.suggested !== true) return m;
     if (confirmedUserIds.has(String(attrs.id))) {
