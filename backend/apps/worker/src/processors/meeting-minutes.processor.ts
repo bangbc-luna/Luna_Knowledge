@@ -227,9 +227,14 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
       const skipped = await this.skippedChunkCount(meeting.id);
       if (skipped.skipped > 0) {
         if (skipped.succeeded === 0) {
-          throw new StageFailure('Mọi đoạn âm thanh đều không chép lời được');
+          const chat = await db.meetingChatMessage.count({ where: { meetingId } });
+          if (chat === 0) throw new StageFailure('Mọi đoạn âm thanh đều không chép lời được');
+          warnings.add('không chép lời được đoạn âm thanh nào, bản nháp chỉ có tin nhắn chat');
+        } else {
+          warnings.add(
+            `${SKIP_WARNING_PREFIX}${skipped.skipped} đoạn âm thanh không chép lời được`,
+          );
         }
-        warnings.add(`${SKIP_WARNING_PREFIX}${skipped.skipped} đoạn âm thanh không chép lời được`);
       }
       await db.meetingMinutes.updateMany({
         where: { meetingId, transcriptCompletedAt: null },

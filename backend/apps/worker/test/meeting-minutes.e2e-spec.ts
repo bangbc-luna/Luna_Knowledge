@@ -691,6 +691,29 @@ describe('Meeting minutes worker (e2e)', () => {
     store.objects.clear();
   });
 
+  it('mọi đoạn đều bị bỏ qua nhưng có chat: rơi về bản nháp chỉ có chat, kèm cảnh báo, không gọi LLM', async () => {
+    const { host, meeting } = await setup();
+    await chunk(meeting.id, host.id, 0);
+    await prisma.meetingChatMessage.create({
+      data: {
+        meetingId: meeting.id,
+        userId: host.id,
+        body: 'gửi file giúp',
+        createdAt: minutesAgo(50),
+      },
+    });
+    stt.failTimes(1, false, 422);
+
+    await run('process', { meetingId: meeting.id });
+
+    const row = await prisma.meetingMinutes.findUniqueOrThrow({ where: { meetingId: meeting.id } });
+    expect(row.status).toBe('AWAITING_REVIEW');
+    expect(row.failedStage).toBeNull();
+    expect(row.error).toContain('không chép lời được');
+    expect(JSON.stringify(row.draftDoc)).toContain('gửi file giúp');
+    expect(writer.calls).toHaveLength(0);
+  });
+
   it('người dự im lặng nhưng khớp tên: được gắn như người dự, không phải gợi ý người vắng', async () => {
     const { host, ws, meeting } = await setup();
     const hung = await member(ws.id, 'Hùng');

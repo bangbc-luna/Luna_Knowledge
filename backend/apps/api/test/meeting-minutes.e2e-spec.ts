@@ -453,6 +453,82 @@ describe('Meeting minutes (e2e)', () => {
     await http().post(minutesUrl(waiting, '/retry')).set(alice.auth).expect(409);
   });
 
+  it('lỗi: failureReason ngắn bằng tiếng Việt theo bước, canRetry theo khả năng chạy lại; lỗi gốc chỉ người duyệt thấy', async () => {
+    const draftFail = await seed({ status: 'FAILED', failedStage: 'draft', error: 'LLM 500 raw' });
+    const asReviewer = await http().get(minutesUrl(draftFail)).set(alice.auth).expect(200);
+    expect(asReviewer.body).toMatchObject({
+      error: 'LLM 500 raw',
+      canRetry: true,
+      failureReason: 'Không soạn được biên bản từ nội dung đã chép lời.',
+    });
+    const asMember = await http().get(minutesUrl(draftFail)).set(bob.auth).expect(200);
+    expect(asMember.body).toMatchObject({
+      error: null,
+      canRetry: false,
+      failureReason: 'Không soạn được biên bản từ nội dung đã chép lời.',
+    });
+
+    const pending = await seed({ status: 'FAILED', failedStage: 'transcribe', error: 'STT down' });
+    await ctx.prisma.meetingAudioChunk.create({
+      data: {
+        meetingId: pending,
+        userId: alice.userId,
+        startOffsetMs: 0,
+        durationMs: 1000,
+        container: 'audio',
+        key: `k/${pending}`,
+        sizeBytes: 1n,
+      },
+    });
+    const pendingView = await http().get(minutesUrl(pending)).set(alice.auth).expect(200);
+    expect(pendingView.body).toMatchObject({
+      canRetry: true,
+      failureReason: 'Không chép lời được âm thanh của buổi họp.',
+    });
+
+    const purged = await seed({
+      status: 'FAILED',
+      failedStage: 'transcribe',
+      audioPurgedAt: new Date(),
+    });
+    const purgedView = await http().get(minutesUrl(purged)).set(alice.auth).expect(200);
+    expect(purgedView.body.canRetry).toBe(false);
+    expect(purgedView.body.failureReason).toBe(
+      'Không chép lời được và âm thanh đã bị xoá nên không thể thử lại.',
+    );
+
+    const skippedAll = await seed({ status: 'FAILED', failedStage: 'transcribe' });
+    const skippedView = await http().get(minutesUrl(skippedAll)).set(alice.auth).expect(200);
+    expect(skippedView.body.canRetry).toBe(false);
+    expect(skippedView.body.failureReason).toBe(
+      'Không đoạn âm thanh nào chép lời được, chạy lại cũng không đổi kết quả.',
+    );
+
+    const config = await seed({
+      status: 'FAILED',
+      failedStage: 'config',
+      error: 'AI minutes are not configured',
+    });
+    const configView = await http().get(minutesUrl(config)).set(alice.auth).expect(200);
+    expect(configView.body).toMatchObject({
+      canRetry: false,
+      failureReason: 'Máy chủ chưa cấu hình biên bản AI.',
+    });
+    await http().post(minutesUrl(config, '/retry')).set(alice.auth).expect(409);
+    await http().post(minutesUrl(skippedAll, '/retry')).set(alice.auth).expect(409);
+
+    const waiting = await http()
+      .get(minutesUrl(await seed()))
+      .set(alice.auth)
+      .expect(200);
+    expect(waiting.body).toMatchObject({ canRetry: false, failureReason: null });
+    const none = await http()
+      .get(minutesUrl(await create(alice, { aiNotesEnabled: false })))
+      .set(alice.auth)
+      .expect(200);
+    expect(none.body).toMatchObject({ canRetry: false, failureReason: null });
+  });
+
   const bigDoc = (chars: number) => ({
     type: 'doc',
     content: [{ type: 'paragraph', content: [text('a'.repeat(chars))] }],

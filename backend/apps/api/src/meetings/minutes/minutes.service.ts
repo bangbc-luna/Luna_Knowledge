@@ -27,12 +27,40 @@ const REVISION_CONFLICT = 'Someone else saved these minutes, reload to see their
 const AUDIO_EXPIRED = 'The audio for this meeting has expired';
 const NO_MINUTES = 'Minutes not found';
 const NOT_FAILED = 'These minutes have not failed';
+const NOT_RETRYABLE = 'These minutes cannot be retried';
+const REASON_DRAFT = 'Không soạn được biên bản từ nội dung đã chép lời.';
+const REASON_TRANSCRIBE = 'Không chép lời được âm thanh của buổi họp.';
+const REASON_PURGED = 'Không chép lời được và âm thanh đã bị xoá nên không thể thử lại.';
+const REASON_NOTHING_LEFT =
+  'Không đoạn âm thanh nào chép lời được, chạy lại cũng không đổi kết quả.';
+const REASON_CONFIG = 'Máy chủ chưa cấu hình biên bản AI.';
+const REASON_UNKNOWN = 'Không tạo được biên bản.';
 const MAX_TASKS_PER_PERSON = 20;
 const MAX_TASK_CHARS = 200;
 const RECIPIENT_CHECK_CONCURRENCY = 8;
 const STALE_PUBLISH_MS = 5 * 60_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ALT_FOLDER = new RegExp(`^${nameKey(FOLDER_NAME)} \\(\\d+\\)$`);
+
+interface Failure {
+  reason: string;
+  retryable: boolean;
+}
+
+function describeFailure(
+  failedStage: string | null,
+  audioPurged: boolean,
+  pendingChunks: number,
+): Failure {
+  if (failedStage === 'config') return { reason: REASON_CONFIG, retryable: false };
+  if (failedStage === 'transcribe') {
+    if (audioPurged) return { reason: REASON_PURGED, retryable: false };
+    if (pendingChunks === 0) return { reason: REASON_NOTHING_LEFT, retryable: false };
+    return { reason: REASON_TRANSCRIBE, retryable: true };
+  }
+  if (failedStage === 'draft') return { reason: REASON_DRAFT, retryable: true };
+  return { reason: REASON_UNKNOWN, retryable: true };
+}
 
 const canReview = (a: Pick<MeetingAccessResult, 'isHost' | 'memberRole'>) =>
   a.isHost || a.memberRole === 'ADMIN';
@@ -180,6 +208,8 @@ export class MinutesService {
         error: null,
         warning: null,
         failedStage: null,
+        failureReason: null,
+        canRetry: false,
         droppedItemCount: 0,
         draft: null,
       };
@@ -197,6 +227,7 @@ export class MinutesService {
             suggestions: (row.suggestions as MentionSuggestion[] | null) ?? [],
           }
         : null;
+    const failure = row.status === 'FAILED' ? await this.failureOf(row) : null;
     return {
       status: row.status,
       documentNodeId,
@@ -204,6 +235,8 @@ export class MinutesService {
       error: reviewer && row.status === 'FAILED' ? row.error : null,
       warning: reviewer && awaiting ? row.error : null,
       failedStage: reviewer && row.status === 'FAILED' ? row.failedStage : null,
+      failureReason: failure?.reason ?? null,
+      canRetry: reviewer && !!failure?.retryable,
       droppedItemCount: reviewer ? row.droppedItemCount : 0,
       draft,
     };
@@ -318,6 +351,7 @@ export class MinutesService {
     if (row.failedStage === 'transcribe' && row.audioPurgedAt) {
       throw AppError.conflict(AUDIO_EXPIRED);
     }
+    if (!(await this.failureOf(row)).retryable) throw AppError.conflict(NOT_RETRYABLE);
     const attempt = await this.prisma.client.$transaction(async (tx) => {
       const { count } = await tx.meetingMinutes.updateMany({
         where: { meetingId, status: 'FAILED' },
@@ -352,6 +386,20 @@ export class MinutesService {
       throw AppError.unavailable('The retry could not be queued, try again in a moment');
     }
     return { attempt };
+  }
+
+  private async failureOf(row: {
+    meetingId: string;
+    failedStage: string | null;
+    audioPurgedAt: Date | null;
+  }): Promise<Failure> {
+    const pending =
+      row.failedStage === 'transcribe' && !row.audioPurgedAt
+        ? await this.prisma.client.meetingAudioChunk.count({
+            where: { meetingId: row.meetingId, transcribedAt: null, deletedAt: null },
+          })
+        : 0;
+    return describeFailure(row.failedStage, row.audioPurgedAt !== null, pending);
   }
 
   private async requireReviewer(user: AuthenticatedUser, meetingId: string) {

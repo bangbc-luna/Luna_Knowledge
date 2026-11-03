@@ -43,6 +43,15 @@ export const minutesSchema = z.object({
     .nullable()
     .describe('Cảnh báo kèm bản nháp khi status=AWAITING_REVIEW, chỉ cho người duyệt'),
   failedStage: z.string().nullable(),
+  failureReason: z
+    .string()
+    .nullable()
+    .describe('Lý do lỗi ngắn bằng tiếng Việt khi status=FAILED, cho mọi người xem buổi họp'),
+  canRetry: z
+    .boolean()
+    .describe(
+      'Người duyệt có thể chạy lại: false khi không phải FAILED, khi âm thanh đã bị xoá, khi không còn đoạn nào để chép lời, hoặc khi máy chủ chưa cấu hình AI',
+    ),
   droppedItemCount: z.number().int(),
   draft: z
     .object({
