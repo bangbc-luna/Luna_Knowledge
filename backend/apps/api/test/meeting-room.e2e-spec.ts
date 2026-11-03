@@ -388,6 +388,33 @@ describe('Meeting rooms (e2e)', () => {
     expect(ctx.media.rooms.has(`luna-${id}`)).toBe(false);
   });
 
+  it('a revert that finds the meeting already ended writes no revert audit', async () => {
+    const id = await create(carol, { aiNotesEnabled: false });
+    await join(carol, id).expect(200);
+    const original = ctx.media.setRoomMetadata.bind(ctx.media);
+    ctx.media.setRoomMetadata = async () => {
+      await ctx.prisma.meeting.update({
+        where: { id },
+        data: { status: 'ENDED', endedAt: new Date(), endReason: 'host' },
+      });
+      throw new Error('down');
+    };
+    try {
+      await http()
+        .put(`/api/v1/meetings/${id}/ai-notes`)
+        .set(carol.auth)
+        .send({ enabled: true })
+        .expect(503);
+    } finally {
+      ctx.media.setRoomMetadata = original;
+    }
+    const audits = await ctx.prisma.auditLog.findMany({
+      where: { action: 'meeting.ai_notes_toggle', targetId: id },
+      orderBy: { createdAt: 'asc' },
+    });
+    expect(audits.map((a) => a.metadata)).toEqual([{ enabled: true }]);
+  });
+
   it('switching AI notes on with a failed media sync reverts the DB, audits the revert and returns 503; a failed switch-off keeps the DB off', async () => {
     const id = await create(alice, { aiNotesEnabled: false });
     await join(alice, id).expect(200);
