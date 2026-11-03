@@ -133,6 +133,7 @@ function CreateForm({ wsId, initialMode, aiAvailable, onClose, onCreated }: { ws
               value={query}
               onChange={setQuery}
               taken={new Set(invitees.map((u) => u.id))}
+              takenHint="Đã được mời"
               placeholder="Tìm theo tên hoặc email"
               onPick={(u) => {
                 setInvitees((list) => (list.some((x) => x.id === u.id) ? list : [...list, u]));
