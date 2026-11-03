@@ -46,6 +46,17 @@ async function* speechThenSilence() {
   yield* burst(200, quiet);
 }
 
+function countingEncoder(written: { samples: number }): AudioEncoder {
+  return {
+    start: () => undefined,
+    write: (samples: Int16Array) => {
+      written.samples += samples.length;
+    },
+    finish: async () => ({ sizeBytes: 10 }),
+    abort: () => undefined,
+  };
+}
+
 describe('TrackRecorder', () => {
   it('luồng âm thanh lỗi giữa chừng: consume báo lỗi, đoạn đang mở vẫn được lưu, stop không treo', async () => {
     const { recorder, create } = setup();
@@ -87,5 +98,59 @@ describe('TrackRecorder', () => {
     await recorder.stop();
     expect(putFile).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it('event loop kẹt rồi frame dồn về một lúc không chèn im lặng vào đoạn ghi', async () => {
+    const clock = { t: 0 };
+    const written = { samples: 0 };
+    const { recorder, create } = setup({
+      now: () => clock.t,
+      monotonic: () => clock.t,
+      createEncoder: () => countingEncoder(written),
+    });
+    async function* stalled() {
+      for (let i = 0; i < 100; i++) {
+        clock.t += 10;
+        yield loud();
+      }
+      clock.t += 300;
+      for (let i = 0; i < 30; i++) yield loud();
+      for (let i = 0; i < 100; i++) {
+        clock.t += 10;
+        yield loud();
+      }
+      for (let i = 0; i < 200; i++) {
+        clock.t += 10;
+        yield quiet();
+      }
+    }
+    await recorder.consume(stalled());
+    await recorder.stop();
+    expect(create).toHaveBeenCalledTimes(1);
+    const data = (create.mock.calls[0]![0] as { data: { startOffsetMs: number } }).data;
+    expect(data.startOffsetMs).toBe(0);
+    expect(written.samples).toBe((100 + 30 + 100 + 150) * 160);
+  });
+
+  it('mic tắt thật hơn ngưỡng: đồng hồ mẫu nhảy theo đồng hồ thật và mở đoạn mới đúng mốc', async () => {
+    const clock = { t: 0 };
+    const { recorder, create } = setup({ now: () => clock.t, monotonic: () => clock.t });
+    async function* muted() {
+      for (let i = 0; i < 100; i++) {
+        clock.t += 10;
+        yield loud();
+      }
+      clock.t += 10_000;
+      for (let i = 0; i < 100; i++) {
+        clock.t += 10;
+        yield loud();
+      }
+    }
+    await recorder.consume(muted());
+    await recorder.stop();
+    const offsets = create.mock.calls.map(
+      (call) => (call[0] as { data: { startOffsetMs: number } }).data.startOffsetMs,
+    );
+    expect(offsets).toEqual([0, 11_000]);
   });
 });

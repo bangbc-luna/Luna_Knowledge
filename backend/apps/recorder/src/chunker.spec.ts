@@ -93,4 +93,14 @@ describe('SpeechChunker', () => {
     const events = chunker.push(frame(true), 600);
     expect(opens(events)).toEqual([{ type: 'open', startMs: 600 }]);
   });
+
+  it('đợt frame dồn sau khi event loop kẹt (thời gian liên tục theo mẫu) không chèn im lặng', () => {
+    const chunker = new SpeechChunker();
+    const events = [...feed(chunker, 0, 1000, true), ...feed(chunker, 1000, 600, true)];
+    events.push(...chunker.flush(1600));
+    const written = events.reduce((n, e) => (e.type === 'data' ? n + e.samples.length : n), 0);
+    expect(written).toBe(1600 * 16);
+    expect(closes(events)).toHaveLength(1);
+    expect(closes(events)[0]).toMatchObject({ startMs: 0, durationMs: 1600 });
+  });
 });
