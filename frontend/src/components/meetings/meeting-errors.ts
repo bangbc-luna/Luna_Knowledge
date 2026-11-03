@@ -27,10 +27,10 @@ const BY_STATUS: Record<number, string> = {
 const BY_MEDIA_ERROR: Record<string, string> = {
   NotAllowedError: "Trình duyệt hoặc hệ điều hành chưa cho phép. Bấm biểu tượng ổ khoá cạnh thanh địa chỉ để cấp quyền, hoặc bạn đã bấm Huỷ ở hộp chọn.",
   SecurityError: "Trình duyệt chặn vì trang không an toàn. Mở Luna bằng https hoặc http://localhost.",
-  NotFoundError: "Không tìm thấy thiết bị. Kiểm tra mic/camera đã cắm và bật.",
-  NotReadableError: "Thiết bị đang bị ứng dụng khác dùng hoặc hệ điều hành chặn. Đóng ứng dụng đó rồi thử lại.",
-  OverconstrainedError: "Thiết bị không hỗ trợ chất lượng yêu cầu. Chọn thiết bị khác.",
-  AbortError: "Thiết bị bị ngắt giữa chừng. Thử lại.",
+  NotFoundError: "Không tìm thấy mic hoặc nguồn chia sẻ màn hình. Kiểm tra mic đã cắm và bật.",
+  NotReadableError: "Mic hoặc màn hình đang bị ứng dụng khác dùng hoặc hệ điều hành chặn. Đóng ứng dụng đó rồi thử lại.",
+  OverconstrainedError: "Mic không hỗ trợ chất lượng yêu cầu. Chọn mic khác.",
+  AbortError: "Mic hoặc phiên chia sẻ bị ngắt giữa chừng. Thử lại.",
   NotSupportedError: "Trình duyệt này không hỗ trợ. Dùng Chrome, Edge hoặc Firefox bản mới.",
 };
 

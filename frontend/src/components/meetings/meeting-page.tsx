@@ -34,9 +34,27 @@ function durationText(from: string, to: string) {
   return m ? `${h} giờ ${m} phút` : `${h} giờ`;
 }
 
+function mergeAttendees(list: MeetingDetail["attendees"]): MeetingDetail["attendees"] {
+  const byUser = new Map<string, MeetingDetail["attendees"][number]>();
+  for (const a of list) {
+    const cur = byUser.get(a.id);
+    if (!cur) {
+      byUser.set(a.id, a);
+      continue;
+    }
+    byUser.set(a.id, {
+      ...cur,
+      joinedAt: a.joinedAt < cur.joinedAt ? a.joinedAt : cur.joinedAt,
+      leftAt: cur.leftAt === null || a.leftAt === null ? null : a.leftAt > cur.leftAt ? a.leftAt : cur.leftAt,
+    });
+  }
+  return [...byUser.values()];
+}
+
 function EndedBlock({ meeting }: { meeting: MeetingDetail }) {
   const start = meeting.startedAt ?? meeting.scheduledAt;
   const end = meeting.endedAt;
+  const attendees = mergeAttendees(meeting.attendees);
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
       <Card className="p-5">
@@ -65,11 +83,11 @@ function EndedBlock({ meeting }: { meeting: MeetingDetail }) {
           <h2 id="meeting-attendees" className="flex items-center gap-2 text-sm font-semibold">
             <Users className="size-4 text-muted" aria-hidden />
             Người tham dự
-            <span className="text-xs font-normal tabular-nums text-muted">{formatNumber(meeting.attendees.length)}</span>
+            <span className="text-xs font-normal tabular-nums text-muted">{formatNumber(attendees.length)}</span>
           </h2>
-          {meeting.attendees.length ? (
+          {attendees.length ? (
             <ul className="mt-2 grid gap-x-4 sm:grid-cols-2">
-              {meeting.attendees.map((a) => (
+              {attendees.map((a) => (
                 <li key={a.id} className="flex min-h-11 items-center gap-2.5">
                   <Avatar name={a.name} src={a.avatarUrl} />
                   <span className="min-w-0 flex-1 truncate text-sm" title={a.email}>

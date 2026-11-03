@@ -9,6 +9,7 @@ import { MicOff } from "lucide-react";
 import { Track } from "livekit-client";
 import { initials } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import { dedupeParticipants } from "./participants";
 import { useActiveReaction } from "./reactions";
 
 function TileBody() {
@@ -20,10 +21,10 @@ function TileBody() {
   const reaction = useActiveReaction(participant.identity);
   const { attributes } = useParticipantAttributes({ participant });
   const raised = !isScreen && attributes?.handRaised === "true";
-  const showVideo = isTrackReference(trackRef) && !!trackRef.publication.track && !trackRef.publication.isMuted;
+  const showScreen = isScreen && isTrackReference(trackRef) && !!trackRef.publication.track;
   return (
     <>
-      {showVideo ? (
+      {showScreen ? (
         <VideoTrack trackRef={trackRef} manageSubscription />
       ) : (
         <div className="absolute inset-0 flex items-center justify-center bg-rail-item">
@@ -63,18 +64,27 @@ function Tile({ trackRef, className }: { trackRef?: TrackReferenceOrPlaceholder;
 export function useStageTracks() {
   const tracks = useTracks(
     [
-      { source: Track.Source.Camera, withPlaceholder: true },
+      { source: Track.Source.Microphone, withPlaceholder: true },
       { source: Track.Source.ScreenShare, withPlaceholder: false },
     ],
     { onlySubscribed: false },
   );
-  return tracks.filter((t) => !t.participant.permissions?.hidden);
+  const visible = tracks.filter((t) => !t.participant.permissions?.hidden);
+  const people = new Set(dedupeParticipants(visible.map((t) => t.participant)));
+  const seen = new Set<string>();
+  return visible.filter((t) => {
+    if (!people.has(t.participant)) return false;
+    const key = `${t.participant.identity}:${t.source}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 export function RoomStage() {
   const tracks = useStageTracks();
   const screen = tracks.find((t) => t.source === Track.Source.ScreenShare && isTrackReference(t));
-  const cameras = tracks.filter((t) => t.source === Track.Source.Camera);
+  const people = tracks.filter((t) => t.source === Track.Source.Microphone);
   if (screen) {
     return (
       <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 p-2 lg:flex-row">
@@ -82,7 +92,7 @@ export function RoomStage() {
           <Tile trackRef={screen} />
         </div>
         <div className="h-24 shrink-0 lg:h-auto lg:w-56">
-          <CarouselLayout tracks={cameras}>
+          <CarouselLayout tracks={people}>
             <Tile />
           </CarouselLayout>
         </div>
@@ -91,7 +101,7 @@ export function RoomStage() {
   }
   return (
     <div className="min-h-0 min-w-0 flex-1 p-2">
-      <GridLayout tracks={cameras}>
+      <GridLayout tracks={people}>
         <Tile />
       </GridLayout>
     </div>

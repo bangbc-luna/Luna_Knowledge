@@ -1,7 +1,7 @@
 "use client";
 
 import { useLocalParticipant, useRoomContext } from "@livekit/components-react";
-import { Hand, MessageSquare, Mic, MicOff, MonitorUp, PhoneOff, ScreenShareOff, Settings2, SmilePlus, Video, VideoOff, type LucideIcon } from "lucide-react";
+import { Hand, MessageSquare, Mic, MicOff, MonitorUp, PhoneOff, ScreenShareOff, Settings2, SmilePlus, type LucideIcon } from "lucide-react";
 import { useState } from "react";
 import { meetingErrorText } from "./meeting-errors";
 import { cn } from "@/lib/cn";
@@ -161,7 +161,7 @@ export interface RoomPanelControls {
 export function RoomControls({ isHost, aiOn, onToggleAi, onEnd, onReact, handRaised, onToggleHand, panel, panelWrapRef }: { isHost: boolean; aiOn: boolean; onToggleAi: () => Promise<void>; onEnd: () => Promise<void>; onReact: (emoji: Reaction) => void; handRaised: boolean; onToggleHand: () => void; panel: RoomPanelControls; panelWrapRef: React.RefObject<HTMLDivElement | null> }) {
   const room = useRoomContext();
   const toast = useToast();
-  const { localParticipant, isMicrophoneEnabled, isCameraEnabled, isScreenShareEnabled } = useLocalParticipant();
+  const { localParticipant, isMicrophoneEnabled, isScreenShareEnabled } = useLocalParticipant();
   const canShare = typeof navigator !== "undefined" && typeof navigator.mediaDevices?.getDisplayMedia === "function";
   const run = (fn: () => Promise<unknown>, what: string) => () => {
     fn().catch((err: unknown) => {
@@ -176,12 +176,6 @@ export function RoomControls({ isHost, aiOn, onToggleAi, onEnd, onReact, handRai
         label={isMicrophoneEnabled ? "Tắt mic" : "Bật mic"}
         active={isMicrophoneEnabled}
         onClick={run(() => localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled), "Không đổi được mic")}
-      />
-      <ControlButton
-        icon={isCameraEnabled ? Video : VideoOff}
-        label={isCameraEnabled ? "Tắt camera" : "Bật camera"}
-        active={isCameraEnabled}
-        onClick={run(() => localParticipant.setCameraEnabled(!isCameraEnabled), "Không đổi được camera")}
       />
       {canShare ? (
         <ControlButton

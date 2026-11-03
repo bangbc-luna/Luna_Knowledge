@@ -1,7 +1,7 @@
 "use client";
 
 import { LiveKitRoom, RoomAudioRenderer, useConnectionState, useLocalParticipant, useParticipantAttributes, useParticipants, useRoomContext } from "@livekit/components-react";
-import { ConnectionError, ConnectionErrorReason, ConnectionState, DisconnectReason, RoomEvent, ScreenSharePresets, VideoPresets } from "livekit-client";
+import { ConnectionError, ConnectionErrorReason, ConnectionState, DisconnectReason, RoomEvent, ScreenSharePresets } from "livekit-client";
 import type { RoomOptions } from "livekit-client";
 import { LoaderCircle, Users } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -12,6 +12,7 @@ import { endMeeting, getMeeting, joinMeeting, setAiNotes, setHandRaised } from "
 import type { MeetingDetail, MeetingJoin } from "@/lib/meetings";
 import { useToast } from "../ui/toast";
 import { useAuth } from "@/lib/auth";
+import { dedupeParticipants } from "./participants";
 import { ReactionsContext, useReactions } from "./reactions";
 import { RoomControls } from "./room-controls";
 import { RoomSidePanel, useMeetingChat } from "./room-side-panel";
@@ -21,19 +22,14 @@ import { RoomStage } from "./room-stage";
 export const ROOM_OPTIONS: RoomOptions = {
   adaptiveStream: true,
   dynacast: true,
-  videoCaptureDefaults: { resolution: VideoPresets.h720.resolution },
   publishDefaults: {
-    simulcast: true,
-    videoSimulcastLayers: [VideoPresets.h180, VideoPresets.h360],
     screenShareEncoding: ScreenSharePresets.h1080fps15.encoding,
   },
 };
 
 export interface RoomChoices {
   audioEnabled: boolean;
-  videoEnabled: boolean;
   audioDeviceId?: string;
-  videoDeviceId?: string;
 }
 
 const MAX_REJOINS = 3;
@@ -96,7 +92,7 @@ function useElapsed(startedAt: string | null) {
 
 function RoomTopBar({ title, startedAt, aiOn, actions }: { title: string; startedAt: string | null; aiOn: boolean; actions?: React.ReactNode }) {
   const elapsed = useElapsed(startedAt);
-  const participants = useParticipants().filter((p) => !p.permissions?.hidden);
+  const participants = dedupeParticipants(useParticipants().filter((p) => !p.permissions?.hidden));
   return (
     <header className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b border-rail-item px-3 py-2.5">
       <h1 className="min-w-0 flex-1 truncate text-sm font-semibold sm:flex-none sm:max-w-[40ch]" title={title}>
@@ -121,13 +117,13 @@ function RoomTopBar({ title, startedAt, aiOn, actions }: { title: string; starte
   );
 }
 
-function RoomView({ meeting, join, onEnded, onMedia }: { meeting: MeetingDetail; join: MeetingJoin; onEnded: () => void; onMedia: (audio: boolean, video: boolean) => void }) {
+function RoomView({ meeting, join, onEnded, onMedia }: { meeting: MeetingDetail; join: MeetingJoin; onEnded: () => void; onMedia: (audio: boolean) => void }) {
   const toast = useToast();
   const state = useConnectionState();
-  const { isMicrophoneEnabled, isCameraEnabled } = useLocalParticipant();
+  const { isMicrophoneEnabled } = useLocalParticipant();
   useEffect(() => {
-    if (state === ConnectionState.Connected) onMedia(isMicrophoneEnabled, isCameraEnabled);
-  }, [state, isMicrophoneEnabled, isCameraEnabled, onMedia]);
+    if (state === ConnectionState.Connected) onMedia(isMicrophoneEnabled);
+  }, [state, isMicrophoneEnabled, onMedia]);
   const [aiOn, setAiOn] = useAiNotes(join.aiNotesEnabled);
   const { me } = useAuth();
   const { localParticipant } = useLocalParticipant();
@@ -219,7 +215,7 @@ function RoomView({ meeting, join, onEnded, onMedia }: { meeting: MeetingDetail;
 
 export function MeetingRoom({ meeting, join, choices, onLeft, onEnded }: { meeting: MeetingDetail; join: MeetingJoin; choices: RoomChoices; onLeft: () => void; onEnded: () => void }) {
   const toast = useToast();
-  const [session, setSession] = useState<{ join: MeetingJoin; gen: number; audio: boolean | { deviceId: string }; video: boolean | { deviceId: string } }>({ join, gen: 0, audio: choices.audioEnabled ? (choices.audioDeviceId ? { deviceId: choices.audioDeviceId } : true) : false, video: choices.videoEnabled ? (choices.videoDeviceId ? { deviceId: choices.videoDeviceId } : true) : false });
+  const [session, setSession] = useState<{ join: MeetingJoin; gen: number; audio: boolean | { deviceId: string }}>({ join, gen: 0, audio: choices.audioEnabled ? (choices.audioDeviceId ? { deviceId: choices.audioDeviceId } : true) : false });
   const genRef = useRef(0);
   const attempts = useRef(0);
   const total = useRef(0);
@@ -283,7 +279,6 @@ export function MeetingRoom({ meeting, join, choices, onLeft, onEnded }: { meeti
             join: next,
             gen: genRef.current,
             audio: media.audioEnabled ? (media.audioDeviceId ? { deviceId: media.audioDeviceId } : true) : false,
-            video: media.videoEnabled ? (media.videoDeviceId ? { deviceId: media.videoDeviceId } : true) : false,
           });
           return;
         } catch (err) {
@@ -299,8 +294,8 @@ export function MeetingRoom({ meeting, join, choices, onLeft, onEnded }: { meeti
     }
   };
 
-  const onMedia = useCallback((audioEnabled: boolean, videoEnabled: boolean) => {
-    lastMedia.current = { ...lastMedia.current, audioEnabled, videoEnabled };
+  const onMedia = useCallback((audioEnabled: boolean) => {
+    lastMedia.current = { ...lastMedia.current, audioEnabled };
   }, []);
 
   const gen = session.gen;
@@ -329,7 +324,7 @@ export function MeetingRoom({ meeting, join, choices, onLeft, onEnded }: { meeti
         token={session.join.token}
         connect
         audio={session.audio}
-        video={session.video}
+        video={false}
         options={ROOM_OPTIONS}
         onConnected={() => {
           if (stableTimer.current) clearTimeout(stableTimer.current);

@@ -12,6 +12,7 @@ import { listChat, linkify, muteParticipant, sendChat } from "@/lib/meetings";
 import type { MeetingChatMessage } from "@/lib/meetings";
 import { focusRing } from "../ui/focus";
 import { Avatar } from "../ui/misc";
+import { dedupeParticipants } from "./participants";
 import { useToast } from "../ui/toast";
 
 const CHAT_TOPIC = "luna.chat";
@@ -364,7 +365,7 @@ function PersonRow({ participant, canMute, onMute, busy }: { participant: Partic
 
 function PeopleView({ meetingId, isHost }: { meetingId: string; isHost: boolean }) {
   const toast = useToast();
-  const participants = useParticipants().filter((p) => !p.permissions?.hidden);
+  const participants = dedupeParticipants(useParticipants().filter((p) => !p.permissions?.hidden));
   const [busyId, setBusyId] = useState<string | null>(null);
   const mute = async (p: Participant) => {
     setBusyId(p.identity);
@@ -394,7 +395,7 @@ export function RoomSidePanel({ open, tab, onTab, onClose, chat, meetingId, meId
     if (window.matchMedia("(min-width: 1024px)").matches) return;
     asideRef.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
   }, [open]);
-  const count = useParticipants().filter((p) => !p.permissions?.hidden).length;
+  const count = dedupeParticipants(useParticipants().filter((p) => !p.permissions?.hidden)).length;
   const tabs: Array<{ value: PanelTab; label: string }> = [
     { value: "chat", label: "Chat" },
     { value: "people", label: `Người (${count})` },
