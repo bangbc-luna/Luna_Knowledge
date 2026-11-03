@@ -411,6 +411,14 @@ describe('Meeting minutes (e2e)', () => {
     expect(
       await ctx.prisma.node.count({ where: { type: 'DOCUMENT', name: { contains: 'Họp lỗi' } } }),
     ).toBe(0);
+    expect(
+      await ctx.prisma.auditLog.count({
+        where: { action: 'meeting.minutes_publish', metadata: { path: ['meetingId'], equals: id } },
+      }),
+    ).toBe(0);
+    expect(
+      await ctx.prisma.nodeShare.count({ where: { node: { name: { contains: 'Họp lỗi' } } } }),
+    ).toBe(0);
     await http().post(minutesUrl(id, '/publish')).set(alice.auth).send({ revision: 1 }).expect(200);
   });
 
@@ -422,6 +430,10 @@ describe('Meeting minutes (e2e)', () => {
     const first = await http().post(minutesUrl(id, '/retry')).set(alice.auth).expect(202);
     expect(first.body).toEqual({ attempt: 1 });
     expect(await minutesQueue.getJob(`minutes-${id}-retry-1`)).toBeTruthy();
+    await ctx.prisma.meetingMinutes.update({
+      where: { meetingId: id },
+      data: { status: 'FAILED' },
+    });
     const second = await http().post(minutesUrl(id, '/retry')).set(dave.auth).expect(202);
     expect(second.body).toEqual({ attempt: 2 });
     expect(await minutesQueue.getJob(`minutes-${id}-retry-2`)).toBeTruthy();
@@ -439,5 +451,198 @@ describe('Meeting minutes (e2e)', () => {
 
     const waiting = await seed();
     await http().post(minutesUrl(waiting, '/retry')).set(alice.auth).expect(409);
+  });
+
+  const bigDoc = (chars: number) => ({
+    type: 'doc',
+    content: [{ type: 'paragraph', content: [text('a'.repeat(chars))] }],
+  });
+
+  it('bản nháp gần mức trần lưu được; vượt trần thì bị từ chối; route JSON khác vẫn giới hạn 512kb', async () => {
+    const id = await seed();
+    const saved = await http()
+      .put(minutesUrl(id, '/draft'))
+      .set(alice.auth)
+      .send({ doc: bigDoc(1_900_000), revision: 1 })
+      .expect(200);
+    expect(saved.body).toEqual({ revision: 2 });
+    const over = await http()
+      .put(minutesUrl(id, '/draft'))
+      .set(alice.auth)
+      .send({ doc: bigDoc(2_200_000), revision: 2 });
+    expect([400, 413]).toContain(over.status);
+    await http()
+      .put(minutesUrl(id, '/draft'))
+      .set(alice.auth)
+      .send({ doc: bigDoc(3_000_000), revision: 2 })
+      .expect(413);
+    await http()
+      .post(`/api/v1/workspaces/${wsId}/meetings`)
+      .set(alice.auth)
+      .send({ title: 'x'.repeat(600_000), mode: 'instant' })
+      .expect(413);
+  });
+
+  it('mention chèn bừa (người lạ, id không phải uuid, nhãn giả) bị đổi thành chữ lúc lưu và lúc gửi, không ai bị báo', async () => {
+    const id = await seed();
+    const injected = minutesDoc([
+      { task: 'Việc A', owner: mention(stranger.userId, 'Stranger', false) },
+      { task: 'Việc B', owner: mention('not-a-uuid', 'Ma', false) },
+      { task: 'Việc C', owner: mention(carol.userId, 'Giả mạo', false) },
+    ]);
+    await http()
+      .put(minutesUrl(id, '/draft'))
+      .set(alice.auth)
+      .send({ doc: injected, revision: 1 })
+      .expect(200);
+    const view = await http().get(minutesUrl(id)).set(alice.auth).expect(200);
+    const saved = JSON.stringify(view.body.draft.doc);
+    expect(saved).not.toContain(stranger.userId);
+    expect(saved).not.toContain('not-a-uuid');
+    expect(saved).toContain(carol.userId);
+    expect(saved).not.toContain('Giả mạo');
+
+    const direct = await seed();
+    await ctx.prisma.meetingMinutes.update({
+      where: { meetingId: direct },
+      data: { draftDoc: injected as object },
+    });
+    const res = await http()
+      .post(minutesUrl(direct, '/publish'))
+      .set(alice.auth)
+      .send({ revision: 1 })
+      .expect(200);
+    const node = await ctx.prisma.node.findUniqueOrThrow({
+      where: { id: res.body.documentNodeId },
+      include: { document: true },
+    });
+    const json = JSON.stringify(node.document?.contentJson);
+    expect(json).not.toContain(stranger.userId);
+    expect(json).not.toContain('not-a-uuid');
+    expect(json).toContain('Stranger');
+    expect(await notificationTypes(stranger.userId)).toEqual([]);
+    expect(
+      await ctx.prisma.notification.count({
+        where: {
+          userId: carol.userId,
+          type: 'meeting.minutes_published',
+          payload: { path: ['meetingId'], equals: direct },
+        },
+      }),
+    ).toBe(1);
+  });
+
+  it('thử lại đồng thời → một 202 và một 409; trạng thái chuyển sang PROCESSING', async () => {
+    const id = await seed({ status: 'FAILED', failedStage: 'draft' });
+    const results = await Promise.all([
+      http().post(minutesUrl(id, '/retry')).set(alice.auth),
+      http().post(minutesUrl(id, '/retry')).set(dave.auth),
+    ]);
+    expect(results.map((r) => r.status).sort()).toEqual([202, 409]);
+    const row = await ctx.prisma.meetingMinutes.findUniqueOrThrow({ where: { meetingId: id } });
+    expect(row.status).toBe('PROCESSING');
+    expect(row.claimedBy).toBeNull();
+  });
+
+  it('thử lại mà xếp job lỗi → trả 503 và biên bản về lại FAILED', async () => {
+    const id = await seed({ status: 'FAILED', failedStage: 'draft' });
+    const spy = vi.spyOn(minutesQueue, 'add').mockRejectedValueOnce(new Error('redis down'));
+    try {
+      await http().post(minutesUrl(id, '/retry')).set(alice.auth).expect(503);
+    } finally {
+      spy.mockRestore();
+    }
+    const row = await ctx.prisma.meetingMinutes.findUniqueOrThrow({ where: { meetingId: id } });
+    expect(row.status).toBe('FAILED');
+  });
+
+  it('PUBLISHING bị kẹt quá 5 phút thì chiếm lại được và dọn tài liệu mồ côi; chưa quá hạn thì 409', async () => {
+    const id = await seed({ title: 'Họp kẹt' });
+    const orphan = await ctx.prisma.node.create({
+      data: {
+        workspaceId: wsId,
+        type: 'DOCUMENT',
+        section: 'DOCS',
+        name: 'orphan',
+        nameNormalized: 'orphan',
+        createdById: alice.userId,
+        updatedById: alice.userId,
+      },
+    });
+    await ctx.prisma.meetingMinutes.update({
+      where: { meetingId: id },
+      data: { status: 'PUBLISHING', documentNodeId: orphan.id },
+    });
+    await http().post(minutesUrl(id, '/publish')).set(alice.auth).send({ revision: 1 }).expect(409);
+    await ctx.prisma
+      .$executeRaw`UPDATE meeting_minutes SET updated_at = now() - interval '6 minutes' WHERE meeting_id = ${id}::uuid`;
+    const res = await http()
+      .post(minutesUrl(id, '/publish'))
+      .set(alice.auth)
+      .send({ revision: 1 })
+      .expect(200);
+    expect(res.body.documentNodeId).not.toBe(orphan.id);
+    expect(await ctx.prisma.node.findUnique({ where: { id: orphan.id } })).toBeNull();
+    const row = await ctx.prisma.meetingMinutes.findUniqueOrThrow({ where: { meetingId: id } });
+    expect(row).toMatchObject({ status: 'PUBLISHED', documentNodeId: res.body.documentNodeId });
+  });
+
+  it('thư mục "Biên bản họp" bị một mục không phải thư mục chiếm chỗ → dùng lại một thư mục thay thế, không tạo mới mỗi lần', async () => {
+    const other = await ctx.prisma.workspace.create({
+      data: { name: 'Other', slug: 'other-minutes', kind: 'TEAM', createdById: alice.userId },
+    });
+    await ctx.prisma.workspaceMember.create({
+      data: { workspaceId: other.id, userId: alice.userId, role: 'ADMIN' },
+    });
+    await ctx.prisma.node.create({
+      data: {
+        workspaceId: other.id,
+        type: 'DOCUMENT',
+        section: 'DOCS',
+        name: 'Biên bản họp',
+        nameNormalized: 'biên bản họp',
+        createdById: alice.userId,
+        updatedById: alice.userId,
+      },
+    });
+    const run = async () => {
+      const meeting = await http()
+        .post(`/api/v1/workspaces/${other.id}/meetings`)
+        .set(alice.auth)
+        .send({ title: 'Họp khác', mode: 'instant' })
+        .expect(201);
+      await ctx.prisma.meeting.update({
+        where: { id: meeting.body.id },
+        data: { status: 'ENDED', startedAt: new Date(), endedAt: new Date(), endReason: 'host' },
+      });
+      await ctx.prisma.meetingMinutes.create({
+        data: {
+          meetingId: meeting.body.id,
+          status: 'AWAITING_REVIEW',
+          draftDoc: minutesDoc([]) as object,
+          draftRevision: 1,
+        },
+      });
+      await http()
+        .post(minutesUrl(meeting.body.id, '/publish'))
+        .set(alice.auth)
+        .send({ revision: 1 })
+        .expect(200);
+    };
+    await run();
+    await run();
+    const folders = await ctx.prisma.node.findMany({
+      where: { workspaceId: other.id, type: 'FOLDER', parentId: null },
+    });
+    expect(folders).toHaveLength(1);
+  });
+
+  it('vào phòng lần nữa khi buổi họp đang LIVE và bật ghi → vẫn một job record duy nhất', async () => {
+    const id = await create(alice, { aiNotesEnabled: true });
+    await http().post(`/api/v1/meetings/${id}/join`).set(alice.auth).expect(200);
+    await recorderQueue.remove(`record-${id}`);
+    expect(await recorderQueue.getJob(`record-${id}`)).toBeFalsy();
+    await http().post(`/api/v1/meetings/${id}/join`).set(bob.auth).expect(200);
+    expect(await recorderQueue.getJob(`record-${id}`)).toBeTruthy();
   });
 });

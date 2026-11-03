@@ -1,6 +1,7 @@
 import * as Y from 'yjs';
 import {
   htmlToJSON,
+  isValidDocJSON,
   jsonToHTML,
   jsonToMarkdown,
   jsonToState,
@@ -107,5 +108,35 @@ describe('editor convert', () => {
     expect(jsonToHTML(sample)).not.toContain('mention');
     expect(jsonToText(sample)).toBe('Quy trình onboarding\nChào mừng thành viên mới\nNhận laptop');
     expect(jsonToText(stateToJSON(jsonToState(sample)))).toBe(jsonToText(sample));
+  });
+});
+
+describe('isValidDocJSON', () => {
+  it('chấp nhận tài liệu đúng schema, kể cả mention', () => {
+    expect(isValidDocJSON(sample)).toBe(true);
+    expect(
+      isValidDocJSON({
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [{ type: 'mention', attrs: { id: 'u1', label: 'An', suggested: false } }],
+          },
+        ],
+      }),
+    ).toBe(true);
+  });
+
+  it('từ chối nút lạ, gốc không phải doc, null và nội dung LaTeX', () => {
+    expect(isValidDocJSON({ type: 'doc', content: [{ type: 'nonsense' }] })).toBe(false);
+    expect(isValidDocJSON({ type: 'paragraph' })).toBe(false);
+    expect(isValidDocJSON(null)).toBe(false);
+    expect(isValidDocJSON('doc')).toBe(false);
+    expect(
+      isValidDocJSON({
+        type: 'doc',
+        content: [{ type: 'paragraph', content: [{ type: 'heading' }] }],
+      }),
+    ).toBe(false);
   });
 });

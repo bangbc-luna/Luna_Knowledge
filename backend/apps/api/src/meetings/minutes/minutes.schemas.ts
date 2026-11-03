@@ -15,7 +15,7 @@ export const minutesStatusSchema = z.enum([
 
 const docJsonSchema = z
   .record(z.string(), z.unknown())
-  .refine((d) => JSON.stringify(d).length <= MINUTES_DOC_MAX_BYTES, {
+  .refine((d) => Buffer.byteLength(JSON.stringify(d)) <= MINUTES_DOC_MAX_BYTES, {
     message: 'The minutes document is too large',
   })
   .refine((d) => isValidDocJSON(d), { message: 'The minutes document is not valid' })

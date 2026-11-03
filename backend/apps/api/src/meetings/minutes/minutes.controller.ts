@@ -64,7 +64,6 @@ export class MinutesController {
 
   @Post('publish')
   @HttpCode(200)
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({
     summary: 'Gửi biên bản thành tài liệu trong thư mục "Biên bản họp" (người duyệt)',
     description: 'Gửi lần hai, hoặc revision lệch, trả 409; chỉ một tài liệu được tạo.',
@@ -82,7 +81,6 @@ export class MinutesController {
 
   @Post('retry')
   @HttpCode(202)
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({ summary: 'Chạy lại biên bản bị lỗi (người duyệt)' })
   @ApiResponse({ status: 202, description: 'Đã xếp hàng chạy lại' })
   @ApiZodOk(retryResultSchema)

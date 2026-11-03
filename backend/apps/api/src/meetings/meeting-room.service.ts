@@ -48,7 +48,7 @@ export class MeetingRoomService {
     ) {
       throw AppError.conflict(NOT_STARTED_YET_MESSAGE);
     }
-    const wentLive = await this.prisma.client.$transaction(async (tx) => {
+    await this.prisma.client.$transaction(async (tx) => {
       const started = await tx.$queryRaw<{ id: string }[]>`UPDATE meetings
            SET status = 'LIVE', started_at = now(), updated_at = now()
          WHERE id = ${meetingId}::uuid AND status = 'SCHEDULED'
@@ -69,9 +69,7 @@ export class MeetingRoomService {
           userAgent: ctx.userAgent,
         });
       }
-      return started.length > 0 ? current : null;
     });
-    if (wentLive && wentLive.aiNotesEnabled) await this.minutesQueue.startRecording(meetingId);
     const roomName = roomNameFor(meetingId);
     let token: string;
     let aiNotesEnabled: boolean;
@@ -80,6 +78,9 @@ export class MeetingRoomService {
         where: { id: meetingId },
       });
       aiNotesEnabled = fresh.aiNotesEnabled;
+      if (fresh.status === 'LIVE' && fresh.aiNotesEnabled) {
+        await this.minutesQueue.startRecording(meetingId);
+      }
       await this.media.ensureRoom(roomName, roomMetadata(fresh));
       await this.media.setRoomMetadata(roomName, roomMetadata(fresh));
       token = await this.media.joinToken({

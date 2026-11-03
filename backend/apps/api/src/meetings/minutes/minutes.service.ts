@@ -15,6 +15,7 @@ import { DocumentsService } from '../../documents/documents.service.js';
 import { PrismaService } from '../../infra/prisma/prisma.service.js';
 import { NotificationsService } from '../../notifications/notifications.service.js';
 import { NodeTree } from '../../content/node-tree.service.js';
+import { SearchQueueService } from '../../infra/queue/search-queue.service.js';
 import { MeetingAccess, type MeetingAccessResult } from '../meeting-access.service.js';
 import { MinutesQueueService } from './minutes-queue.service.js';
 import type { MinutesSummary, PublishBody, SaveDraftBody } from './minutes.schemas.js';
@@ -25,9 +26,13 @@ const NOT_WAITING = 'These minutes are not waiting for review';
 const REVISION_CONFLICT = 'Someone else saved these minutes, reload to see their changes';
 const AUDIO_EXPIRED = 'The audio for this meeting has expired';
 const NO_MINUTES = 'Minutes not found';
+const NOT_FAILED = 'These minutes have not failed';
 const MAX_TASKS_PER_PERSON = 20;
 const MAX_TASK_CHARS = 200;
 const RECIPIENT_CHECK_CONCURRENCY = 8;
+const STALE_PUBLISH_MS = 5 * 60_000;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ALT_FOLDER = new RegExp(`^${nameKey(FOLDER_NAME)} \\(\\d+\\)$`);
 
 const canReview = (a: Pick<MeetingAccessResult, 'isHost' | 'memberRole'>) =>
   a.isHost || a.memberRole === 'ADMIN';
@@ -55,6 +60,31 @@ function safeName(value: string): string {
     .join('')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function sanitizeMentions(
+  node: DocJSON,
+  allowed: ReadonlySet<string>,
+  names: ReadonlyMap<string, string>,
+): DocJSON | null {
+  if (node.type === 'mention') {
+    const attrs = node.attrs ?? {};
+    const id = String(attrs.id ?? '');
+    const label = String(attrs.label ?? '');
+    const fallback = label === '' ? null : { type: 'text', text: label };
+    if (!UUID.test(id) || !allowed.has(id)) return fallback;
+    if (attrs.suggested === true) return node;
+    const real = names.get(id);
+    if (!real) return fallback;
+    return { ...node, attrs: { ...attrs, label: real } };
+  }
+  if (!node.content) return node;
+  const content: DocJSON[] = [];
+  for (const child of node.content) {
+    const next = sanitizeMentions(child, allowed, names);
+    if (next) content.push(next);
+  }
+  return { ...node, content };
 }
 
 function textOf(node: DocJSON): string {
@@ -120,6 +150,7 @@ export class MinutesService {
     private readonly documents: DocumentsService,
     private readonly notifications: NotificationsService,
     private readonly queue: MinutesQueueService,
+    private readonly search: SearchQueueService,
   ) {}
 
   async summary(userId: string, meetingId: string): Promise<MinutesSummary> {
@@ -130,7 +161,10 @@ export class MinutesService {
     if (!row) return { status: 'NONE', documentNodeId: null };
     return {
       status: row.status,
-      documentNodeId: await this.visibleDocument(userId, row.documentNodeId),
+      documentNodeId: await this.visibleDocument(
+        userId,
+        row.status === 'PUBLISHED' ? row.documentNodeId : null,
+      ),
     };
   }
 
@@ -150,7 +184,10 @@ export class MinutesService {
         draft: null,
       };
     }
-    const documentNodeId = await this.visibleDocument(user.id, row.documentNodeId);
+    const documentNodeId = await this.visibleDocument(
+      user.id,
+      row.status === 'PUBLISHED' ? row.documentNodeId : null,
+    );
     const awaiting = row.status === 'AWAITING_REVIEW';
     const draft =
       reviewer && awaiting && row.draftDoc
@@ -173,10 +210,20 @@ export class MinutesService {
   }
 
   async saveDraft(user: AuthenticatedUser, meetingId: string, body: SaveDraftBody) {
-    await this.requireReviewer(user, meetingId);
+    const { meeting } = await this.requireReviewer(user, meetingId);
+    const row = await this.prisma.client.meetingMinutes.findUnique({
+      where: { meetingId },
+      select: { suggestions: true },
+    });
+    const people = await this.participants(meetingId, meeting.createdById);
+    const doc = await this.cleanMentions(
+      body.doc as DocJSON,
+      (row?.suggestions as MentionSuggestion[] | null) ?? [],
+      people,
+    );
     const { count } = await this.prisma.client.meetingMinutes.updateMany({
       where: { meetingId, status: 'AWAITING_REVIEW', draftRevision: body.revision },
-      data: { draftDoc: body.doc as object, draftRevision: { increment: 1 } },
+      data: { draftDoc: doc as object, draftRevision: { increment: 1 } },
     });
     if (count === 0) throw await this.claimConflict(meetingId);
     return { revision: body.revision + 1 };
@@ -190,7 +237,14 @@ export class MinutesService {
   ) {
     const { meeting } = await this.requireReviewer(user, meetingId);
     const claimed = await this.prisma.client.meetingMinutes.updateMany({
-      where: { meetingId, status: 'AWAITING_REVIEW', draftRevision: body.revision },
+      where: {
+        meetingId,
+        draftRevision: body.revision,
+        OR: [
+          { status: 'AWAITING_REVIEW' },
+          { status: 'PUBLISHING', updatedAt: { lt: new Date(Date.now() - STALE_PUBLISH_MS) } },
+        ],
+      },
       data: { status: 'PUBLISHING' },
     });
     if (claimed.count === 0) throw await this.claimConflict(meetingId);
@@ -202,10 +256,30 @@ export class MinutesService {
       const row = await this.prisma.client.meetingMinutes.findUniqueOrThrow({
         where: { meetingId },
       });
+      if (row.documentNodeId) {
+        await this.prisma.client.node
+          .delete({ where: { id: row.documentNodeId } })
+          .catch((err) =>
+            this.logger.error(
+              { err, nodeId: row.documentNodeId },
+              'Could not remove stale minutes',
+            ),
+          );
+        await this.prisma.client.meetingMinutes.update({
+          where: { meetingId },
+          data: { documentNodeId: null },
+        });
+      }
+      people = await this.participants(meetingId, meeting.createdById);
       const suggestions = (row.suggestions as MentionSuggestion[] | null) ?? [];
       const suggestable = new Set(suggestions.map((s) => s.userId));
       const confirmed = new Set(body.confirmedUserIds.filter((id) => suggestable.has(id)));
-      doc = applyMentionConfirmations(row.draftDoc as DocJSON, confirmed);
+      const cleaned = await this.cleanMentions(row.draftDoc as DocJSON, suggestions, people);
+      doc = await this.cleanMentions(
+        applyMentionConfirmations(cleaned, confirmed),
+        suggestions,
+        people,
+      );
 
       const folderId = await this.ensureFolder(user, meeting.workspaceId, ctx);
       const startedAt = meeting.startedAt ?? meeting.createdAt;
@@ -214,18 +288,20 @@ export class MinutesService {
         user,
         { workspaceId: meeting.workspaceId, parentId: folderId, name, json: doc, autoRename: true },
         ctx,
-        {
-          action: 'meeting.minutes_publish',
-          metadata: (n) => ({ meetingId, name: n.name, parentId: n.parentId }),
-        },
+        false,
       );
       nodeId = node.id;
-      people = await this.participants(meetingId, meeting.createdById);
-      await this.finalize(user, meeting.workspaceId, meetingId, node.id, people, ctx);
+      const held = await this.prisma.client.meetingMinutes.updateMany({
+        where: { meetingId, status: 'PUBLISHING', documentNodeId: null },
+        data: { documentNodeId: node.id },
+      });
+      if (held.count === 0) throw AppError.conflict(NOT_WAITING);
+      await this.finalize(user, meeting.workspaceId, meetingId, node, people, ctx);
     } catch (err) {
       await this.rollback(meetingId, nodeId);
       throw err;
     }
+    await this.search.node(nodeId);
     try {
       await this.notifyPublished(user, meeting, nodeId, doc, people);
     } catch (err) {
@@ -238,25 +314,43 @@ export class MinutesService {
     const { meeting } = await this.requireReviewer(user, meetingId);
     const row = await this.prisma.client.meetingMinutes.findUnique({ where: { meetingId } });
     if (!row) throw AppError.notFound(NO_MINUTES);
-    if (row.status !== 'FAILED') throw AppError.conflict('These minutes have not failed');
+    if (row.status !== 'FAILED') throw AppError.conflict(NOT_FAILED);
     if (row.failedStage === 'transcribe' && row.audioPurgedAt) {
       throw AppError.conflict(AUDIO_EXPIRED);
     }
-    const previous = await this.prisma.client.auditLog.count({
-      where: { action: 'meeting.minutes_retry', targetType: 'meeting', targetId: meetingId },
+    const attempt = await this.prisma.client.$transaction(async (tx) => {
+      const { count } = await tx.meetingMinutes.updateMany({
+        where: { meetingId, status: 'FAILED' },
+        data: { status: 'PROCESSING', claimedBy: null, claimExpiresAt: null },
+      });
+      if (count === 0) throw AppError.conflict(NOT_FAILED);
+      const previous = await tx.auditLog.count({
+        where: { action: 'meeting.minutes_retry', targetType: 'meeting', targetId: meetingId },
+      });
+      await writeAudit(tx, {
+        actorId: user.id,
+        action: 'meeting.minutes_retry',
+        targetType: 'meeting',
+        targetId: meetingId,
+        workspaceId: meeting.workspaceId,
+        metadata: { attempt: previous + 1, failedStage: row.failedStage },
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+      });
+      return previous + 1;
     });
-    const attempt = previous + 1;
-    await this.queue.retryMinutes(meetingId, attempt);
-    await writeAudit(this.prisma.client, {
-      actorId: user.id,
-      action: 'meeting.minutes_retry',
-      targetType: 'meeting',
-      targetId: meetingId,
-      workspaceId: meeting.workspaceId,
-      metadata: { attempt, failedStage: row.failedStage },
-      ip: ctx.ip,
-      userAgent: ctx.userAgent,
-    });
+    try {
+      await this.queue.retryMinutes(meetingId, attempt);
+    } catch (err) {
+      this.logger.error({ err, meetingId }, 'Could not enqueue the minutes retry');
+      await this.prisma.client.meetingMinutes
+        .updateMany({
+          where: { meetingId, status: 'PROCESSING', claimedBy: null },
+          data: { status: 'FAILED' },
+        })
+        .catch((e) => this.logger.error({ err: e, meetingId }, 'Could not revert the retry'));
+      throw AppError.unavailable('The retry could not be queued, try again in a moment');
+    }
     return { attempt };
   }
 
@@ -290,40 +384,74 @@ export class MinutesService {
     workspaceId: string,
     ctx: RequestContext,
   ): Promise<string> {
+    const rootWhere = {
+      workspaceId,
+      section: 'DOCS' as const,
+      parentId: null,
+      deletedAt: null,
+    };
     const find = () =>
       this.prisma.client.node.findFirst({
-        where: {
-          workspaceId,
-          section: 'DOCS',
-          parentId: null,
-          deletedAt: null,
-          nameNormalized: nameKey(FOLDER_NAME),
-        },
+        where: { ...rootWhere, nameNormalized: nameKey(FOLDER_NAME) },
         select: { id: true, type: true },
       });
-    const create = (autoRename: boolean) =>
-      this.tree.create(
-        user,
-        {
-          workspaceId,
-          parentId: null,
-          section: 'DOCS',
+    const findAlternative = async () => {
+      const candidates = await this.prisma.client.node.findMany({
+        where: {
+          ...rootWhere,
           type: 'FOLDER',
-          name: FOLDER_NAME,
-          autoRename,
+          nameNormalized: { startsWith: `${nameKey(FOLDER_NAME)} (` },
         },
-        ctx,
-      );
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+        select: { id: true, nameNormalized: true },
+      });
+      return candidates.find((c) => ALT_FOLDER.test(c.nameNormalized))?.id ?? null;
+    };
+    const create = async (autoRename: boolean) =>
+      (
+        await this.tree.create(
+          user,
+          {
+            workspaceId,
+            parentId: null,
+            section: 'DOCS',
+            type: 'FOLDER',
+            name: FOLDER_NAME,
+            autoRename,
+          },
+          ctx,
+        )
+      ).id;
     const existing = await find();
     if (existing?.type === 'FOLDER') return existing.id;
+    if (existing) return (await findAlternative()) ?? (await create(true));
     try {
-      return (await create(existing !== null)).id;
+      return await create(false);
     } catch (err) {
       if (!(err instanceof AppError) || err.status !== 409) throw err;
       const again = await find();
       if (again?.type === 'FOLDER') return again.id;
-      return (await create(true)).id;
+      return (await findAlternative()) ?? (await create(true));
     }
+  }
+
+  private async cleanMentions(
+    doc: DocJSON,
+    suggestions: MentionSuggestion[],
+    people: { hostId: string; invited: Set<string>; attended: Set<string> },
+  ): Promise<DocJSON> {
+    const allowed = new Set<string>([
+      people.hostId,
+      ...people.invited,
+      ...people.attended,
+      ...suggestions.map((s) => s.userId),
+    ]);
+    const users = await this.prisma.client.user.findMany({
+      where: { id: { in: [...allowed] } },
+      select: { id: true, name: true },
+    });
+    const names = new Map(users.map((u) => [u.id, u.name]));
+    return sanitizeMentions(doc, allowed, names) ?? doc;
   }
 
   private async participants(meetingId: string, hostId: string) {
@@ -347,7 +475,7 @@ export class MinutesService {
     user: AuthenticatedUser,
     workspaceId: string,
     meetingId: string,
-    nodeId: string,
+    node: { id: string; name: string; parentId: string | null },
     people: { invited: Set<string>; attended: Set<string> },
     ctx: RequestContext,
   ) {
@@ -364,7 +492,7 @@ export class MinutesService {
       if (outsiders.length > 0) {
         const created = await tx.nodeShare.createManyAndReturn({
           data: outsiders.map((userId) => ({
-            nodeId,
+            nodeId: node.id,
             userId,
             role: 'VIEWER' as const,
             grantedById: user.id,
@@ -377,7 +505,7 @@ export class MinutesService {
             actorId: user.id,
             action: 'share.add',
             targetType: 'node',
-            targetId: nodeId,
+            targetId: node.id,
             workspaceId,
             metadata: { userId: share.userId, role: 'VIEWER', via: 'meeting' },
             ip: ctx.ip,
@@ -386,15 +514,20 @@ export class MinutesService {
         }
       }
       const { count } = await tx.meetingMinutes.updateMany({
-        where: { meetingId, status: 'PUBLISHING' },
-        data: {
-          status: 'PUBLISHED',
-          documentNodeId: nodeId,
-          publishedAt: new Date(),
-          publishedById: user.id,
-        },
+        where: { meetingId, status: 'PUBLISHING', documentNodeId: node.id },
+        data: { status: 'PUBLISHED', publishedAt: new Date(), publishedById: user.id },
       });
       if (count === 0) throw AppError.conflict(NOT_WAITING);
+      await writeAudit(tx, {
+        actorId: user.id,
+        action: 'meeting.minutes_publish',
+        targetType: 'node',
+        targetId: node.id,
+        workspaceId,
+        metadata: { meetingId, name: node.name, parentId: node.parentId },
+        ip: ctx.ip,
+        userAgent: ctx.userAgent,
+      });
     });
   }
 
@@ -410,8 +543,13 @@ export class MinutesService {
       ...new Set([people.hostId, ...people.invited, ...people.attended, ...mentioned]),
     ].filter((id) => id !== user.id);
     const checks = await mapLimited(candidates, RECIPIENT_CHECK_CONCURRENCY, async (id) => {
-      const access = (await this.content.resolveMany(id, [nodeId])).get(nodeId);
-      return access?.role && access.userActive && !access.deletedAt ? id : null;
+      try {
+        const access = (await this.content.resolveMany(id, [nodeId])).get(nodeId);
+        return access?.role && access.userActive && !access.deletedAt ? id : null;
+      } catch (err) {
+        this.logger.warn({ err, userId: id }, 'Could not check minutes access for a recipient');
+        return null;
+      }
     });
     const recipients = checks.filter((id): id is string => id !== null);
     if (recipients.length === 0) return;
@@ -440,8 +578,12 @@ export class MinutesService {
     }
     await this.prisma.client.meetingMinutes
       .updateMany({
-        where: { meetingId, status: 'PUBLISHING' },
-        data: { status: 'AWAITING_REVIEW' },
+        where: {
+          meetingId,
+          status: 'PUBLISHING',
+          OR: [{ documentNodeId: nodeId }, { documentNodeId: null }],
+        },
+        data: { status: 'AWAITING_REVIEW', documentNodeId: null },
       })
       .catch((err) => this.logger.error({ err, meetingId }, 'Could not reopen minutes'));
   }
