@@ -25,6 +25,12 @@ const TREE_TX_MAX_WAIT_MS = 5_000;
 const DEFAULT_STATEMENT_TIMEOUT_MS = 30_000;
 const PURGE_BATCH_SIZE = 200;
 
+export interface PurgeBatch {
+  count: number;
+  index: number;
+  total: number;
+}
+
 export type NodeExtra = {
   description?: string | null;
   status?: NodeStatus;
@@ -331,24 +337,26 @@ export class NodeTree {
     });
   }
 
-  async purgeAll(workspaceId: string, audit: (total: number) => AuditEntry): Promise<number> {
+  async purgeAll(workspaceId: string, audit: (batch: PurgeBatch) => AuditEntry): Promise<number> {
     const roots = await this.prisma.client.$queryRaw<{ id: string }[]>`
       SELECT id FROM nodes WHERE workspace_id = ${workspaceId}::uuid AND deleted_root_id = id`;
     if (roots.length === 0) {
-      await this.prisma.client.$transaction((tx) => this.writeAudit(tx, audit(0)));
+      await this.prisma.client.$transaction((tx) =>
+        this.writeAudit(tx, audit({ count: 0, index: 1, total: 1 })),
+      );
       return 0;
     }
+    const total = Math.ceil(roots.length / PURGE_BATCH_SIZE);
     let deleted = 0;
-    for (let i = 0; i < roots.length; i += PURGE_BATCH_SIZE) {
-      const ids = roots.slice(i, i + PURGE_BATCH_SIZE).map((r) => r.id);
-      const last = i + PURGE_BATCH_SIZE >= roots.length;
+    for (let index = 1; index <= total; index++) {
+      const ids = roots.slice((index - 1) * PURGE_BATCH_SIZE, index * PURGE_BATCH_SIZE);
       deleted += await this.withLock(workspaceId, async (tx) => {
         const count = await tx.$executeRaw`
           DELETE FROM nodes
           WHERE workspace_id = ${workspaceId}::uuid
             AND deleted_root_id = id
-            AND id = ANY(${ids}::uuid[])`;
-        if (last) await this.writeAudit(tx, audit(deleted + count));
+            AND id = ANY(${ids.map((r) => r.id)}::uuid[])`;
+        if (count > 0 || total === 1) await this.writeAudit(tx, audit({ count, index, total }));
         return count;
       });
     }

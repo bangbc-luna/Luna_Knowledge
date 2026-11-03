@@ -721,12 +721,12 @@ describe('Content tree, sharing, trash (e2e)', () => {
   });
 
   describe('audit trong cùng giao dịch', () => {
-    const blockAudit = async (action: string) => {
+    const blockAudit = async (action: string, extra = 'true') => {
       await ctx.prisma.$executeRawUnsafe(
         `CREATE OR REPLACE FUNCTION fail_audit() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'audit blocked'; END $$ LANGUAGE plpgsql`,
       );
       await ctx.prisma.$executeRawUnsafe(
-        `CREATE TRIGGER fail_audit_trg BEFORE INSERT ON audit_logs FOR EACH ROW WHEN (NEW.action = '${action}') EXECUTE FUNCTION fail_audit()`,
+        `CREATE TRIGGER fail_audit_trg BEFORE INSERT ON audit_logs FOR EACH ROW WHEN (NEW.action = '${action}' AND ${extra}) EXECUTE FUNCTION fail_audit()`,
       );
     };
     const unblockAudit = () =>
@@ -857,19 +857,35 @@ describe('Content tree, sharing, trash (e2e)', () => {
       return ids;
     };
 
-    it('dọn thùng rác nhiều đợt chỉ ghi một audit với tổng số mục gốc', async () => {
+    it('dọn thùng rác nhiều đợt: mỗi đợt một audit có batch và batches, tổng deletedRoots bằng số mục gốc', async () => {
       await http().delete(`/api/v1/workspaces/${wsId}/trash`).set(alice.auth).expect(200);
       await seedTrash(450);
-      const before = await ctx.prisma.auditLog.count({
-        where: { action: 'trash.empty', workspaceId: wsId },
-      });
+      const lastId = (
+        await ctx.prisma.auditLog.findFirst({ orderBy: { id: 'desc' }, select: { id: true } })
+      )?.id;
       await http().delete(`/api/v1/workspaces/${wsId}/trash`).set(alice.auth).expect(200);
       const rows = await ctx.prisma.auditLog.findMany({
-        where: { action: 'trash.empty', workspaceId: wsId },
-        orderBy: { id: 'desc' },
+        where: { action: 'trash.empty', workspaceId: wsId, id: { gt: lastId ?? 0n } },
+        orderBy: { id: 'asc' },
       });
-      expect(rows).toHaveLength(before + 1);
-      expect(rows[0]!.metadata).toMatchObject({ deletedRoots: 450 });
+      expect(rows.map((r) => r.metadata)).toEqual([
+        { deletedRoots: 200, batch: 1, batches: 3 },
+        { deletedRoots: 200, batch: 2, batches: 3 },
+        { deletedRoots: 50, batch: 3, batches: 3 },
+      ]);
+    });
+
+    it('dọn thùng rác một đợt giữ nguyên metadata { deletedRoots }', async () => {
+      await http().delete(`/api/v1/workspaces/${wsId}/trash`).set(alice.auth).expect(200);
+      await seedTrash(3);
+      const lastId = (
+        await ctx.prisma.auditLog.findFirst({ orderBy: { id: 'desc' }, select: { id: true } })
+      )?.id;
+      await http().delete(`/api/v1/workspaces/${wsId}/trash`).set(alice.auth).expect(200);
+      const rows = await ctx.prisma.auditLog.findMany({
+        where: { action: 'trash.empty', workspaceId: wsId, id: { gt: lastId ?? 0n } },
+      });
+      expect(rows.map((r) => r.metadata)).toEqual([{ deletedRoots: 3 }]);
     });
 
     it('dọn thùng rác lỗi ở đợt sau vẫn yêu cầu dọn rác blob khi đã xoá được đợt trước', async () => {
@@ -883,10 +899,17 @@ describe('Content tree, sharing, trash (e2e)', () => {
         )
         .mockResolvedValue(undefined as never);
       try {
-        await blockAudit('trash.empty');
+        await blockAudit('trash.empty', "(NEW.metadata->>'batch')::int = 2");
+        const lastId = (
+          await ctx.prisma.auditLog.findFirst({ orderBy: { id: 'desc' }, select: { id: true } })
+        )?.id;
         await http().delete(`/api/v1/workspaces/${wsId}/trash`).set(alice.auth).expect(500);
         await unblockAudit();
         expect(await ctx.prisma.node.count({ where: { id: { in: ids } } })).toBe(50);
+        const rows = await ctx.prisma.auditLog.findMany({
+          where: { action: 'trash.empty', workspaceId: wsId, id: { gt: lastId ?? 0n } },
+        });
+        expect(rows.map((r) => r.metadata)).toEqual([{ deletedRoots: 200, batch: 1, batches: 2 }]);
         expect(add).toHaveBeenCalledWith('blob-gc', {}, expect.anything());
       } finally {
         add.mockRestore();

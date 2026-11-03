@@ -93,13 +93,16 @@ export class TrashService {
     if (!user.isSystemAdmin) await this.access.requireMember(user, workspaceId, 'ADMIN');
     let count: number;
     try {
-      count = await this.tree.purgeAll(workspaceId, (deletedRoots) => ({
+      count = await this.tree.purgeAll(workspaceId, (batch) => ({
         actorId: user.id,
         action: 'trash.empty',
         targetType: 'workspace',
         targetId: workspaceId,
         workspaceId,
-        metadata: { deletedRoots },
+        metadata:
+          batch.total > 1
+            ? { deletedRoots: batch.count, batch: batch.index, batches: batch.total }
+            : { deletedRoots: batch.count },
         ctx,
       }));
     } finally {

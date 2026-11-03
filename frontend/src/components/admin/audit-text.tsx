@@ -1,7 +1,7 @@
 "use client";
 
 import { Copy, Eye, FolderInput, FolderPlus, LogIn, LogOut, Pencil, Settings, Share2, ShieldAlert, Trash2, Undo2, UserX, type LucideIcon } from "lucide-react";
-import { ACTION_LABEL } from "@/lib/format";
+import { actionText } from "@/lib/format";
 import type { AuditItem } from "@/lib/types";
 import { Badge, type BadgeTone } from "../ui/misc";
 
@@ -26,12 +26,12 @@ export function actionTone(action: string): BadgeTone {
   return "neutral";
 }
 
-export function ActionBadge({ action }: { action: string }) {
+export function ActionBadge({ action, metadata }: { action: string; metadata?: Record<string, unknown> | null }) {
   const Icon = ICONS.find(([re]) => re.test(action))?.[1] ?? Settings;
   return (
     <Badge tone={actionTone(action)}>
       <Icon className="size-3.5" aria-hidden />
-      {ACTION_LABEL[action] ?? action}
+      {actionText(action, metadata)}
     </Badge>
   );
 }
@@ -51,7 +51,7 @@ export function AuditSentence({ item }: { item: AuditItem }) {
   const target = targetText(item);
   return (
     <>
-      <span className="font-medium text-foreground">{actorName(item)}</span> {(ACTION_LABEL[item.action] ?? item.action).toLowerCase()}
+      <span className="font-medium text-foreground">{actorName(item)}</span> {actionText(item.action, item.metadata).toLowerCase()}
       {target ? (
         <>
           {" "}

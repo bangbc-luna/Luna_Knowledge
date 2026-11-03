@@ -122,6 +122,16 @@ export const ACTION_LABEL: Record<string, string> = {
   "workspace.transfer_ownership": "Chuyển quyền sở hữu",
 };
 
+export function actionText(action: string, metadata?: Record<string, unknown> | null): string {
+  const label = ACTION_LABEL[action] ?? action;
+  const batch = metadata?.batch;
+  const batches = metadata?.batches;
+  if (action === "trash.empty" && typeof batch === "number" && typeof batches === "number") {
+    return `${label} (đợt ${batch}/${batches})`;
+  }
+  return label;
+}
+
 export const ACTION_GROUPS: Array<{ key: string; label: string; actions: string[] }> = [
   { key: "view", label: "Xem", actions: ["node.view"] },
   { key: "download", label: "Tải về", actions: ["file.download", "video.original_access"] },
