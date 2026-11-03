@@ -1,7 +1,7 @@
 import { LiveKitMeetingMedia, MEETING_MEDIA } from '@luna/meetings';
 import { ObjectStore, QUEUES } from '@luna/shared';
 import { BullModule } from '@nestjs/bullmq';
-import { Global, Module, type OnModuleDestroy } from '@nestjs/common';
+import { Global, Module, type OnApplicationShutdown } from '@nestjs/common';
 import { LoggerModule } from 'nestjs-pino';
 import {
   loadRecorderConfig,
@@ -66,10 +66,10 @@ class RecorderConfigModule {}
     MetricsServer,
   ],
 })
-export class RecorderModule implements OnModuleDestroy {
+export class RecorderModule implements OnApplicationShutdown {
   constructor(private readonly store: ObjectStore) {}
 
-  onModuleDestroy() {
+  onApplicationShutdown() {
     this.store.destroy();
   }
 }

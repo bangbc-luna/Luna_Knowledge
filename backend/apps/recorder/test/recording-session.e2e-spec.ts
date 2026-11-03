@@ -4,9 +4,9 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { ParticipantKind, RoomEvent, TrackKind, TrackSource } from '@livekit/rtc-node';
-import type { PrismaClient } from '@luna/db';
+import { createPrismaClient, type PrismaClient } from '@luna/db';
 import { encodeRoomMetadata, MEETING_MEDIA } from '@luna/meetings';
 import { FakeMeetingMedia } from '@luna/meetings/testing';
 import {
@@ -128,6 +128,8 @@ describe('Recording session (e2e)', () => {
   let seq = 0;
   let clock = 0;
   let bucket: string;
+  let dbUri: string;
+  let appClosed = false;
 
   const startedAt = new Date('2026-11-03T03:00:00.000Z');
 
@@ -187,6 +189,7 @@ describe('Recording session (e2e)', () => {
         .start(),
     ]);
     containers.push(pg, redis, minio);
+    dbUri = pg.getConnectionUri();
     Object.assign(process.env, {
       NODE_ENV: 'test',
       RECORDER_METRICS_PORT: '0',
@@ -243,7 +246,7 @@ describe('Recording session (e2e)', () => {
 
   afterAll(async () => {
     await minutesQueue?.close();
-    await app?.close();
+    if (!appClosed) await app?.close();
     s3?.destroy();
     await Promise.all(containers.map((c) => c.stop()));
   });
@@ -297,6 +300,7 @@ describe('Recording session (e2e)', () => {
 
     await prisma.meeting.update({ where: { id: meeting.id }, data: { aiNotesEnabled: false } });
     await sleep(300);
+    expect(room.mic(alice.id).subscribedCalls.at(-1)).toBe(false);
     await speak(queue, 4000, 1000, true);
     await speak(queue, 5000, 2000, false);
 
@@ -308,6 +312,7 @@ describe('Recording session (e2e)', () => {
 
     room.setMetadata(roomMeta(owner.id, true));
     await sleep(300);
+    expect(room.mic(alice.id).subscribedCalls.at(-1)).toBe(true);
     await speak(queue, 11_000, 1000, false);
     await speak(queue, 12_000, 1000, true);
     await speak(queue, 13_000, 2000, false);
@@ -402,5 +407,66 @@ describe('Recording session (e2e)', () => {
       (await prisma.meetingMinutes.findUnique({ where: { meetingId: meeting.id } }))
         ?.audioCompletedAt,
     ).toBeInstanceOf(Date);
+  });
+  it('phiên ghi: ghi biên bản tắt suốt buổi họp → không có dòng meeting_minutes, không có job biên bản, không đăng ký mic', async () => {
+    const { meeting, owner } = await newMeeting({ aiNotesEnabled: false });
+    const alice = await newUser();
+    const room = new FakeRoom(roomMeta(owner.id, false));
+    room.join(alice.id);
+    useRoom(room);
+    const running = session.run(meeting.id, new AbortController().signal);
+    await sleep(400);
+    room.deliverMic(alice.id);
+    await speak(room.mic(alice.id).queue, 0, 1000, true);
+    await speak(room.mic(alice.id).queue, 1000, 2000, false);
+    expect(room.mic(alice.id).subscribedCalls).toEqual([]);
+    await prisma.meeting.update({
+      where: { id: meeting.id },
+      data: { status: 'ENDED', endedAt: new Date() },
+    });
+    await expect(running).resolves.toBe('disabled');
+    expect(await prisma.meetingMinutes.findUnique({ where: { meetingId: meeting.id } })).toBeNull();
+    expect(await chunksOf(meeting.id)).toHaveLength(0);
+    expect(await minutesQueue.getJob(`minutes-${meeting.id}`)).toBeUndefined();
+  });
+
+  it('phiên ghi: lỗi kết nối phòng chỉ báo thông điệp cố định, không lộ URL hay token', async () => {
+    const { meeting } = await newMeeting();
+    hooks.connectRoom = async (url, token) => {
+      throw new Error(`boom ${url} ${token}`);
+    };
+    const error = await session.run(meeting.id, new AbortController().signal).catch((e) => e);
+    expect(error.message).toBe('Could not connect the recorder to the LiveKit room');
+  });
+
+  it('đóng ứng dụng khi đang có đoạn mở: chờ phiên ghi xong, đoạn được lưu', async () => {
+    const { meeting, owner } = await newMeeting();
+    const alice = await newUser();
+    const room = new FakeRoom(roomMeta(owner.id, true));
+    room.join(alice.id);
+    useRoom(room);
+    const { RecorderProcessor } = await import('../src/recorder.processor.js');
+    const processor = app.get(RecorderProcessor);
+    const job = {
+      name: 'record',
+      data: { meetingId: meeting.id },
+      moveToDelayed: async () => undefined,
+    };
+    const processing = processor.process(job as never, 'token').catch((e) => e);
+    await waitUntil(async () => room.mic(alice.id).subscribedCalls.length > 0);
+    room.deliverMic(alice.id);
+    await speak(room.mic(alice.id).queue, 0, 1000, true);
+    appClosed = true;
+    await app.close();
+    expect((await processing).constructor.name).toBe('DelayedError');
+    const check = createPrismaClient({ connectionString: dbUri });
+    try {
+      const rows = await check.meetingAudioChunk.findMany({ where: { meetingId: meeting.id } });
+      expect(rows).toHaveLength(1);
+      const head = await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: rows[0]!.key }));
+      expect(head.ContentLength).toBeGreaterThan(0);
+    } finally {
+      await check.$disconnect();
+    }
   });
 });

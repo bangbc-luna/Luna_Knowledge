@@ -11,7 +11,7 @@ import { decodeRoomMetadata, MEETING_MEDIA, type MeetingMedia, roomNameFor } fro
 import { ObjectStore, promoteMinutes, QUEUES } from '@luna/shared';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import type { Queue } from 'bullmq';
+import { type Queue, UnrecoverableError } from 'bullmq';
 import { RECORDER_CONFIG, type RecorderConfig } from './config.js';
 import { PrismaService } from './prisma.provider.js';
 import { type AudioEncoder, OpusEncoder } from './opus-encoder.js';
@@ -21,6 +21,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const RECORDER_IDENTITY = 'luna-recorder';
 const RECORDER_NAME = 'Luna AI';
 const DAY_MS = 86_400_000;
+const MAX_RECONNECT_WINDOW_MS = 6 * 3_600_000;
 
 export interface PublicationLike {
   readonly kind?: TrackKind;
@@ -106,20 +107,14 @@ export class RecordingSession {
             select: { audioCompletedAt: true },
           })
         : null;
-      if (!minutes) return 'empty';
+      if (!minutes) return 'disabled';
       if (!minutes.audioCompletedAt) await this.complete(meetingId);
-      return this.resultOf(meetingId, true);
+      return this.resultOf(meetingId);
     }
-    const startedAt = meeting.startedAt ?? new Date(now());
-    await db.meetingMinutes.upsert({
-      where: { meetingId },
-      create: {
-        meetingId,
-        status: 'RECORDING',
-        audioPurgeAfter: new Date(now() + this.config.MEETING_AUDIO_RETENTION_DAYS * DAY_MS),
-      },
-      update: {},
-    });
+    if (!meeting.startedAt) {
+      throw new UnrecoverableError(`Meeting ${meetingId} is live without a start time`);
+    }
+    const startedAt = meeting.startedAt;
 
     const roomName = roomNameFor(meetingId);
     const token = await this.media.joinToken({
@@ -128,19 +123,28 @@ export class RecordingSession {
       name: RECORDER_NAME,
       role: 'recorder',
     });
-    const room = await (this.hooks.connectRoom ?? connectRealRoom)(this.media.serverUrl, token);
+    let room: RoomLike;
+    try {
+      room = await (this.hooks.connectRoom ?? connectRealRoom)(this.media.serverUrl, token);
+    } catch {
+      throw new Error('Could not connect the recorder to the LiveKit room');
+    }
     const openAudio = this.hooks.openAudio ?? openRealAudio;
     const createEncoder =
       this.hooks.createEncoder ??
       (() =>
-        new OpusEncoder({ ffmpegPath: this.config.FFMPEG_PATH, nice: this.config.FFMPEG_NICE }));
+        new OpusEncoder({
+          ffmpegPath: this.config.FFMPEG_PATH,
+          nice: this.config.FFMPEG_NICE,
+        }));
 
     const recorders = new Map<string, TrackRecorder>();
-    const subscribed = new WeakSet<PublicationLike>();
+    const micPublications = new Map<PublicationLike, boolean>();
     const consumers = new Set<Promise<void>>();
     let dbEnabled = meeting.aiNotesEnabled;
     let metaEnabled = decodeRoomMetadata(room.metadata ?? '')?.aiNotesEnabled ?? false;
-    let everEnabled = false;
+    let recording = false;
+    let minutesReady = false;
     let disconnected = false;
     let emptySince: number | null = null;
     let wakeRequested = false;
@@ -151,23 +155,51 @@ export class RecordingSession {
       wakeRequested = true;
       wake();
     };
-    const applyEnabled = async () => {
-      const on = enabled();
-      if (on) everEnabled = true;
-      await Promise.all(
-        [...recorders.values()].map(async (r) => {
-          if (on) r.resume();
-          else await r.pause();
-        }),
-      );
+    const syncSubscriptions = () => {
+      for (const [publication, state] of micPublications) {
+        if (state === recording) continue;
+        micPublications.set(publication, recording);
+        publication.setSubscribed(recording);
+      }
+    };
+    const ensureMinutes = async () => {
+      if (minutesReady) return;
+      await db.meetingMinutes.upsert({
+        where: { meetingId },
+        create: {
+          meetingId,
+          status: 'RECORDING',
+          audioPurgeAfter: new Date(now() + this.config.MEETING_AUDIO_RETENTION_DAYS * DAY_MS),
+        },
+        update: {},
+      });
+      minutesReady = true;
+    };
+    const doApply = async () => {
+      if (enabled()) {
+        await ensureMinutes();
+        if (!enabled()) return;
+        recording = true;
+        syncSubscriptions();
+        for (const r of recorders.values()) r.resume();
+        return;
+      }
+      recording = false;
+      syncSubscriptions();
+      await Promise.all([...recorders.values()].map((r) => r.pause()));
+    };
+    let applyChain: Promise<void> = Promise.resolve();
+    const applyEnabled = () => {
+      applyChain = applyChain.then(doApply, doApply);
+      return applyChain;
     };
     const subscribe = (participant: ParticipantLike) => {
       if (!isRecordable(participant)) return;
       for (const publication of participant.trackPublications.values()) {
-        if (!isMicrophone(publication) || subscribed.has(publication)) continue;
-        subscribed.add(publication);
-        publication.setSubscribed(true);
+        if (!isMicrophone(publication) || micPublications.has(publication)) continue;
+        micPublications.set(publication, false);
       }
+      syncSubscriptions();
     };
 
     const onParticipant = (participant: ParticipantLike) => subscribe(participant);
@@ -193,7 +225,7 @@ export class RecordingSession {
           },
           { id: meetingId, startedAt },
           participant.identity,
-          !enabled(),
+          !recording,
         );
         recorders.set(participant.identity, recorder);
       }
@@ -213,6 +245,7 @@ export class RecordingSession {
     const onMetadata = (metadata: string) => {
       metaEnabled = decodeRoomMetadata(metadata)?.aiNotesEnabled ?? false;
       if (!metaEnabled) {
+        recording = false;
         void applyEnabled().catch((err) => this.logger.error({ err, meetingId }, 'Pause failed'));
       }
       requestWake();
@@ -248,7 +281,12 @@ export class RecordingSession {
         select: { status: true, aiNotesEnabled: true },
       });
       if (!row || row.status !== 'LIVE') return true;
-      if (disconnected) throw new Error('Recorder was disconnected from the room');
+      if (disconnected) {
+        if (now() - startedAt.getTime() > MAX_RECONNECT_WINDOW_MS) {
+          throw new Error('Recorder kept losing the room for too long');
+        }
+        throw new RecordingAborted('Recorder was disconnected from the room');
+      }
       dbEnabled = row.aiNotesEnabled;
       await applyEnabled();
       const present = [...room.remoteParticipants.values()].filter(isRecordable).length;
@@ -262,8 +300,8 @@ export class RecordingSession {
 
     let finished = false;
     try {
-      for (const participant of room.remoteParticipants.values()) subscribe(participant);
       await applyEnabled();
+      for (const participant of room.remoteParticipants.values()) subscribe(participant);
       while (!signal.aborted) {
         wakeRequested = false;
         if (await check()) {
@@ -273,18 +311,26 @@ export class RecordingSession {
         await sleep(this.hooks.pollMs ?? 10_000);
       }
     } finally {
-      room.off(RoomEvent.ParticipantConnected, onParticipant);
-      room.off(RoomEvent.TrackPublished, onPublished);
-      room.off(RoomEvent.TrackSubscribed, onSubscribed);
-      room.off(RoomEvent.RoomMetadataChanged, onMetadata);
-      room.off(RoomEvent.Disconnected, onDisconnected);
-      await Promise.all([...recorders.values()].map((r) => r.stop()));
-      await Promise.allSettled(consumers);
-      await room.disconnect().catch(() => undefined);
+      try {
+        room.off(RoomEvent.ParticipantConnected, onParticipant);
+        room.off(RoomEvent.TrackPublished, onPublished);
+        room.off(RoomEvent.TrackSubscribed, onSubscribed);
+        room.off(RoomEvent.RoomMetadataChanged, onMetadata);
+        room.off(RoomEvent.Disconnected, onDisconnected);
+        await Promise.allSettled([...recorders.values()].map((r) => r.stop()));
+        await Promise.allSettled(consumers);
+      } finally {
+        await room.disconnect().catch(() => undefined);
+      }
     }
     if (!finished) throw new RecordingAborted('Recording was interrupted');
+    const minutes = await db.meetingMinutes.findUnique({
+      where: { meetingId },
+      select: { meetingId: true },
+    });
+    if (!minutes) return 'disabled';
     await this.complete(meetingId);
-    return this.resultOf(meetingId, everEnabled);
+    return this.resultOf(meetingId);
   }
 
   private async complete(meetingId: string): Promise<void> {
@@ -299,8 +345,7 @@ export class RecordingSession {
     await promoteMinutes(this.minutesQueue as never, meetingId);
   }
 
-  private async resultOf(meetingId: string, wasEnabled: boolean): Promise<RecordingResult> {
-    if (!wasEnabled) return 'disabled';
+  private async resultOf(meetingId: string): Promise<RecordingResult> {
     const chunks = await this.prisma.client.meetingAudioChunk.count({ where: { meetingId } });
     return chunks === 0 ? 'empty' : 'ended';
   }

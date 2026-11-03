@@ -56,7 +56,7 @@ CMD ["node", "dist/main.js"]
 
 FROM runtime AS recorder
 USER root
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates && rm -rf /var/lib/apt/lists/*
 RUN mkdir -p /var/tmp/luna-recorder && chown node:node /var/tmp/luna-recorder
 USER node
 COPY --from=build --chown=node:node /out/recorder /app

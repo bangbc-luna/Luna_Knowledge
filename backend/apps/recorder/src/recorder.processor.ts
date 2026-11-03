@@ -14,6 +14,7 @@ export class RecorderProcessor
 {
   private readonly logger = new Logger(RecorderProcessor.name);
   private readonly shutdown = new AbortController();
+  private readonly active = new Set<Promise<unknown>>();
 
   constructor(
     private readonly session: RecordingSession,
@@ -26,8 +27,9 @@ export class RecorderProcessor
     this.worker.concurrency = this.config.MEETING_RECORDER_CONCURRENCY;
   }
 
-  onModuleDestroy() {
+  async onModuleDestroy() {
     this.shutdown.abort();
+    await Promise.allSettled(this.active);
   }
 
   async process(job: Job, token?: string): Promise<RecordingResult> {
@@ -39,7 +41,9 @@ export class RecorderProcessor
 
   private async record(job: Job, meetingId: string, token?: string): Promise<RecordingResult> {
     try {
-      const result = await this.session.run(meetingId, this.shutdown.signal);
+      const running = this.session.run(meetingId, this.shutdown.signal);
+      this.active.add(running);
+      const result = await running.finally(() => this.active.delete(running));
       this.logger.log(`Recording of meeting ${meetingId} finished: ${result}`);
       return result;
     } catch (err) {

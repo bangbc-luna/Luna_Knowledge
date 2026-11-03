@@ -18,6 +18,7 @@ export interface TrackRecorderDeps {
   createEncoder: () => AudioEncoder;
   now?: () => number;
   logger?: RecorderLogger;
+  retryDelayMs?: number;
 }
 
 export interface RecordedFrame {
@@ -66,7 +67,7 @@ export class TrackRecorder {
 
   consume(stream: AsyncIterable<RecordedFrame>): Promise<void> {
     const run = this.consumeLoop(stream);
-    this.loop = this.loop.then(() => run);
+    this.loop = this.loop.then(() => run).catch(() => undefined);
     return run;
   }
 
@@ -129,7 +130,11 @@ export class TrackRecorder {
   }
 
   private enqueue(job: () => Promise<void>): void {
-    this.tail = this.tail.then(job);
+    this.tail = this.tail
+      .then(job)
+      .catch((err) =>
+        this.deps.logger?.error({ err, meetingId: this.meeting.id }, 'Chunk task failed'),
+      );
   }
 
   private async finalize(
@@ -142,14 +147,26 @@ export class TrackRecorder {
         return;
       }
       const { sizeBytes } = await chunk.encoder.finish();
-      const key = `meetings/${this.meeting.id}/${this.userId}/${Math.max(0, close.startMs)}.ogg`;
-      const stored = await this.deps.store.putFile('meetingAudio', key, chunk.path, 'audio/ogg');
+      const startOffsetMs = Math.max(0, close.startMs);
+      const key = `meetings/${this.meeting.id}/${this.userId}/${startOffsetMs}.ogg`;
+      const existing = await this.deps.db.meetingAudioChunk.findUnique({
+        where: {
+          meetingId_userId_startOffsetMs: {
+            meetingId: this.meeting.id,
+            userId: this.userId,
+            startOffsetMs,
+          },
+        },
+        select: { id: true },
+      });
+      if (existing) return;
+      const stored = await this.upload(key, chunk.path);
       try {
         await this.deps.db.meetingAudioChunk.create({
           data: {
             meetingId: this.meeting.id,
             userId: this.userId,
-            startOffsetMs: Math.max(0, close.startMs),
+            startOffsetMs,
             durationMs: close.durationMs,
             container: stored.container,
             key: stored.key,
@@ -168,6 +185,20 @@ export class TrackRecorder {
     } finally {
       chunk.encoder.abort();
       await rm(chunk.path, { force: true });
+    }
+  }
+
+  private async upload(key: string, path: string) {
+    const attempts = 3;
+    const base = this.deps.retryDelayMs ?? 500;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.deps.store.putFile('meetingAudio', key, path, 'audio/ogg');
+      } catch (err) {
+        if (attempt >= attempts) throw err;
+        this.deps.logger?.warn({ err, key, attempt }, 'Uploading an audio chunk failed, retrying');
+        await new Promise((resolve) => setTimeout(resolve, base * attempt * attempt));
+      }
     }
   }
 }

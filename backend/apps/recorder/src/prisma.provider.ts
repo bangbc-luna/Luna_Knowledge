@@ -1,9 +1,9 @@
 import { createPrismaClient, type PrismaClient } from '@luna/db';
-import { Inject, Injectable, type OnModuleDestroy } from '@nestjs/common';
+import { Inject, Injectable, type OnApplicationShutdown } from '@nestjs/common';
 import { RECORDER_CONFIG, type RecorderConfig } from './config.js';
 
 @Injectable()
-export class PrismaService implements OnModuleDestroy {
+export class PrismaService implements OnApplicationShutdown {
   readonly client: PrismaClient;
 
   constructor(@Inject(RECORDER_CONFIG) config: RecorderConfig) {
@@ -16,7 +16,7 @@ export class PrismaService implements OnModuleDestroy {
     });
   }
 
-  async onModuleDestroy() {
+  async onApplicationShutdown() {
     await this.client.$disconnect();
   }
 }

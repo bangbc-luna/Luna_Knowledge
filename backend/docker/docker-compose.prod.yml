@@ -148,10 +148,14 @@ services:
     cpus: '1'
     mem_limit: 1g
     stop_grace_period: 60s
-    volumes:
-      - recorder-tmp:/var/tmp/luna-recorder
+    tmpfs:
+      - /var/tmp/luna-recorder:size=512m,uid=1000,gid=1000,mode=0700
     environment:
       <<: *no-owner-secrets
+      DEEPGRAM_API_KEY: ''
+      ANTHROPIC_API_KEY: ''
+      GEMINI_API_KEY: ''
+      OMNIROUTE_API_KEY: ''
       RECORDER_TMP_DIR: /var/tmp/luna-recorder
       FFMPEG_NICE: '10'
     networks: [internal]
@@ -412,6 +416,5 @@ volumes:
   minio-data:
   meili-data:
   worker-tmp:
-  recorder-tmp:
   prometheus-data:
   grafana-data:
