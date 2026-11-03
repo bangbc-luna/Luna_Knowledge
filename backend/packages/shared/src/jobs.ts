@@ -53,6 +53,37 @@ export interface JobQueue<Q extends JobQueueName> {
   ): Promise<unknown>;
 }
 
+export type EmptyJobName<Q extends JobQueueName> = {
+  [N in JobName<Q>]: JobPayloads[Q][N] extends Empty ? N : never;
+}[JobName<Q>];
+
+export type SchedulerRepeat = { pattern: string; tz?: string } | { every: number };
+
+export interface ScheduledJobQueue<Q extends JobQueueName> extends JobQueue<Q> {
+  upsertJobScheduler(
+    id: string,
+    repeat: SchedulerRepeat,
+    template: { name: string; opts?: JobsOptions },
+  ): Promise<unknown>;
+}
+
+export const SCHEDULER_JOB_OPTS = { removeOnComplete: 30, removeOnFail: 100 } as const;
+
+export async function upsertScheduler<Q extends JobQueueName>(
+  queue: ScheduledJobQueue<Q>,
+  name: EmptyJobName<Q>,
+  repeat: SchedulerRepeat,
+): Promise<void> {
+  await queue.upsertJobScheduler(name, repeat, { name, opts: { ...SCHEDULER_JOB_OPTS } });
+}
+
+export async function enqueueReindexAll(
+  queue: JobQueue<'search-index'>,
+  jobId: string,
+): Promise<void> {
+  await queue.add('reindex-all', {}, { jobId, removeOnComplete: true, removeOnFail: 20 });
+}
+
 export function unknownJob(job: never): string {
   return typeof job === 'string' ? job : (job as { name: string }).name;
 }

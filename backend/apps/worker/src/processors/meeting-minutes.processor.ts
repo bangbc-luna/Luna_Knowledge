@@ -19,10 +19,17 @@ import {
   SttError,
   validateDraft,
 } from '@luna/meetings';
-import { JOBS, ObjectStore, QUEUES, type QueueJob, unknownJob } from '@luna/shared';
+import {
+  ObjectStore,
+  QUEUES,
+  type QueueJob,
+  type ScheduledJobQueue,
+  unknownJob,
+  upsertScheduler,
+} from '@luna/shared';
 import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger, type OnApplicationBootstrap } from '@nestjs/common';
-import { DelayedError, type Job, type Queue, UnrecoverableError } from 'bullmq';
+import { DelayedError, type Job, UnrecoverableError } from 'bullmq';
 import { WORKER_CONFIG, type WorkerConfig } from '../config/worker-config.js';
 import { PrismaService } from '../infra/prisma.provider.js';
 import { NodeEventsPublisher } from '../infra/redis.provider.js';
@@ -117,7 +124,8 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
     private readonly publisher: NodeEventsPublisher,
     @Inject(SPEECH_TO_TEXT) private readonly stt: SpeechToText | null,
     @Inject(MINUTES_WRITER) private readonly writer: MinutesWriter | null,
-    @InjectQueue(QUEUES.MEETING_MINUTES) private readonly queue: Queue,
+    @InjectQueue(QUEUES.MEETING_MINUTES)
+    private readonly queue: ScheduledJobQueue<'meeting-minutes'>,
     @Inject(WORKER_CONFIG) private readonly config: WorkerConfig,
   ) {
     super();
@@ -125,11 +133,7 @@ export class MeetingMinutesProcessor extends WorkerHost implements OnApplication
 
   async onApplicationBootstrap() {
     this.worker.concurrency = this.config.MEETING_MINUTES_CONCURRENCY;
-    await this.queue.upsertJobScheduler(
-      JOBS.MINUTES_PURGE_AUDIO,
-      { pattern: '0 4 * * *', tz: TIME_ZONE },
-      { name: JOBS.MINUTES_PURGE_AUDIO, opts: { removeOnComplete: 30, removeOnFail: 100 } },
-    );
+    await upsertScheduler(this.queue, 'purge-audio', { pattern: '0 4 * * *', tz: TIME_ZONE });
   }
 
   async process(job: Job, token?: string): Promise<unknown> {

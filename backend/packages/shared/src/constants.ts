@@ -26,21 +26,6 @@ export type BucketKey = (typeof BUCKET_KEYS)[number];
 export const nodeEventsChannel = (nodeId: string) => `node-events:${nodeId}`;
 export const NODE_EVENTS_PATTERN = 'node-events:*';
 
-export const JOBS = {
-  PROCESS_UPLOAD: 'process-upload',
-  REGENERATE: 'regenerate',
-  PURGE_TRASH: 'purge-trash',
-  CLEAN_UPLOADS: 'clean-uploads',
-  BLOB_GC: 'blob-gc',
-  RETENTION: 'retention',
-  TRANSCODE: 'transcode',
-  MEETING_REMIND: 'remind',
-  MEETING_RECONCILE: 'reconcile',
-  MEETING_RECORD: 'record',
-  MINUTES_PROCESS: 'process',
-  MINUTES_PURGE_AUDIO: 'purge-audio',
-} as const;
-
 export interface NodeEvent {
   nodeId: string;
   status: 'UPLOADING' | 'PROCESSING' | 'READY' | 'FAILED';

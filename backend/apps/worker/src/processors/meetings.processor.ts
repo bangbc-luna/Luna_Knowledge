@@ -9,11 +9,12 @@ import {
 import { writeAudit, writeNotifications } from '@luna/db';
 import {
   enqueueMinutes,
-  JOBS,
   type JobQueue,
   QUEUES,
   type QueueJob,
+  type ScheduledJobQueue,
   unknownJob,
+  upsertScheduler,
 } from '@luna/shared';
 import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger, type OnApplicationBootstrap } from '@nestjs/common';
@@ -71,7 +72,7 @@ export class MeetingsProcessor extends WorkerHost implements OnApplicationBootst
     private readonly publisher: NodeEventsPublisher,
     @Inject(MEETING_MEDIA) private readonly media: MeetingMedia,
     @Inject(MEETING_ENDED_HOOK) private readonly onEnded: MeetingEndedHook,
-    @InjectQueue(QUEUES.MEETINGS) private readonly queue: Queue,
+    @InjectQueue(QUEUES.MEETINGS) private readonly queue: ScheduledJobQueue<'meetings'>,
     @InjectQueue(QUEUES.MEETING_MINUTES) private readonly minutesQueue: Queue,
     @Inject(WORKER_CONFIG) private readonly config: WorkerConfig,
   ) {
@@ -79,14 +80,7 @@ export class MeetingsProcessor extends WorkerHost implements OnApplicationBootst
   }
 
   async onApplicationBootstrap() {
-    await this.queue.upsertJobScheduler(
-      JOBS.MEETING_RECONCILE,
-      { every: RECONCILE_EVERY_MS },
-      {
-        name: JOBS.MEETING_RECONCILE,
-        opts: { removeOnComplete: 30, removeOnFail: 100 },
-      },
-    );
+    await upsertScheduler(this.queue, 'reconcile', { every: RECONCILE_EVERY_MS });
   }
 
   async process(job: Job): Promise<unknown> {

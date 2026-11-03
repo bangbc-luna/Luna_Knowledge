@@ -77,13 +77,7 @@ export class TrashService {
     if (!user.isSystemAdmin && node.memberRole !== 'ADMIN') {
       throw AppError.forbidden('Only a workspace admin can delete permanently');
     }
-    await this.tree.withLock(node.workspaceId, async (tx) => {
-      const { count } = await tx.node.deleteMany({ where: { id: nodeId, deletedRootId: nodeId } });
-      if (count > 0) return;
-      const current = await tx.node.findUnique({ where: { id: nodeId }, select: { id: true } });
-      if (!current) throw AppError.notFound('Item not found');
-      throw AppError.validation('Item is not in the trash');
-    });
+    await this.tree.purge(node);
     await this.collectGarbageSoon();
     await this.audit.log({
       actorId: user.id,
@@ -98,11 +92,7 @@ export class TrashService {
 
   async empty(user: AuthenticatedUser, workspaceId: string, ctx: RequestContext) {
     if (!user.isSystemAdmin) await this.access.requireMember(user, workspaceId, 'ADMIN');
-    const count = await this.tree.withLock(
-      workspaceId,
-      (tx) => tx.$executeRaw`
-        DELETE FROM nodes WHERE workspace_id = ${workspaceId}::uuid AND deleted_root_id = id`,
-    );
+    const count = await this.tree.purgeAll(workspaceId);
     await this.collectGarbageSoon();
     await this.audit.log({
       actorId: user.id,

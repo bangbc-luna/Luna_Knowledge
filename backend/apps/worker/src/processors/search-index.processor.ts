@@ -1,18 +1,20 @@
 import {
   createSearchClient,
+  enqueueReindexAll,
   loadSearchDocs,
   QUEUES,
   SEARCH_INDEX,
   SEARCH_INDEX_BUILD,
   type QueueJob,
-  SEARCH_JOBS,
+  type ScheduledJobQueue,
   type SearchDoc,
   searchSettings,
   unknownJob,
+  upsertScheduler,
 } from '@luna/shared';
 import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
 import { Inject, Logger, type OnApplicationBootstrap } from '@nestjs/common';
-import type { Job, Queue } from 'bullmq';
+import type { Job } from 'bullmq';
 import { WORKER_CONFIG, type WorkerConfig } from '../config/worker-config.js';
 import { PrismaService } from '../infra/prisma.provider.js';
 
@@ -26,7 +28,7 @@ export class SearchIndexProcessor extends WorkerHost implements OnApplicationBoo
   constructor(
     private readonly prisma: PrismaService,
     @Inject(WORKER_CONFIG) config: WorkerConfig,
-    @InjectQueue(QUEUES.SEARCH_INDEX) private readonly queue: Queue,
+    @InjectQueue(QUEUES.SEARCH_INDEX) private readonly queue: ScheduledJobQueue<'search-index'>,
   ) {
     super();
     this.client = createSearchClient(config.MEILI_URL, config.MEILI_MASTER_KEY);
@@ -37,17 +39,12 @@ export class SearchIndexProcessor extends WorkerHost implements OnApplicationBoo
       await this.ensureIndex(SEARCH_INDEX);
       const stats = await this.client.index(SEARCH_INDEX).getStats();
       if (!stats.numberOfDocuments) {
-        await this.queue.add(
-          SEARCH_JOBS.REINDEX_ALL,
-          {},
-          { jobId: 'reindex-boot', removeOnComplete: true, removeOnFail: 20 },
-        );
+        await enqueueReindexAll(this.queue, 'reindex-boot');
       }
-      await this.queue.upsertJobScheduler(
-        SEARCH_JOBS.REINDEX_ALL,
-        { pattern: '30 3 * * *', tz: 'Asia/Ho_Chi_Minh' },
-        { name: SEARCH_JOBS.REINDEX_ALL, opts: { removeOnComplete: 30, removeOnFail: 100 } },
-      );
+      await upsertScheduler(this.queue, 'reindex-all', {
+        pattern: '30 3 * * *',
+        tz: 'Asia/Ho_Chi_Minh',
+      });
     } catch (err) {
       this.logger.error({ err }, 'Search index bootstrap failed');
     }

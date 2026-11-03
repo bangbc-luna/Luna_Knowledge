@@ -272,7 +272,62 @@ export class NodeTree {
     return result;
   }
 
-  async withLock<T>(
+  async rename(
+    user: AuthenticatedUser,
+    node: { id: string; workspaceId: string; parentId: string | null; section: NodeSection },
+    details: { name: string; description?: string },
+  ): Promise<void> {
+    const { name, description } = details;
+    try {
+      await this.withLock(node.workspaceId, (tx) =>
+        tx.node.update({
+          where: { id: node.id },
+          data: { name, nameNormalized: nameKey(name), description, updatedById: user.id },
+        }),
+      );
+    } catch (err) {
+      throw await this.mapConflict(err, {
+        workspaceId: node.workspaceId,
+        parentId: node.parentId,
+        section: node.section,
+        name,
+        excludeId: node.id,
+      });
+    }
+  }
+
+  trash(user: AuthenticatedUser, node: { id: string; workspaceId: string }): Promise<number> {
+    return this.withLock(
+      node.workspaceId,
+      (tx) => tx.$executeRaw`
+        UPDATE nodes
+           SET deleted_at = now(), deleted_by = ${user.id}::uuid, deleted_root_id = ${node.id}::uuid
+         WHERE path <@ (SELECT path FROM nodes WHERE id = ${node.id}::uuid)
+           AND deleted_at IS NULL`,
+    );
+  }
+
+  async purge(node: { id: string; workspaceId: string }): Promise<void> {
+    await this.withLock(node.workspaceId, async (tx) => {
+      const { count } = await tx.node.deleteMany({
+        where: { id: node.id, deletedRootId: node.id },
+      });
+      if (count > 0) return;
+      const current = await tx.node.findUnique({ where: { id: node.id }, select: { id: true } });
+      if (!current) throw AppError.notFound('Item not found');
+      throw AppError.validation('Item is not in the trash');
+    });
+  }
+
+  purgeAll(workspaceId: string): Promise<number> {
+    return this.withLock(
+      workspaceId,
+      (tx) => tx.$executeRaw`
+        DELETE FROM nodes WHERE workspace_id = ${workspaceId}::uuid AND deleted_root_id = id`,
+    );
+  }
+
+  private async withLock<T>(
     workspaceId: string,
     fn: (tx: Prisma.TransactionClient) => Promise<T>,
   ): Promise<T> {

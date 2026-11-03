@@ -4,13 +4,6 @@ export const SEARCH_INDEX = 'nodes';
 export const SEARCH_INDEX_BUILD = 'nodes_rebuild';
 export const SEARCH_CONTENT_MAX = 100_000;
 
-export const SEARCH_JOBS = {
-  INDEX_NODE: 'index-node',
-  INDEX_TREE: 'index-tree',
-  DROP_WORKSPACE: 'drop-workspace',
-  REINDEX_ALL: 'reindex-all',
-} as const;
-
 export interface SearchDoc {
   id: string;
   workspaceId: string;

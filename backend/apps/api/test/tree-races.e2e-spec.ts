@@ -301,6 +301,52 @@ describe('Tree races under the workspace lock (e2e)', () => {
     expect(await ctx.prisma.uploadSession.count()).toBe(sessionsBefore);
   }, 30_000);
 
+  const BUSY = {
+    code: 'SERVICE_UNAVAILABLE',
+    message: 'Someone else is changing this workspace right now, try again in a moment',
+  };
+
+  const whileLockHeld = async (send: () => Promise<request.Response>) => {
+    let res!: request.Response;
+    await ctx.prisma.$transaction(
+      async (tx) => {
+        await lockWorkspaceTree(tx, wsId);
+        res = await send();
+      },
+      { timeout: 20_000 },
+    );
+    return res;
+  };
+
+  it('đổi tên khi khoá cây bị giữ quá lâu: 503, tên không đổi', async () => {
+    const id = await folderId(`Tên cũ ${seq}`, f);
+    const res = await whileLockHeld(() =>
+      http().patch(`/api/v1/nodes/${id}`).set(alice.auth).send({ name: 'Tên mới' }),
+    );
+    expect(res.status).toBe(503);
+    expect(res.body.error).toMatchObject(BUSY);
+    expect((await ctx.prisma.node.findUniqueOrThrow({ where: { id } })).name).toBe(`Tên cũ ${seq}`);
+  }, 30_000);
+
+  it('xoá vào thùng rác khi khoá cây bị giữ quá lâu: 503, mục vẫn sống', async () => {
+    const id = await folderId(`Xoá chờ ${seq}`, f);
+    const res = await whileLockHeld(() => trash(alice, id));
+    expect(res.status).toBe(503);
+    expect(res.body.error).toMatchObject(BUSY);
+    expect((await ctx.prisma.node.findUniqueOrThrow({ where: { id } })).deletedAt).toBeNull();
+  }, 30_000);
+
+  it('xoá vĩnh viễn khi khoá cây bị giữ quá lâu: 503, mục vẫn trong thùng rác', async () => {
+    const id = await folderId(`Xoá vĩnh viễn chờ ${seq}`, f);
+    await trash(alice, id).expect(204);
+    const res = await whileLockHeld(() =>
+      http().delete(`/api/v1/nodes/${id}/permanent`).set(alice.auth),
+    );
+    expect(res.status).toBe(503);
+    expect(res.body.error).toMatchObject(BUSY);
+    expect(await ctx.prisma.node.count({ where: { id } })).toBe(1);
+  }, 30_000);
+
   it('hai lần di chuyển chéo A→B và B→A cùng lúc: đúng một lần thành công, cây không có vòng', async () => {
     for (let i = 0; i < 10; i++) {
       const [a, b] = await twoRootFolders(i);
