@@ -54,6 +54,9 @@ describe('Meeting minutes (e2e)', () => {
   let dave: LoggedIn;
   let guest: LoggedIn;
   let stranger: LoggedIn;
+  const reviewers: LoggedIn[] = [];
+  let turn = 0;
+  const reviewer = () => reviewers[turn++ % reviewers.length]!;
   let wsId: string;
   let recorderQueue: Queue;
   let minutesQueue: Queue;
@@ -119,6 +122,9 @@ describe('Meeting minutes (e2e)', () => {
     dave = await loginAs(ctx, 'dave@lunatech.vn', { name: 'Dave' });
     guest = await loginAs(ctx, 'guest@lunatech.vn', { name: 'Guest' });
     stranger = await loginAs(ctx, 'stranger@lunatech.vn', { name: 'Stranger' });
+    for (const n of [1, 2, 3, 4, 5]) {
+      reviewers.push(await loginAs(ctx, `ops${n}@lunatech.vn`, { name: `Ops ${n}` }));
+    }
     const ws = await http()
       .post('/api/v1/workspaces')
       .set(alice.auth)
@@ -130,6 +136,7 @@ describe('Meeting minutes (e2e)', () => {
         { workspaceId: wsId, userId: bob.userId, role: 'MEMBER' },
         { workspaceId: wsId, userId: carol.userId, role: 'MEMBER' },
         { workspaceId: wsId, userId: dave.userId, role: 'ADMIN' },
+        ...reviewers.map((r) => ({ workspaceId: wsId, userId: r.userId, role: 'ADMIN' as const })),
       ],
     });
     recorderQueue = ctx.app.get(getQueueToken(QUEUES.MEETING_RECORDER));
@@ -319,13 +326,21 @@ describe('Meeting minutes (e2e)', () => {
     const id = await seed({ title: 'Họp song song' });
     const before = await ctx.prisma.node.count({ where: { type: 'DOCUMENT' } });
     const results = await Promise.all([
-      http().post(minutesUrl(id, '/publish')).set(alice.auth).send({ revision: 1 }),
+      http().post(minutesUrl(id, '/publish')).set(reviewer().auth).send({ revision: 1 }),
       http().post(minutesUrl(id, '/publish')).set(dave.auth).send({ revision: 1 }),
     ]);
     expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
     expect(await ctx.prisma.node.count({ where: { type: 'DOCUMENT' } })).toBe(before + 1);
-    await http().post(minutesUrl(id, '/publish')).set(alice.auth).send({ revision: 1 }).expect(409);
-    await http().post(minutesUrl(id, '/publish')).set(alice.auth).send({ revision: 7 }).expect(409);
+    await http()
+      .post(minutesUrl(id, '/publish'))
+      .set(reviewer().auth)
+      .send({ revision: 1 })
+      .expect(409);
+    await http()
+      .post(minutesUrl(id, '/publish'))
+      .set(reviewer().auth)
+      .send({ revision: 7 })
+      .expect(409);
   });
 
   it('gợi ý không được xác nhận thành chữ thường và không nhận thông báo; được xác nhận thì nhận meeting.minutes_assigned', async () => {
@@ -351,7 +366,8 @@ describe('Meeting minutes (e2e)', () => {
     const json = JSON.stringify(node.document?.contentJson);
     expect(json).toContain(dave.userId);
     expect(json).not.toContain(bob.userId);
-    expect(json).toContain('Hùng');
+    expect(json).toContain('Bob');
+    expect(json).not.toContain('Hùng');
     expect((await notificationTypes(bob.userId)).length).toBe(bobBefore);
     const assigned = await ctx.prisma.notification.findFirstOrThrow({
       where: { userId: dave.userId, type: 'meeting.minutes_assigned' },
@@ -427,7 +443,7 @@ describe('Meeting minutes (e2e)', () => {
     const view = await http().get(minutesUrl(id)).set(alice.auth).expect(200);
     expect(view.body).toMatchObject({ status: 'FAILED', error: 'LLM down', warning: null });
     await http().post(minutesUrl(id, '/retry')).set(bob.auth).expect(403);
-    const first = await http().post(minutesUrl(id, '/retry')).set(alice.auth).expect(202);
+    const first = await http().post(minutesUrl(id, '/retry')).set(reviewer().auth).expect(202);
     expect(first.body).toEqual({ attempt: 1 });
     expect(await minutesQueue.getJob(`minutes-${id}-retry-1`)).toBeTruthy();
     await ctx.prisma.meetingMinutes.update({
@@ -446,11 +462,11 @@ describe('Meeting minutes (e2e)', () => {
       failedStage: 'transcribe',
       audioPurgedAt: new Date(),
     });
-    const res = await http().post(minutesUrl(expired, '/retry')).set(alice.auth).expect(409);
+    const res = await http().post(minutesUrl(expired, '/retry')).set(reviewer().auth).expect(409);
     expect(res.body.error.message).toBe('The audio for this meeting has expired');
 
     const waiting = await seed();
-    await http().post(minutesUrl(waiting, '/retry')).set(alice.auth).expect(409);
+    await http().post(minutesUrl(waiting, '/retry')).set(reviewer().auth).expect(409);
   });
 
   it('lỗi: failureReason ngắn bằng tiếng Việt theo bước, canRetry theo khả năng chạy lại; lỗi gốc chỉ người duyệt thấy', async () => {
@@ -514,8 +530,8 @@ describe('Meeting minutes (e2e)', () => {
       canRetry: false,
       failureReason: 'Máy chủ chưa cấu hình biên bản AI.',
     });
-    await http().post(minutesUrl(config, '/retry')).set(alice.auth).expect(409);
-    await http().post(minutesUrl(skippedAll, '/retry')).set(alice.auth).expect(409);
+    await http().post(minutesUrl(config, '/retry')).set(reviewer().auth).expect(409);
+    await http().post(minutesUrl(skippedAll, '/retry')).set(reviewer().auth).expect(409);
 
     const waiting = await http()
       .get(minutesUrl(await seed()))
@@ -527,6 +543,28 @@ describe('Meeting minutes (e2e)', () => {
       .set(alice.auth)
       .expect(200);
     expect(none.body).toMatchObject({ canRetry: false, failureReason: null });
+  });
+
+  it('publish và retry bị giới hạn khoảng 10 lần mỗi phút cho mỗi người', async () => {
+    const spammer = await loginAs(ctx, 'spammer@lunatech.vn', { name: 'Spammer' });
+    await ctx.prisma.workspaceMember.create({
+      data: { workspaceId: wsId, userId: spammer.userId, role: 'ADMIN' },
+    });
+    const id = await seed();
+    const statuses = async (path: string, body?: object) => {
+      const out: number[] = [];
+      for (let i = 0; i < 11; i++) {
+        const req = http().post(minutesUrl(id, path)).set(spammer.auth);
+        out.push((await (body ? req.send(body) : req)).status);
+      }
+      return out;
+    };
+    const publish = await statuses('/publish', { revision: 99 });
+    expect(publish.slice(0, 10).every((code) => code === 409)).toBe(true);
+    expect(publish[10]).toBe(429);
+    const retry = await statuses('/retry');
+    expect(retry.slice(0, 10).every((code) => code === 409)).toBe(true);
+    expect(retry[10]).toBe(429);
   });
 
   const bigDoc = (chars: number) => ({
@@ -585,7 +623,7 @@ describe('Meeting minutes (e2e)', () => {
     });
     const res = await http()
       .post(minutesUrl(direct, '/publish'))
-      .set(alice.auth)
+      .set(reviewer().auth)
       .send({ revision: 1 })
       .expect(200);
     const node = await ctx.prisma.node.findUniqueOrThrow({
@@ -608,10 +646,29 @@ describe('Meeting minutes (e2e)', () => {
     ).toBe(1);
   });
 
+  it('mention gợi ý (suggested) bị gắn nhãn giả → nhãn được đặt lại thành tên thật', async () => {
+    const id = await seed({
+      suggestions: [{ actionIndex: 0, name: 'Hùng', userId: bob.userId, userName: 'Bob' }],
+    });
+    await http()
+      .put(minutesUrl(id, '/draft'))
+      .set(alice.auth)
+      .send({
+        doc: minutesDoc([{ task: 'Việc A', owner: mention(bob.userId, 'CEO Giả mạo', true) }]),
+        revision: 1,
+      })
+      .expect(200);
+    const view = await http().get(minutesUrl(id)).set(alice.auth).expect(200);
+    const saved = JSON.stringify(view.body.draft.doc);
+    expect(saved).not.toContain('CEO Giả mạo');
+    expect(saved).toContain('"label":"Bob"');
+    expect(saved).toContain('"suggested":true');
+  });
+
   it('thử lại đồng thời → một 202 và một 409; trạng thái chuyển sang PROCESSING', async () => {
     const id = await seed({ status: 'FAILED', failedStage: 'draft' });
     const results = await Promise.all([
-      http().post(minutesUrl(id, '/retry')).set(alice.auth),
+      http().post(minutesUrl(id, '/retry')).set(reviewer().auth),
       http().post(minutesUrl(id, '/retry')).set(dave.auth),
     ]);
     expect(results.map((r) => r.status).sort()).toEqual([202, 409]);
@@ -624,7 +681,7 @@ describe('Meeting minutes (e2e)', () => {
     const id = await seed({ status: 'FAILED', failedStage: 'draft' });
     const spy = vi.spyOn(minutesQueue, 'add').mockRejectedValueOnce(new Error('redis down'));
     try {
-      await http().post(minutesUrl(id, '/retry')).set(alice.auth).expect(503);
+      await http().post(minutesUrl(id, '/retry')).set(reviewer().auth).expect(503);
     } finally {
       spy.mockRestore();
     }
@@ -649,12 +706,16 @@ describe('Meeting minutes (e2e)', () => {
       where: { meetingId: id },
       data: { status: 'PUBLISHING', documentNodeId: orphan.id },
     });
-    await http().post(minutesUrl(id, '/publish')).set(alice.auth).send({ revision: 1 }).expect(409);
+    await http()
+      .post(minutesUrl(id, '/publish'))
+      .set(reviewer().auth)
+      .send({ revision: 1 })
+      .expect(409);
     await ctx.prisma
       .$executeRaw`UPDATE meeting_minutes SET updated_at = now() - interval '6 minutes' WHERE meeting_id = ${id}::uuid`;
     const res = await http()
       .post(minutesUrl(id, '/publish'))
-      .set(alice.auth)
+      .set(reviewer().auth)
       .send({ revision: 1 })
       .expect(200);
     expect(res.body.documentNodeId).not.toBe(orphan.id);

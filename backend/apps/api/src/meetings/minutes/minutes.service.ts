@@ -101,7 +101,6 @@ function sanitizeMentions(
     const label = String(attrs.label ?? '');
     const fallback = label === '' ? null : { type: 'text', text: label };
     if (!UUID.test(id) || !allowed.has(id)) return fallback;
-    if (attrs.suggested === true) return node;
     const real = names.get(id);
     if (!real) return fallback;
     return { ...node, attrs: { ...attrs, label: real } };
