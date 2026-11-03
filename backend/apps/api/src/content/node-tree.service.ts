@@ -339,7 +339,7 @@ export class NodeTree {
 
   async purgeAll(workspaceId: string, audit: (batch: PurgeBatch) => AuditEntry): Promise<number> {
     const roots = await this.prisma.client.$queryRaw<{ id: string }[]>`
-      SELECT id FROM nodes WHERE workspace_id = ${workspaceId}::uuid AND deleted_root_id = id`;
+      SELECT id FROM nodes WHERE workspace_id = ${workspaceId}::uuid AND deleted_root_id = id ORDER BY id`;
     if (roots.length === 0) {
       await this.prisma.client.$transaction((tx) =>
         this.writeAudit(tx, audit({ count: 0, index: 1, total: 1 })),
@@ -356,7 +356,7 @@ export class NodeTree {
           WHERE workspace_id = ${workspaceId}::uuid
             AND deleted_root_id = id
             AND id = ANY(${ids.map((r) => r.id)}::uuid[])`;
-        if (count > 0 || total === 1) await this.writeAudit(tx, audit({ count, index, total }));
+        await this.writeAudit(tx, audit({ count, index, total }));
         return count;
       });
     }

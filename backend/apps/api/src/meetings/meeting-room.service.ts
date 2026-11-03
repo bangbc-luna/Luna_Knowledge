@@ -233,11 +233,12 @@ export class MeetingRoomService {
     ctx: RequestContext,
   ) {
     try {
-      await this.prisma.client.$transaction(async (tx) => {
-        await tx.meeting.updateMany({
+      const reverted = await this.prisma.client.$transaction(async (tx) => {
+        const { count } = await tx.meeting.updateMany({
           where: { id: meetingId, status: { in: ['SCHEDULED', 'LIVE'] } },
           data: { aiNotesEnabled: false, aiNotesVersion: { increment: 1 } },
         });
+        if (count === 0) return false;
         await writeAudit(tx, {
           actorId,
           action: 'meeting.ai_notes_toggle',
@@ -248,7 +249,9 @@ export class MeetingRoomService {
           ip: ctx.ip,
           userAgent: ctx.userAgent,
         });
+        return true;
       });
+      if (!reverted) return;
     } catch (err) {
       console.error('meeting ai notes revert failed', { meetingId, err });
       return;
