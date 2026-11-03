@@ -163,7 +163,7 @@ function RoomView({ meeting, join, onEnded, onMedia }: { meeting: MeetingDetail;
     } catch (err) {
       if (err instanceof ApiError && err.status === 503) {
         await getMeeting(meeting.id)
-          .then((fresh) => setAiOn({ enabled: fresh.aiNotesEnabled }))
+          .then((fresh) => setAiOn({ enabled: fresh.aiNotesEnabled, version: fresh.aiNotesVersion }))
           .catch(() => undefined);
         toast("error", "Chưa cập nhật được ghi biên bản AI cho phòng họp. Bấm lại công tắc để thử lại.");
       } else toast("error", meetingErrorText(err));
