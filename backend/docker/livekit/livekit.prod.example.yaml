@@ -1,0 +1,27 @@
+# Cấu hình LiveKit tự cài. Sao chép thành livekit.prod.yaml rồi thay các giá trị viết hoa.
+# Khoá API KHÔNG nằm ở đây: compose truyền LIVEKIT_API_KEY / LIVEKIT_API_SECRET từ .env.prod qua biến môi trường LIVEKIT_KEYS.
+# Chỉ webhook.api_key phải ghi lại đúng tên (không phải secret) của LIVEKIT_API_KEY.
+port: 7880
+bind_addresses:
+  - ''
+log_level: info
+
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 60000
+  use_external_ip: true
+
+# TURN nhúng sẵn cho mạng chặn UDP (văn phòng, khách sạn). Cần chứng chỉ cho TURN_DOMAIN, đặt trong thư mục certs.
+turn:
+  enabled: true
+  domain: TURN_DOMAIN
+  tls_port: 5349
+  udp_port: 3478
+  cert_file: /etc/livekit-certs/fullchain.pem
+  key_file: /etc/livekit-certs/privkey.pem
+
+webhook:
+  api_key: LIVEKIT_API_KEY
+  urls:
+    - https://APP_HOST/api/v1/meetings/livekit/webhook

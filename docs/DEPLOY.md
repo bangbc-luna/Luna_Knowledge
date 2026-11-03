@@ -358,7 +358,7 @@ Sự cố thường gặp:
 
 ## 10. Phòng họp
 
-Phòng họp (âm thanh, video, chia sẻ màn hình) chạy trên LiveKit. Production dùng LiveKit Cloud: trình duyệt nối thẳng tới LiveKit, API chỉ cấp token ngắn hạn và nhận webhook, nên không thêm service nào vào compose.
+Phòng họp (âm thanh, video, chia sẻ màn hình) chạy trên LiveKit. Có hai cách: LiveKit Cloud (các bước dưới đây) hoặc tự cài LiveKit server (xem "Tự cài LiveKit" bên dưới). Với cả hai, trình duyệt nối thẳng tới LiveKit, API chỉ cấp token ngắn hạn và nhận webhook; chuyển qua lại chỉ cần đổi ba biến `LIVEKIT_*` và build lại frontend.
 
 1. Tạo project trên LiveKit Cloud (cloud.livekit.io), vào Project Settings → Keys, tạo một cặp API key và secret.
 2. Điền các biến trong `.env.prod`:
@@ -388,6 +388,90 @@ docker compose -f docker/docker-compose.dev.yml --profile meetings up -d livekit
 ```
 
 Service `livekit` (image `livekit/livekit-server:v1.13.10`, chế độ `--dev`) nghe ở `localhost:7880` (WebSocket/HTTP), `7881` (TCP) và UDP `50000-50020` (trên Linux). Khoá `devkey` / `devsecret-0123456789-abcdefghijklmnop` khớp sẵn với `LIVEKIT_*` trong `.env.example`. Container dùng `network_mode: host` và chỉ nghe `127.0.0.1`, nên các cổng trên là cổng của máy host. Webhook của server dev trỏ tới `http://127.0.0.1:${API_PORT:-4000}/api/v1/meetings/livekit/webhook` (API chạy trên máy host), không cần cấu hình thêm. Dừng bằng `docker compose -f docker/docker-compose.dev.yml --profile meetings stop livekit`.
+
+### Tự cài LiveKit
+
+Dùng khi chưa có LiveKit Cloud. Chạy `livekit-server` bằng docker trên một VPS hoặc trên server văn phòng, dùng image ghim `livekit/livekit-server:v1.13.10`. Compose có sẵn service `livekit` thuộc profile `livekit` (mặc định không chạy).
+
+**Chọn nơi đặt server**
+
+| | Server văn phòng | VPS (khuyến nghị cho người họp từ xa) |
+|---|---|---|
+| Băng thông | Đường lên của văn phòng chỉ đủ khoảng 8 người xem ở 1080p cùng lúc | Nên chọn đường 1 Gbps |
+| Người ngoài văn phòng | Phải mở cổng ra Internet, trải nghiệm phụ thuộc đường truyền văn phòng | Ổn định, ở cùng khu vực với người dùng |
+| Chi phí | Không thêm | Thuê thêm một VPS |
+
+Ước tính: một buổi 10 người dùng khoảng 50-90 Mbps ở đỉnh (LiveKit gửi lại luồng video của từng người cho mọi người xem, nên đường lên của server là nút thắt). Nếu chọn server văn phòng, đo đường lên trước (`speedtest`) và chỉ dùng cho buổi họp nhỏ.
+
+**1. Chuẩn bị**
+
+- Tên miền cho LiveKit, ví dụ `livekit.${APP_HOST}` (`wss://livekit.knowledge.lunatech.vn`), trỏ về IP công khai của máy chạy LiveKit. Nếu LiveKit nằm cùng máy với Luna và đi qua Traefik thì dùng host này làm `LIVEKIT_HOST`. Có thể dùng tên miền riêng khác `APP_HOST`: đặt `LIVEKIT_HOST` trong `.env.prod`.
+- Nếu bật TURN: một tên miền cho TURN (ví dụ `turn.lunatech.vn`) và chứng chỉ TLS của tên miền đó, đặt tại `backend/docker/livekit/certs/fullchain.pem` và `privkey.pem` (hoặc trỏ `LIVEKIT_CERT_DIR` tới thư mục khác). Cấp bằng certbot hoặc lego với DNS-01 qua Cloudflare, hoặc xuất từ `acme.json` của Traefik. Không dùng TURN thì đặt `turn.enabled: false` và bỏ mount chứng chỉ không cần thiết.
+
+**2. Cấu hình**
+
+```bash
+cd backend/docker/livekit
+cp livekit.prod.example.yaml livekit.prod.yaml
+```
+
+Sửa `livekit.prod.yaml`: thay `TURN_DOMAIN`, `APP_HOST`, và đặt `webhook.api_key` đúng bằng giá trị `LIVEKIT_API_KEY`. Các mục chính trong file:
+
+| Mục | Giá trị | Ý nghĩa |
+|---|---|---|
+| `rtc.tcp_port` | `7881` | Dự phòng qua TCP khi UDP bị chặn |
+| `rtc.port_range_start/end` | `50000`-`60000` (UDP) | Cổng media WebRTC |
+| `rtc.use_external_ip` | `true` | Server tự dò IP công khai để quảng bá cho trình duyệt (cần ra được Internet để dùng STUN) |
+| `turn` | TLS `5349`, UDP `3478` | TURN nhúng sẵn cho mạng chặt (chỉ cho qua 443/TLS) |
+| `webhook` | `https://${APP_HOST}/api/v1/meetings/livekit/webhook` + `api_key` | LiveKit báo ai vào/ra, phòng kết thúc về API; webhook ký bằng cùng API key |
+
+Khoá không nằm trong file yaml: compose lấy `LIVEKIT_API_KEY` và `LIVEKIT_API_SECRET` từ `.env.prod` và truyền cho server qua biến môi trường `LIVEKIT_KEYS`. Tạo cặp khoá mới, secret ít nhất 32 ký tự:
+
+```bash
+echo "LIVEKIT_API_KEY=luna$(openssl rand -hex 4)"
+echo "LIVEKIT_API_SECRET=$(openssl rand -hex 24)"
+```
+
+Điền vào `.env.prod` cùng `LIVEKIT_URL=wss://livekit.knowledge.lunatech.vn`.
+
+**3. Chạy**
+
+```bash
+luna build frontend
+luna --profile livekit up -d
+luna --profile livekit logs livekit
+```
+
+Service chạy với `network_mode: host` (không publish dải UDP 10.000 cổng qua docker proxy, vì chậm và tốn tài nguyên), nên nghe thẳng trên máy chủ.
+
+**4. TLS cho `wss://`**
+
+Trình duyệt chỉ nối được `wss://` từ trang https. Service `livekit` mang sẵn nhãn Traefik: router `Host(livekit.${APP_HOST})` đi tới `http://${EDGE_GATEWAY}:7880` (cổng 7880 của container host-network, nhìn từ Traefik qua cổng gateway của mạng `edge`). Traefik tự xin chứng chỉ qua DNS-01 như các host khác và chuyển tiếp WebSocket mặc định, nên không cần cấu hình thêm. Tên miền riêng khác `APP_HOST`: đặt `LIVEKIT_HOST` và bảo đảm `CF_DNS_API_TOKEN` có quyền với zone đó. Cổng 7880 chỉ để Traefik nối vào, không mở ra Internet.
+
+**5. Tường lửa**
+
+| Cổng | Giao thức | Mở ra Internet | Dùng cho |
+|---|---|---|---|
+| 443 | TCP | có (đã mở sẵn cho Traefik) | `wss://livekit...` và TURN/TLS nếu dùng cùng cổng |
+| 7881 | TCP | có | media qua TCP dự phòng |
+| 50000-60000 | UDP | có | media WebRTC |
+| 3478 | UDP | có nếu bật TURN | TURN |
+| 5349 | TCP | có nếu bật TURN | TURN qua TLS |
+| 7880 | TCP | không | chỉ Traefik nối vào |
+
+Server văn phòng sau router: chuyển tiếp các cổng trên về máy chạy LiveKit.
+
+**6. Kiểm tra**
+
+`luna --profile livekit logs livekit` thấy `starting LiveKit server`; từ máy ngoài, `curl -i https://livekit.knowledge.lunatech.vn` trả về `OK`. Mở "Họp ngay" từ hai mạng khác nhau (một máy dùng 4G), xem `chrome://webrtc-internals` để chắc kết nối đi qua UDP hoặc TURN. Webhook thành công khi trang buổi họp đã kết thúc có danh sách người tham dự.
+
+**Đổi sang LiveKit Cloud sau này**
+
+Chỉ đổi ba biến trong `.env.prod`: `LIVEKIT_URL` (`wss://<project>.livekit.cloud`), `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, rồi thêm webhook trong Cloud như các bước trên. Build lại frontend (`luna build frontend && luna up -d`) vì `LIVEKIT_URL` nằm trong CSP. Dừng service tự cài: `luna --profile livekit stop livekit`. Không cần sửa code.
+
+**Thử trước trên máy dev**
+
+Dùng profile `meetings` đã có (xem "Chạy LiveKit cục bộ" ở trên): `cd backend && docker compose -f docker/docker-compose.dev.yml --profile meetings up -d livekit`, chạy API và worker với `LIVEKIT_URL=ws://localhost:7880`, `LIVEKIT_API_KEY=devkey`, `LIVEKIT_API_SECRET=devsecret-0123456789-abcdefghijklmnop`. Cách này kiểm tra luồng token, webhook và phòng họp; chưa kiểm tra được TURN, TLS và băng thông thật. Khi lên server, thử tiếp bằng hai người ở hai mạng khác nhau.
 
 ### Đo thử với nhóm thật
 

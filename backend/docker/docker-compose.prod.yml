@@ -267,6 +267,23 @@ services:
     mem_limit: 1g
     networks: [processing]
 
+  livekit:
+    image: livekit/livekit-server:v1.13.10
+    profiles: [livekit]
+    restart: unless-stopped
+    network_mode: host
+    command: ['--config', '/etc/livekit/livekit.yaml']
+    environment:
+      LIVEKIT_KEYS: '${LIVEKIT_API_KEY:?LIVEKIT_API_KEY must be set in .env.prod}: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET must be set in .env.prod}'
+    volumes:
+      - ./livekit/livekit.prod.yaml:/etc/livekit/livekit.yaml:ro
+      - ${LIVEKIT_CERT_DIR:-./livekit/certs}:/etc/livekit-certs:ro
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.livekit.rule=Host(`${LIVEKIT_HOST:-livekit.${APP_HOST}}`)
+      - traefik.http.routers.livekit.priority=10
+      - traefik.http.services.livekit.loadbalancer.server.url=http://${EDGE_GATEWAY:-172.30.0.1}:7880
+
   prometheus:
     image: prom/prometheus:v3.5.0
     profiles: [monitoring]
