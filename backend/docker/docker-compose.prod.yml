@@ -15,6 +15,12 @@ x-no-owner-secrets: &no-owner-secrets
   CLOUDFLARE_TUNNEL_TOKEN: ''
   GRAFANA_ADMIN_PASSWORD: ''
 
+x-no-ai-keys: &no-ai-keys
+  DEEPGRAM_API_KEY: ''
+  ANTHROPIC_API_KEY: ''
+  GEMINI_API_KEY: ''
+  OMNIROUTE_API_KEY: ''
+
 services:
   traefik:
     image: traefik:3.6.2
@@ -74,7 +80,8 @@ services:
     <<: *app-env
     build: { context: .., target: api }
     image: luna-api:${LUNA_VERSION:-latest}
-    environment: *no-owner-secrets
+    environment:
+      <<: [*no-owner-secrets, *no-ai-keys]
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
@@ -93,7 +100,8 @@ services:
     <<: *app-env
     build: { context: .., target: collab }
     image: luna-collab:${LUNA_VERSION:-latest}
-    environment: *no-owner-secrets
+    environment:
+      <<: [*no-owner-secrets, *no-ai-keys]
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
@@ -151,11 +159,7 @@ services:
     tmpfs:
       - /var/tmp/luna-recorder:size=512m,uid=1000,gid=1000,mode=0700
     environment:
-      <<: *no-owner-secrets
-      DEEPGRAM_API_KEY: ''
-      ANTHROPIC_API_KEY: ''
-      GEMINI_API_KEY: ''
-      OMNIROUTE_API_KEY: ''
+      <<: [*no-owner-secrets, *no-ai-keys]
       RECORDER_TMP_DIR: /var/tmp/luna-recorder
       FFMPEG_NICE: '10'
     networks: [internal]
