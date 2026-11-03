@@ -1,3 +1,4 @@
+import { meetingsEnvSchema } from '@luna/meetings';
 import {
   baseEnvSchema,
   databaseEnvSchema,
@@ -22,6 +23,7 @@ export const workerEnvSchema = baseEnvSchema
   .extend(videoEnvSchema.shape)
   .extend(searchEnvSchema.shape)
   .extend(observabilityEnvSchema.shape)
+  .extend(meetingsEnvSchema.shape)
   .extend({
     FILE_PROCESS_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
     WORKER_TMP_DIR: optionalEnv(z.string()),

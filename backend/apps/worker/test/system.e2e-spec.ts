@@ -34,6 +34,9 @@ describe('Worker system queue (e2e)', () => {
       GOTENBERG_URL: 'http://localhost:1',
       MEILI_URL: 'http://localhost:1',
       MEILI_MASTER_KEY: 'unused-meili-master-key',
+      LIVEKIT_URL: 'wss://fake.livekit.test',
+      LIVEKIT_API_KEY: 'fake-livekit-key',
+      LIVEKIT_API_SECRET: 'fake-livekit-secret-0123456789abcdef',
     });
     const { WorkerModule } = await import('../src/worker.module.js');
     const moduleRef = await Test.createTestingModule({ imports: [WorkerModule] }).compile();

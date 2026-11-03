@@ -85,6 +85,9 @@ describe('Worker file-process (e2e)', () => {
       TIKA_URL: url(tika, 9998),
       MEILI_URL: 'http://localhost:1',
       MEILI_MASTER_KEY: 'unused-meili-master-key',
+      LIVEKIT_URL: 'wss://fake.livekit.test',
+      LIVEKIT_API_KEY: 'fake-livekit-key',
+      LIVEKIT_API_SECRET: 'fake-livekit-secret-0123456789abcdef',
     });
     execFileSync('pnpm', ['exec', 'prisma', 'migrate', 'deploy'], {
       cwd: fileURLToPath(new URL('../../../packages/db', import.meta.url)),

@@ -1,5 +1,5 @@
-import { NOTIFY_PATTERN, notifyChannel } from '@luna/shared';
-import type { Prisma } from '@luna/db';
+import { NOTIFY_PATTERN } from '@luna/shared';
+import { writeNotifications, type Prisma } from '@luna/db';
 import { Inject, Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import type { Redis } from 'ioredis';
 import { Observable } from 'rxjs';
@@ -32,16 +32,13 @@ export class NotificationsService implements OnModuleDestroy {
     type: string,
     payload: Prisma.InputJsonObject,
   ): Promise<void> {
-    const ids = [...new Set(userIds)];
-    if (!ids.length) return;
     try {
-      const rows = await this.prisma.client.notification.createManyAndReturn({
-        data: ids.map((userId) => ({ userId, type, payload })),
-      });
-      await Promise.all(
-        rows.map((r) =>
-          this.redis.publish(notifyChannel(r.userId), JSON.stringify(this.toDto(r))).catch(() => 0),
-        ),
+      await writeNotifications(
+        this.prisma.client,
+        (channel, message) => this.redis.publish(channel, message),
+        userIds,
+        type,
+        payload,
       );
     } catch (err) {
       this.logger.error({ err, type }, 'Failed to create notifications');

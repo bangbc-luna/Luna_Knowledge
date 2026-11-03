@@ -67,4 +67,38 @@ export const statsSchema = z.object({
   }),
 });
 
+const monthString = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Định dạng YYYY-MM');
+const MAX_USAGE_MONTHS = 24;
+const monthIndex = (m: string) => Number(m.slice(0, 4)) * 12 + Number(m.slice(5, 7));
+
+export const meetingUsageQuery = z
+  .object({
+    from: monthString.describe('Từ tháng (YYYY-MM, giờ Asia/Ho_Chi_Minh)'),
+    to: monthString.describe('Đến tháng, gồm cả tháng này (YYYY-MM)'),
+  })
+  .refine((q) => monthIndex(q.to) >= monthIndex(q.from), { message: 'to phải sau hoặc bằng from' })
+  .refine((q) => monthIndex(q.to) - monthIndex(q.from) < MAX_USAGE_MONTHS, {
+    message: `Tối đa ${MAX_USAGE_MONTHS} tháng`,
+  });
+
+export const meetingUsageSchema = z.object({
+  months: z.array(
+    z.object({
+      month: z.string().describe('YYYY-MM, theo thời điểm bắt đầu họp (Asia/Ho_Chi_Minh)'),
+      meetings: z.number().int().describe('Số buổi họp đã bắt đầu (đang diễn ra hoặc đã kết thúc)'),
+      roomMinutes: z.number().int().describe('Tổng phút phòng họp của các buổi đã kết thúc'),
+      participantMinutes: z.number().int().describe('Tổng phút tham dự của các phiên đã đóng'),
+      byWorkspace: z.array(
+        z.object({
+          workspaceId: z.uuid(),
+          name: z.string(),
+          meetings: z.number().int(),
+          participantMinutes: z.number().int(),
+        }),
+      ),
+    }),
+  ),
+});
+
+export type MeetingUsageQuery = z.output<typeof meetingUsageQuery>;
 export type AuditQuery = z.output<typeof auditQuery>;

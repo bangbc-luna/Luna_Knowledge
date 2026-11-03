@@ -169,6 +169,8 @@ luna up -d            # migrate chạy trước, rồi các dịch vụ khởi �
 luna ps
 ```
 
+Lưu ý nâng cấp lên bản có phòng họp: bản đã cài phải đặt `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` trong `.env.prod` (mục 10) trước khi `luna build && luna up -d`, vì api, worker và build frontend đều báo lỗi khi thiếu các biến này.
+
 Lần đầu nâng cấp lên bản có mạng `edge` subnet cố định phải tắt hết rồi bật lại một lần, vì Compose báo mạng `luna_edge` cần tạo lại (subnet đổi). Phải kèm đủ profile: `luna down` không có `--profile` chỉ tắt dịch vụ lõi, cloudflared (`remote`) và nhóm `monitoring` vẫn chạy, giữ mạng `luna_edge` nên không xoá được.
 
 ```bash
@@ -353,3 +355,124 @@ Sự cố thường gặp:
 - **Báo lỗi 429 "Too many requests"**: route xem video không bị giới hạn. Nếu người dùng từ xa gặp 429, kiểm tra `CLOUDFLARED_IP` khớp IP thật của container cloudflared (`docker inspect` container cloudflared); nếu sai, mọi người từ xa bị tính chung một IP. Với người dùng trong LAN, có thể một người vượt `RATE_LIMIT_USER_PER_MIN` (mặc định 600 request/phút); tăng nếu cần rồi `luna up -d api`.
 - **Nhật ký hoạt động không sửa/xoá được**: bảng `audit_logs` có trigger chỉ cho ghi thêm, chỉ xoá được bản ghi cũ hơn 1 năm. Đây là chủ đích, không phải lỗi.
 - **Mất điện xong máy lên lại**: các dịch vụ có `restart: unless-stopped` nên tự chạy; kiểm tra `luna ps` và log Postgres.
+
+## 10. Phòng họp
+
+Phòng họp (âm thanh, chia sẻ màn hình, chat; không có camera) chạy trên LiveKit. Có hai cách: LiveKit Cloud (các bước dưới đây) hoặc tự cài LiveKit server (xem "Tự cài LiveKit" bên dưới). Với cả hai, trình duyệt nối thẳng tới LiveKit, API chỉ cấp token ngắn hạn và nhận webhook; chuyển qua lại chỉ cần đổi ba biến `LIVEKIT_*` và build lại frontend.
+
+1. Tạo project trên LiveKit Cloud (cloud.livekit.io), vào Project Settings → Keys, tạo một cặp API key và secret.
+2. Điền các biến trong `.env.prod`:
+
+   | Biến | Ý nghĩa |
+   |---|---|
+   | `LIVEKIT_URL` | URL của project, dạng `wss://<project>.livekit.cloud` |
+   | `LIVEKIT_API_KEY` | API key vừa tạo |
+   | `LIVEKIT_API_SECRET` | Secret vừa tạo (ít nhất 32 ký tự) |
+   | `MEETING_TOKEN_TTL_SEC`, `MEETING_EMPTY_GRACE_SEC`, `MEETING_EARLY_JOIN_MIN`, `MEETING_MAX_PARTICIPANTS`, `MEETING_REMINDER_MINUTES` | Có giá trị mặc định trong `.env.prod.example` |
+
+   Cả **api và worker** đều đọc `LIVEKIT_*` và `MEETING_*` từ `.env.prod` (qua `env_file`): api cấp token và nhận webhook, worker gửi nhắc họp và đối soát phòng đã kết thúc mà không có webhook. Compose không xoá các biến này (khác với các secret chủ DB ở mục 4).
+3. Webhook: Project Settings → Webhooks → thêm `https://${APP_HOST}/api/v1/meetings/livekit/webhook` (ví dụ `https://knowledge.lunatech.vn/api/v1/meetings/livekit/webhook`), ký bằng cùng API key. Webhook được xác thực bằng chữ ký, không cần đăng nhập.
+4. `LIVEKIT_URL` cũng được dùng khi build frontend (`LIVEKIT_ORIGIN`, thêm vào `connect-src` của CSP: cả `wss://` và `https://` cùng host, cộng `*.livekit.cloud` cho host theo vùng). Đổi `LIVEKIT_URL` thì phải build lại frontend: `luna build frontend && luna up -d`. Thiếu `LIVEKIT_URL`, `luna build` báo lỗi ngay.
+5. Kiểm tra: `luna up -d`, mở một buổi họp bằng "Họp ngay", vào phòng từ hai máy và xem log `luna logs api | grep livekit`.
+
+Chi phí: gói Build của LiveKit Cloud miễn phí nhưng chỉ dành cho dev vì không có giá vượt mức (hết hạn mức là dừng). Production cần gói Ship (50 USD/tháng) nếu vượt 5.000 participant-phút mỗi tháng. Số buổi họp và số phút của từng workspace xem ở trang quản trị (`GET /api/v1/admin/meetings/usage`).
+
+LiveKit không nằm trong health check của API, để API không báo "down" khi LiveKit Cloud gặp sự cố; khi đó chỉ việc vào phòng họp mới lỗi (503).
+
+### Chạy LiveKit cục bộ để phát triển
+
+Không cần tài khoản cloud. Từ `backend/`:
+
+```bash
+docker compose -f docker/docker-compose.dev.yml --profile meetings up -d livekit
+```
+
+Service `livekit` (image `livekit/livekit-server:v1.13.10`, chế độ `--dev`) nghe ở `localhost:7880` (WebSocket/HTTP), `7881` (TCP) và UDP `50000-50020` (trên Linux). Khoá `devkey` / `devsecret-0123456789-abcdefghijklmnop` khớp sẵn với `LIVEKIT_*` trong `.env.example`. Container dùng `network_mode: host` và chỉ nghe `127.0.0.1`, nên các cổng trên là cổng của máy host. Webhook của server dev trỏ tới `http://127.0.0.1:${API_PORT:-4000}/api/v1/meetings/livekit/webhook` (API chạy trên máy host), không cần cấu hình thêm. Dừng bằng `docker compose -f docker/docker-compose.dev.yml --profile meetings stop livekit`.
+
+### Tự cài LiveKit
+
+Dùng khi chưa có LiveKit Cloud. Chạy `livekit-server` bằng docker trên một VPS hoặc trên server văn phòng, dùng image ghim `livekit/livekit-server:v1.13.10`. Compose có sẵn service `livekit` thuộc profile `livekit` (mặc định không chạy).
+
+**Chọn nơi đặt server**
+
+| | Server văn phòng | VPS (khuyến nghị cho người họp từ xa) |
+|---|---|---|
+| Băng thông | Đường lên của văn phòng phải đủ cho số người xem màn hình chia sẻ (xem ước tính bên dưới) | Nên chọn đường 1 Gbps |
+| Người ngoài văn phòng | Phải mở cổng ra Internet, trải nghiệm phụ thuộc đường truyền văn phòng | Ổn định, ở cùng khu vực với người dùng |
+| Chi phí | Không thêm | Thuê thêm một VPS |
+
+Ước tính băng thông phòng họp: âm thanh khoảng 30-50 kbps mỗi người; chia sẻ màn hình khoảng 1-2,5 Mbps mỗi người chia sẻ, nhân với số người xem (LiveKit gửi lại luồng cho từng người xem, nên đường lên của server là nút thắt). Ví dụ một người chia sẻ cho 10 người xem tốn khoảng 10-25 Mbps đường lên, âm thanh của 10 người cộng lại dưới 5 Mbps. Nếu chọn server văn phòng, đo đường lên trước (`speedtest`) và chỉ dùng cho buổi họp nhỏ.
+
+**1. Chuẩn bị**
+
+- Tên miền cho LiveKit, ví dụ `livekit.${APP_HOST}` (`wss://livekit.knowledge.lunatech.vn`), trỏ về IP công khai của máy chạy LiveKit. Nếu LiveKit nằm cùng máy với Luna và đi qua Traefik thì dùng host này làm `LIVEKIT_HOST`. Có thể dùng tên miền riêng khác `APP_HOST`: đặt `LIVEKIT_HOST` trong `.env.prod`.
+- Nếu bật TURN: một tên miền cho TURN (ví dụ `turn.lunatech.vn`) và chứng chỉ TLS của tên miền đó, đặt tại `backend/docker/livekit/certs/fullchain.pem` và `privkey.pem` (hoặc trỏ `LIVEKIT_CERT_DIR` tới thư mục khác). Cấp bằng certbot hoặc lego với DNS-01 qua Cloudflare, hoặc xuất từ `acme.json` của Traefik. Không dùng TURN thì đặt `turn.enabled: false` và bỏ mount chứng chỉ không cần thiết.
+
+**2. Cấu hình**
+
+```bash
+cd backend/docker/livekit
+cp livekit.prod.example.yaml livekit.prod.yaml
+```
+
+Sửa `livekit.prod.yaml`: thay `TURN_DOMAIN`, `APP_HOST`, và đặt `webhook.api_key` đúng bằng giá trị `LIVEKIT_API_KEY`. Các mục chính trong file:
+
+| Mục | Giá trị | Ý nghĩa |
+|---|---|---|
+| `rtc.tcp_port` | `7881` | Dự phòng qua TCP khi UDP bị chặn |
+| `rtc.port_range_start/end` | `50000`-`60000` (UDP) | Cổng media WebRTC |
+| `rtc.use_external_ip` | `true` | Server tự dò IP công khai để quảng bá cho trình duyệt (cần ra được Internet để dùng STUN) |
+| `turn` | TLS `5349`, UDP `3478` | TURN nhúng sẵn cho mạng chặt (chỉ cho qua 443/TLS) |
+| `webhook` | `https://${APP_HOST}/api/v1/meetings/livekit/webhook` + `api_key` | LiveKit báo ai vào/ra, phòng kết thúc về API; webhook ký bằng cùng API key |
+
+Khoá không nằm trong file yaml: compose lấy `LIVEKIT_API_KEY` và `LIVEKIT_API_SECRET` từ `.env.prod` và truyền cho server qua biến môi trường `LIVEKIT_KEYS`. Tạo cặp khoá mới, secret ít nhất 32 ký tự:
+
+```bash
+echo "LIVEKIT_API_KEY=luna$(openssl rand -hex 4)"
+echo "LIVEKIT_API_SECRET=$(openssl rand -hex 24)"
+```
+
+Điền vào `.env.prod` cùng `LIVEKIT_URL=wss://livekit.knowledge.lunatech.vn`.
+
+**3. Chạy**
+
+```bash
+luna build frontend
+luna --profile livekit up -d
+luna --profile livekit logs livekit
+```
+
+Service chạy với `network_mode: host` (không publish dải UDP 10.000 cổng qua docker proxy, vì chậm và tốn tài nguyên), nên nghe thẳng trên máy chủ.
+
+**4. TLS cho `wss://`**
+
+Trình duyệt chỉ nối được `wss://` từ trang https. Service `livekit` mang sẵn nhãn Traefik: router `Host(livekit.${APP_HOST})` đi tới `http://${EDGE_GATEWAY}:7880` (cổng 7880 của container host-network, nhìn từ Traefik qua cổng gateway của mạng `edge`). Traefik tự xin chứng chỉ qua DNS-01 như các host khác và chuyển tiếp WebSocket mặc định, nên không cần cấu hình thêm. Tên miền riêng khác `APP_HOST`: đặt `LIVEKIT_HOST` và bảo đảm `CF_DNS_API_TOKEN` có quyền với zone đó. Cổng 7880 chỉ để Traefik nối vào, không mở ra Internet.
+
+**5. Tường lửa**
+
+| Cổng | Giao thức | Mở ra Internet | Dùng cho |
+|---|---|---|---|
+| 443 | TCP | có (đã mở sẵn cho Traefik) | `wss://livekit...` và TURN/TLS nếu dùng cùng cổng |
+| 7881 | TCP | có | media qua TCP dự phòng |
+| 50000-60000 | UDP | có | media WebRTC |
+| 3478 | UDP | có nếu bật TURN | TURN |
+| 5349 | TCP | có nếu bật TURN | TURN qua TLS |
+| 7880 | TCP | không | chỉ Traefik nối vào |
+
+Server văn phòng sau router: chuyển tiếp các cổng trên về máy chạy LiveKit.
+
+**6. Kiểm tra**
+
+`luna --profile livekit logs livekit` thấy `starting LiveKit server`; từ máy ngoài, `curl -i https://livekit.knowledge.lunatech.vn` trả về `OK`. Mở "Họp ngay" từ hai mạng khác nhau (một máy dùng 4G), xem `chrome://webrtc-internals` để chắc kết nối đi qua UDP hoặc TURN. Webhook thành công khi trang buổi họp đã kết thúc có danh sách người tham dự.
+
+**Đổi sang LiveKit Cloud sau này**
+
+Chỉ đổi ba biến trong `.env.prod`: `LIVEKIT_URL` (`wss://<project>.livekit.cloud`), `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, rồi thêm webhook trong Cloud như các bước trên. Build lại frontend (`luna build frontend && luna up -d`) vì `LIVEKIT_URL` nằm trong CSP. Dừng service tự cài: `luna --profile livekit stop livekit`. Không cần sửa code.
+
+**Thử trước trên máy dev**
+
+Dùng profile `meetings` đã có (xem "Chạy LiveKit cục bộ" ở trên): `cd backend && docker compose -f docker/docker-compose.dev.yml --profile meetings up -d livekit`, chạy API và worker với `LIVEKIT_URL=ws://localhost:7880`, `LIVEKIT_API_KEY=devkey`, `LIVEKIT_API_SECRET=devsecret-0123456789-abcdefghijklmnop`. Cách này kiểm tra luồng token, webhook và phòng họp; chưa kiểm tra được TURN, TLS và băng thông thật. Khi lên server, thử tiếp bằng hai người ở hai mạng khác nhau.
+
+### Đo thử với nhóm thật
+
+Chưa thực hiện (cần 8-10 người thật trên project LiveKit Cloud thử). Khi đo, ghi băng thông lên/xuống của máy văn phòng (`chrome://webrtc-internals`), CPU trình duyệt và chất lượng chữ khi chia sẻ màn hình vào đây.

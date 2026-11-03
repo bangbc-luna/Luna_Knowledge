@@ -1,0 +1,18 @@
+.luna-room {
+  --lk-bg: var(--rail);
+  --lk-bg2: var(--rail-item);
+  --lk-fg: var(--rail-foreground);
+  --lk-accent-bg: color-mix(in srgb, var(--primary) 55%, var(--rail-foreground));
+  --lk-border-radius: 0.75rem;
+  --lk-grid-gap: 0.5rem;
+  --lk-bg-control: var(--rail-item);
+  --lk-col-count: 1;
+  color-scheme: dark;
+  background: var(--rail);
+  color: var(--rail-foreground);
+}
+.luna-room .lk-participant-tile { background: var(--rail-item); min-height: 0; }
+.luna-room .lk-participant-tile[data-lk-source="screen_share"] { border: 1px solid var(--rail-item-hover); }
+.luna-room .lk-grid-layout { height: 100%; width: 100%; }
+.luna-room .lk-carousel { height: 100%; width: 100%; }
+.luna-room .lk-participant-tile[data-lk-speaking="true"] { outline: 2px solid var(--lk-accent-bg); outline-offset: -2px; }

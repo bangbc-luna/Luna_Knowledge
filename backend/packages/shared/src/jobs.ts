@@ -29,6 +29,7 @@ export interface JobPayloads {
     'clean-uploads': Empty;
     'blob-gc': Empty;
   };
+  meetings: { remind: { meetingId: string; scheduledAt: string }; reconcile: Empty };
   system: { ping: Empty };
 }
 
@@ -113,4 +114,29 @@ export async function enqueueTranscode(
   jobId?: string,
 ): Promise<void> {
   await queue.add('transcode', job, transcodeJobOptions(sizeBytes, jobId));
+}
+
+export const MEETING_REMINDER_MIN_LEAD_MS = 60_000;
+
+export async function enqueueMeetingReminder(
+  queue: JobQueue<'meetings'>,
+  meetingId: string,
+  scheduledAt: Date,
+  reminderMinutes: number,
+): Promise<void> {
+  const now = Date.now();
+  const at = scheduledAt.getTime();
+  if (at - now < MEETING_REMINDER_MIN_LEAD_MS) return;
+  await queue.add(
+    'remind',
+    { meetingId, scheduledAt: scheduledAt.toISOString() },
+    {
+      jobId: `remind-${meetingId}-${at}`,
+      delay: Math.max(0, at - reminderMinutes * 60_000 - now),
+      attempts: 3,
+      backoff: { type: 'exponential' as const, delay: 5000 },
+      removeOnComplete: true,
+      removeOnFail: 100,
+    },
+  );
 }

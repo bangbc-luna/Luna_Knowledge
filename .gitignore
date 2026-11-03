@@ -17,3 +17,6 @@ GCP_account.txt
 *.txt
 backend/tests/load/.seed.json
 .superpowers/
+
+backend/docker/livekit/livekit.prod.yaml
+backend/docker/livekit/certs/

@@ -12,6 +12,7 @@ import {
   videoEnvSchema,
   collabSecretsSchema,
 } from '@luna/shared';
+import { meetingsEnvSchema } from '@luna/meetings';
 import { z } from 'zod';
 
 const csv = z
@@ -34,6 +35,7 @@ export const apiEnvSchema = baseEnvSchema
   .extend(searchEnvSchema.shape)
   .extend(observabilityEnvSchema.shape)
   .extend(httpServerEnvSchema.shape)
+  .extend(meetingsEnvSchema.shape)
   .extend({
     API_PORT: z.coerce.number().int().positive().default(4000),
     API_PUBLIC_URL: z.url().default('http://localhost:4000'),

@@ -7,7 +7,16 @@ import { ZodValidationPipe } from '../common/pipes/zod-validation.pipe.js';
 import { ApiZodOk, ApiZodQuery } from '../common/swagger/zod-openapi.js';
 import { AdminAuditService } from './admin-audit.service.js';
 import { AdminStatsService } from './admin-stats.service.js';
-import { auditItemSchema, auditQuery, type AuditQuery, statsSchema } from './admin.schemas.js';
+import { MeetingUsageService } from './meeting-usage.service.js';
+import {
+  auditItemSchema,
+  auditQuery,
+  type AuditQuery,
+  meetingUsageQuery,
+  type MeetingUsageQuery,
+  meetingUsageSchema,
+  statsSchema,
+} from './admin.schemas.js';
 
 @ApiTags('admin')
 @ApiBearerAuth()
@@ -17,6 +26,7 @@ export class AdminController {
   constructor(
     private readonly audit: AdminAuditService,
     private readonly stats: AdminStatsService,
+    private readonly meetingUsage: MeetingUsageService,
   ) {}
 
   @Get('stats')
@@ -26,6 +36,18 @@ export class AdminController {
   @ApiZodOk(statsSchema)
   overview() {
     return this.stats.overview();
+  }
+
+  @Get('meetings/usage')
+  @ApiOperation({
+    summary: '[Admin] Số buổi họp và phút họp theo tháng và workspace',
+    description:
+      'Tháng tính theo thời điểm bắt đầu họp, múi giờ Asia/Ho_Chi_Minh. Tối đa 24 tháng. Phút phòng chỉ tính buổi đã kết thúc; phút tham dự chỉ tính phiên đã đóng.',
+  })
+  @ApiZodQuery(meetingUsageQuery)
+  @ApiZodOk(meetingUsageSchema)
+  meetingsUsage(@Query(new ZodValidationPipe(meetingUsageQuery)) query: MeetingUsageQuery) {
+    return this.meetingUsage.usage(query);
   }
 
   @Get('audit-logs')

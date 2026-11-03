@@ -20,6 +20,7 @@
     "studio": "prisma studio"
   },
   "dependencies": {
+    "@luna/shared": "workspace:*",
     "@prisma/adapter-pg": "7.10.0",
     "@prisma/client": "7.10.0",
     "diff": "9.0.0",
