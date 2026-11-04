@@ -23,7 +23,7 @@ case "$cmd" in
       echo "Đích trùng DB đang chạy. Thêm --force nếu thật sự muốn ghi đè." >&2; exit 1
     fi
     echo "Khôi phục $dump → $(pg_url "$target" | sed -E 's#://([^:]+):[^@]+@#://\1:***@#')"
-    owner="$(sed -E 's#^[a-z]+://([^:@/]+).*#\1#' <<<"$running")"
+    owner="$(url_user "$running")"
     docker run --rm -i --network host "$PG_IMAGE" psql -q -v ON_ERROR_STOP=1 -v owner="$owner" -d "$(pg_url "$target")" <<'SQL'
 SELECT format('CREATE ROLE %I NOLOGIN', r) FROM unnest(ARRAY['luna_app', :'owner']) AS r
  WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) \gexec
