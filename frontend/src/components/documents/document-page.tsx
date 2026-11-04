@@ -570,7 +570,10 @@ export function DocumentPage() {
             <main className="min-w-0 flex-1">
               {collab.status === "ended" ? (
                 <div role="status" className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border bg-warn-bg px-3 py-2 text-sm text-warn">
-                  <span className="min-w-0 flex-1 text-pretty">Tài liệu đã ngừng đồng bộ vì phiên đăng nhập kết thúc. Tải lại để tiếp tục.</span>
+                  <span className="min-w-0 flex-1 text-pretty">
+                    Tài liệu đã ngừng đồng bộ vì phiên đăng nhập kết thúc. Tải lại để tiếp tục.
+                    {collab.unsynced > 0 ? " Một số thay đổi gần nhất chưa kịp lưu, hãy chép lại phần vừa gõ trước khi tải lại." : ""}
+                  </span>
                   <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
                     Tải lại
                   </Button>

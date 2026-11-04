@@ -24,6 +24,7 @@ case "$cmd" in
     fi
     echo "Khôi phục $dump → $(pg_url "$target" | sed -E 's#://([^:]+):[^@]+@#://\1:***@#')"
     owner="$(url_user "$running")"
+    [[ -n "$owner" ]] || { echo "Không đọc được user từ DATABASE_URL" >&2; exit 1; }
     docker run --rm -i --network host "$PG_IMAGE" psql -q -v ON_ERROR_STOP=1 -v owner="$owner" -d "$(pg_url "$target")" <<'SQL'
 SELECT format('CREATE ROLE %I NOLOGIN', r) FROM unnest(ARRAY['luna_app', :'owner']) AS r
  WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) \gexec

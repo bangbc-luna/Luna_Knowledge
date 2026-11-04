@@ -15,6 +15,16 @@ describe('Lưu phiên bản tài liệu và xoá node không deadlock (e2e)', ()
   let owner: LoggedIn;
   let wsId: string;
   const http = () => request(ctx.app.getHttpServer());
+  const waitForLockWait = async () => {
+    for (let i = 0; i < 200; i++) {
+      const rows = await ctx.prisma.$queryRaw<{ n: bigint }[]>`
+        SELECT count(*) AS n FROM pg_stat_activity
+        WHERE wait_event_type = 'Lock' AND query ILIKE '%FOR KEY SHARE%'`;
+      if (Number(rows[0]?.n ?? 0) > 0) return;
+      await sleep(25);
+    }
+    throw new Error('Lưu phiên bản không bị chặn bởi khoá node');
+  };
 
   beforeAll(async () => {
     ctx = await createTestApp();
@@ -45,15 +55,20 @@ describe('Lưu phiên bản tài liệu và xoá node không deadlock (e2e)', ()
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
+    let locked!: () => void;
+    const nodeLocked = new Promise<void>((resolve) => {
+      locked = resolve;
+    });
     const deleter = ctx.prisma.$transaction(
       async (tx) => {
         await tx.$queryRaw`SELECT id FROM nodes WHERE id = ${nodeId}::uuid FOR UPDATE`;
+        locked();
         await gate;
         await tx.$executeRaw`UPDATE documents SET dirty_since_version = dirty_since_version WHERE node_id = ${nodeId}::uuid`;
       },
       { timeout: 15000 },
     );
-    await sleep(100);
+    await nodeLocked;
     const version = createDocumentVersion(ctx.prisma, {
       nodeId,
       yjsSnapshot: new Uint8Array([0]),
@@ -61,7 +76,7 @@ describe('Lưu phiên bản tài liệu và xoá node không deadlock (e2e)', ()
       contentText: '',
       wordCount: 0,
     });
-    await sleep(300);
+    await waitForLockWait();
     release();
     const results = await Promise.allSettled([deleter, version]);
     const messages = results

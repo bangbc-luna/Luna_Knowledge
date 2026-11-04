@@ -20,4 +20,7 @@ check 'postgresql://luna%40corp:p%40ss@db:5432/luna' 'luna@corp'
 check 'postgresql://ch%E1%BB%A7%20db:x@db/luna' 'chủ db'
 check 'postgresql://back%5Cslash:x@db/luna' 'back\slash'
 check 'postgresql://luna@db/luna' 'luna'
+check 'postgresql://bad%zzuser:x@db/luna' 'bad%zzuser'
+check 'postgresql://half%2:x@db/luna' 'half%2'
+check 'postgresql://db/luna' ''
 exit "$fail"

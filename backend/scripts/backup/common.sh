@@ -36,6 +36,10 @@ require() {
 pg_url() { echo "${1%%\?*}"; }
 
 url_decode() {
+  if [[ "$1" =~ %([^0-9A-Fa-f]|[0-9A-Fa-f]([^0-9A-Fa-f]|$)|$) || "$1" == *%00* ]]; then
+    printf '%s' "$1"
+    return 0
+  fi
   local s="${1//\\/\\\\}"
   printf '%b' "${s//%/\\x}"
 }
