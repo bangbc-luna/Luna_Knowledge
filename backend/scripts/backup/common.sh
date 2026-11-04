@@ -35,6 +35,22 @@ require() {
 # pg_dump/pg_restore không hiểu tham số ?schema= của Prisma.
 pg_url() { echo "${1%%\?*}"; }
 
+url_decode() {
+  if [[ "$1" =~ %([^0-9A-Fa-f]|[0-9A-Fa-f]([^0-9A-Fa-f]|$)|$) || "$1" == *%00* ]]; then
+    printf '%s' "$1"
+    return 0
+  fi
+  local s="${1//\\/\\\\}"
+  printf '%b' "${s//%/\\x}"
+}
+
+url_user() {
+  local rest="${1#*://}"
+  local auth="${rest%%@*}"
+  [[ "$auth" == "$rest" ]] && return 0
+  url_decode "${auth%%:*}"
+}
+
 # rclone chạy trong Docker, mạng host (tới localhost:9000 của MinIO).
 # Remote "minio": nguồn S3. Remote "safe": kho backup đã mã hoá (crypt) đặt trên BACKUP_DEST.
 rclone_run() {

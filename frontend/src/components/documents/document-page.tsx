@@ -87,6 +87,13 @@ function Presence({ peers }: { peers: Peer[] }) {
 }
 
 function SaveState({ status, synced, unsynced, readOnly }: { status: string; synced: boolean; unsynced: number; readOnly: boolean }) {
+  if (status === "ended")
+    return (
+      <span role="status" className="inline-flex items-center gap-1.5 text-xs font-medium text-warn">
+        <WifiOff className="size-3.5" aria-hidden />
+        Đã ngừng đồng bộ
+      </span>
+    );
   if (status === "offline")
     return (
       <span role="status" className="inline-flex items-center gap-1.5 text-xs font-medium text-warn">
@@ -372,7 +379,7 @@ export function DocumentPage() {
   const isLatex = d?.format === "LATEX";
   const session = collab.session;
   const readOnly = session?.readOnly ?? d?.readOnly ?? true;
-  const editable = !readOnly && collab.status !== "denied";
+  const editable = !readOnly && collab.status !== "denied" && collab.status !== "ended";
   const canShare = roleAtLeast(node?.myRole, "OWNER");
   const people: UserSummary[] = useMemo(() => (members.data ?? []).map((m) => m.user), [members.data]);
   const memberEmails = useMemo(() => new Set(people.map((p) => p.email)), [people]);
@@ -561,6 +568,17 @@ export function DocumentPage() {
         <>
           <div className="flex flex-1">
             <main className="min-w-0 flex-1">
+              {collab.status === "ended" ? (
+                <div role="status" className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border bg-warn-bg px-3 py-2 text-sm text-warn">
+                  <span className="min-w-0 flex-1 text-pretty">
+                    Tài liệu đã ngừng đồng bộ vì phiên đăng nhập kết thúc. Tải lại để tiếp tục.
+                    {collab.unsynced > 0 ? " Một số thay đổi gần nhất chưa kịp lưu, hãy chép lại phần vừa gõ trước khi tải lại." : ""}
+                  </span>
+                  <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
+                    Tải lại
+                  </Button>
+                </div>
+              ) : null}
               {editable && editor && !isLatex ? (
                 <div className="sticky top-11 z-20 border-b border-border bg-surface px-2 py-1.5 sm:px-3">
                   <EditorToolbar editor={editor} canComment onLink={() => setLinkOpen(true)} onImage={() => imageInput.current?.click()} onComment={startComment} />
