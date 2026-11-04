@@ -63,6 +63,7 @@ export interface NewDocumentVersion {
 
 export async function createDocumentVersion(prisma: PrismaClient, v: NewDocumentVersion) {
   return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM nodes WHERE id = ${v.nodeId}::uuid FOR KEY SHARE`;
     await tx.$queryRaw`SELECT node_id FROM documents WHERE node_id = ${v.nodeId}::uuid FOR UPDATE`;
     const last = await tx.documentVersion.findFirst({
       where: { nodeId: v.nodeId },
