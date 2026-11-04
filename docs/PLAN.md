@@ -301,10 +301,53 @@ Theo [spec gia cố](superpowers/specs/2026-10-30-hardening-design.md) mục 5 v
 **Còn mở**
 
 - [ ] Nâng cấp server thật theo DEPLOY.md mục 8 "Nâng cấp lên đợt 2" (backup, kiểm tra trước, env mới) và chạy lại checklist sau nâng cấp.
-- [ ] FE chưa phản ứng với mã đóng collab (Hocuspocus đóng theo tài liệu với mã 1000, lý do `Session ended`): tài liệu bị ngắt sau đăng xuất chỉ ngừng đồng bộ, chưa báo cho người dùng.
+- [x] FE báo khi phiên kết thúc: tài liệu hiện banner "Tài liệu đã ngừng đồng bộ vì phiên đăng nhập kết thúc" kèm nút Tải lại, và khoá sửa (2026-11-03).
 - [ ] `backend/.env` dev vẫn chạy app bằng user chủ DB; muốn thử như production thì thêm `DATABASE_MIGRATE_URL` và đổi `DATABASE_URL` sang `luna_app_user` (xem `.env.example`).
-- [ ] Các mục nhỏ hoãn lại trong lúc review (test cho `collabEnvSchema` refine, `restore.sh` chưa giải mã username trong URL).
-- [ ] Nguy cơ deadlock có từ trước đợt 2: collab `createDocumentVersion` khoá dòng `documents` (FOR UPDATE) rồi mới lấy KEY SHARE trên dòng `nodes` (khi chèn `document_versions`), còn xoá vĩnh viễn (`deletePermanently`, dọn sạch thùng rác) xoá `nodes` trước rồi cascade sang `documents`. Hai việc chạy cùng lúc trên một tài liệu có thể deadlock, Postgres huỷ một bên. Đợt sau: cho `createDocumentVersion` khoá `nodes` trước (hoặc cùng thứ tự với xoá), kèm test chạy đua.
+- [x] Test cho `collabEnvSchema` refine; `restore.sh` giải mã username trong URL (`url_user` trong `common.sh`, test `scripts/backup/url-user.test.sh`) (2026-11-04).
+- [x] Deadlock lưu phiên bản và xoá vĩnh viễn: `createDocumentVersion` khoá `nodes` (FOR KEY SHARE) trước `documents`, cùng thứ tự với xoá; test chạy đua `document-version-lock.e2e-spec.ts` (2026-11-04).
+
+## Giao diện người dùng mới ✅ (2026-10-30)
+
+Theo [spec](superpowers/specs/2026-10-30-user-ui-redesign-design.md) và [kế hoạch](superpowers/plans/2026-10-30-user-ui-redesign.md), PR #3.
+
+- [x] Bố cục rail workspace tối + cột cây + nội dung rộng hết màn; tạo/chuyển workspace không cần mở sidebar.
+- [x] Bảng thư mục, lưới video tải dần, mục "Mới cập nhật" (`GET /workspaces/:wsId/recently-updated`), panel bên tài liệu (mục lục, bình luận).
+
+## Tái cấu trúc đợt 3 ✅ (2026-11-01)
+
+Theo [kế hoạch](superpowers/plans/2026-11-01-refactor-wave3-architecture.md), PR #4.
+
+- [x] `writeAudit` + kiểu `AuditAction`; `JobPayloads` có kiểu và helper enqueue; `ObjectStore`; `requireNode`; `NodeTree` (tạo, di chuyển, khôi phục dưới khoá workspace); xuất OpenAPI sang `frontend/src/lib/api-schema.ts`, CI kiểm.
+
+## Phòng họp ✅ (2026-11-03)
+
+Theo [spec](superpowers/specs/2026-11-01-meetings-ai-notes-design.md) và [kế hoạch](superpowers/plans/2026-11-01-meetings-rooms.md), PR #5. Cách triển khai: DEPLOY.md mục 10.
+
+- [x] Gói `@luna/meetings` (LiveKit qua seam `MeetingMedia`), tạo/đặt lịch/mời/huỷ, token vào phòng 10 phút, điều khiển chủ trì, webhook LiveKit có ký, chat, nhắc lịch và đối soát phòng, thống kê phút họp cho admin.
+- [x] Giao diện danh sách, màn chờ, phòng họp tối toàn màn, chat, người dự, thả icon, giơ tay. Chủ dự án bỏ camera (chỉ âm thanh + chia sẻ màn hình + chat) và chọn tự cài LiveKit.
+
+## Biên bản họp AI ✅ (2026-11-03)
+
+Theo [kế hoạch](superpowers/plans/2026-11-01-meetings-ai-minutes.md), PR #6. Cách triển khai: DEPLOY.md mục 11.
+
+- [x] Bot `apps/recorder` thu mic từng người (chỉ khi cả DB và metadata phòng bật AI), chép lời, viết biên bản theo khuôn đã duyệt, nháp chờ chủ trì duyệt, gửi thành tài liệu trong "Biên bản họp", @mention trong nội dung, chi phí AI cho admin.
+- [x] Provider `none` mặc định (tắt AI, không thu âm); dev dùng OmniRoute (Gemini); Deepgram và Claude sẵn adapter.
+
+## Hoàn thiện và tái cấu trúc đợt 4 ✅ (2026-11-03)
+
+PR #7–#12.
+
+- [x] Phân trang "Xem thêm", cờ AI khả dụng ở `/me`, phiên bản trạng thái AI, đồng hồ đơn điệu cho bot, gợi ý "Đã được mời".
+- [x] Upload tạm qua `ObjectStore`, hàng đợi lịch có kiểu, đổi tên/xoá/xoá vĩnh viễn trong `NodeTree`; audit đổi tên, xoá, di chuyển, khôi phục, dọn thùng rác ghi cùng giao dịch; dọn thùng rác theo đợt 200.
+
+**Còn mở (cần server thật hoặc chủ dự án quyết)**
+
+- [ ] Thêm redirect URI Google cho tên miền thật và thử đăng nhập Google thật.
+- [ ] Rà OWASP sau khi có bản deploy.
+- [ ] Cài LiveKit trên VPS (DEPLOY.md "Tự cài LiveKit"); họp thử 8–10 người thật, ghi băng thông.
+- [ ] Chọn dịch vụ AI cho production sau khi thử với ghi âm họp thật (`pnpm --filter @luna/scripts meetings:eval`).
+- [ ] Cấp quyền Thành viên trong kho công ty cho người cần tạo cuộc họp.
+- [ ] Để sau: partition `audit_logs` theo tháng; extension Redis của Hocuspocus khi chạy nhiều instance.
 
 ---
 
